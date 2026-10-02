@@ -1,0 +1,37 @@
+# Private assistant files (never commit)
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+notes/
+commit-msg
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dart / Flutter
+.dart_tool/
+.packages
+build/
+pubspec_overrides.yaml
+**/ios/Pods/
+**/android/.gradle/
+**/android/local.properties
+*.iml
+
+# Laravel
+relay/vendor/
+relay/node_modules/
+relay/storage/*.key
+relay/storage/logs/
+relay/bootstrap/cache/*.php
+relay/database/*.sqlite
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
