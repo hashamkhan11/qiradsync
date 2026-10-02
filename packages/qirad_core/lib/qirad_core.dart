@@ -1,8 +1,4 @@
-/// Support for doing something awesome.
-///
-/// More dartdocs go here.
+/// Pure Dart ledger, CRDT merge and validation logic for QiradSync.
 library;
 
-export 'src/qirad_core_base.dart';
-
-// TODO: Export any libraries intended for clients of this package.
+export 'src/record.dart';
