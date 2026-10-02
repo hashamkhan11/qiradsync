@@ -150,15 +150,29 @@ or the reversal is approved by the other partner.
 
 ### 6.4 Budgets
 
-For each effective `budget_proposal` B:
+Budget status is **monotonic**: once an expense is judged valid or over-budget, that judgement
+never changes later. For each effective `budget_proposal` B, process records that target it
+(expenses and reversals of those expenses) in `seq` order, keeping one running total, `used`:
 
 ```
-used(B) = sum of amounts of expenses E where E.refersTo == B.id, E is not reversed,
-          processed in E.author's seq order
+used = 0
+for each record R targeting B, in seq order:
+    if R is an expense:
+        if used + R.amount <= B.amount:
+            R.status = valid
+            used += R.amount
+        else:
+            R.status = overBudget   # final — R.status never changes again
+    if R is a reversal of a VALID expense:
+        used -= that expense's amount   # frees budget from here onward only
+    if R is a reversal of an OVER-BUDGET expense:
+        # nothing to free: the expense was never counted towards `used`
 ```
 
-An expense is **invalid (over budget)** if `used(B)` before it plus its amount would exceed `B.amount`.
-Invalid expenses do not count towards `used(B)` and are flagged to both partners.
+An expense's status depends only on `used` as it stood at that expense's own `seq` — a fact fixed
+the moment the expense was evaluated. A later reversal can only change `used` **from its own `seq`
+onward**, for expenses still to come; it can never reach back and flip an earlier expense's status.
+Invalid (over-budget) expenses do not count towards `used` and are flagged to both partners.
 
 ### 6.5 Money calculations
 
@@ -272,7 +286,10 @@ either partner's phone notices the gap and refills it, with no manual restore st
   approve (seq 9) → stays **dead**; a late-arriving second response never changes an already-active
   (or already-dead) decision.
 - **Reversals:** own reversal works; reversing the other partner's record needs approval.
-- **Budgets:** an expense beyond its budget is flagged and excluded.
+- **Budgets:** an expense beyond its budget is flagged and excluded; status is monotonic once set.
+  Case (budget 10,000): E1 4,000, E2 3,000, E3 5,000, E4 2,000, then R5 reverses E2. Expected:
+  E1 valid; E2 valid, then reversed; E3 stays flagged over-budget even after E2's reversal frees
+  room; E4 valid; final `used` = 6,000, budget left = 4,000.
 - **Money:** profit and loss cases, remainder rule, ratio change by `effectiveFrom`.
 - **Relay:** stores exact strings, rejects bad signatures, reports conflicts, returns only missing records.
 - **Sync recovery:** wipe the relay's database, then run the next sync from either phone — the relay
