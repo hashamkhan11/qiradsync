@@ -23,10 +23,10 @@ all tests pass, and its pull request is merged.
 
 ## Phase 1 — Record model and canonical encoding
 
-- [ ] `Record` model with all fields from spec §3, immutable, `fromJson` / `toJson`
-- [ ] `canonicalJson()` exactly as spec §4.1
-- [ ] `recordHash()` as spec §4.3
-- [ ] Tests: key ordering, nested `body` ordering, no whitespace, round-trip parse/encode, known hash vector
+- [x] `Record` model with all fields from spec §3, immutable, `fromJson` / `toJson`
+- [x] `canonicalJson()` exactly as spec §4.1
+- [x] `recordHash()` as spec §4.3
+- [x] Tests: key ordering, nested `body` ordering, no whitespace, round-trip parse/encode, known hash vector
 
 **Done when:** encoding the same record on any device always yields identical bytes (tested).
 
