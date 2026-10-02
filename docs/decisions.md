@@ -46,3 +46,24 @@ doesn't shrink to match, so the client never re-uploads the records the relay lo
 for good even though a perfect copy still exists on the phone. The relay has no CRDT logic of its
 own to notice or repair this (hard rule: the relay never interprets records), so only a client that
 re-verifies against the relay's live state, every sync, can catch and fix it.
+
+---
+
+## 2026-10-02 — Budget validity must be monotonic
+
+**Decision:** Section 6.4's `used(B)` is no longer recomputed from the whole history, excluding
+whatever happens to be reversed at calculation time. Instead, process a budget's expenses and their
+reversals in `seq` order, keeping one running `used` total. An expense's valid/over-budget status is
+decided once, from `used` as it stood at that expense's own `seq`, and never changes again. A
+reversal of a valid expense frees its amount from `used`, but only for expenses that come **after**
+the reversal's `seq` — it cannot reach back and change an earlier expense's already-decided status.
+Added the required test: budget 10,000, expenses 4,000/3,000/5,000/2,000 then a reversal of the
+second expense — the third expense (flagged over-budget before the reversal) must stay flagged
+afterward, even though the reversal frees enough room that it would have fit.
+
+**Reason:** The old rule recalculated `used(B)` fresh every time, counting only currently
+non-reversed expenses. That made a later reversal retroactively change an earlier expense's status —
+flipping an already-relied-upon "valid" expense to "over budget," or an already-flagged expense back
+to "valid." Same monotonicity problem as the earlier "first response wins" (Section 5) and sync
+(Section 7.3) fixes: a decision both partners have already acted on must never be rewritten by
+something that happens later.
