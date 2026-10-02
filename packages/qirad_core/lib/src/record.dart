@@ -65,4 +65,36 @@ class Record {
       'sig': sig,
     };
   }
+
+  /// A copy of this record with any given fields replaced. Used to attach
+  /// the real signature after signing, and in tests to simulate tampering.
+  Record copyWith({
+    int? v,
+    String? id,
+    String? partnership,
+    String? author,
+    int? seq,
+    String? prevHash,
+    String? type,
+    Map<String, dynamic>? body,
+    String? refersTo,
+    String? note,
+    String? time,
+    String? sig,
+  }) {
+    return Record(
+      v: v ?? this.v,
+      id: id ?? this.id,
+      partnership: partnership ?? this.partnership,
+      author: author ?? this.author,
+      seq: seq ?? this.seq,
+      prevHash: prevHash ?? this.prevHash,
+      type: type ?? this.type,
+      body: body ?? this.body,
+      refersTo: refersTo ?? this.refersTo,
+      note: note ?? this.note,
+      time: time ?? this.time,
+      sig: sig ?? this.sig,
+    );
+  }
 }
