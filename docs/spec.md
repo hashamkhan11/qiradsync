@@ -222,6 +222,11 @@ Relay behaviour:
 3. Return every stored record of this partnership with `seq` greater than the client's vector for its author,
    ordered by `(author, seq)`, plus the relay's own vector.
 
+The relay's vector in the response is **always computed live** from what it currently holds, using
+the same gap-aware rule as Section 7.1 (highest `seq` held *without gaps*, per author) — never cached.
+This is what lets a client detect that the relay lost data (Section 7.3): a relay that is missing
+records reports a lower vector, it never reports a stale or remembered one.
+
 Response:
 ```json
 { "accepted": ["<id>"], "conflicts": ["<canonical record json>"], "records": ["<canonical record json>"], "vector": { "<key>": 14 } }
@@ -231,11 +236,27 @@ The relay never edits, deletes, merges or interprets record content beyond the c
 
 ### 7.3 Client sync loop
 
-1. Collect local records the relay may not have (those with `seq` above the relay's last known vector; on first sync, all).
-2. Call `sync` with the local vector and those records.
-3. Run every returned record and conflict through 6.1, then add valid ones to the ledger.
-4. Recalculate (Section 6) and refresh the UI.
-5. Retry with exponential backoff when offline. Sync is safe to repeat any number of times.
+1. Collect candidate records to send. A local guess about what the relay probably already has may be
+   used here as a bandwidth shortcut, but that guess is **never trusted for correctness** — step 3
+   is what guarantees the relay ends up complete, regardless of whether this guess was right.
+2. Call `sync` with the local vector and those candidate records.
+3. **Compare and repair:** check the relay's returned vector (always freshly computed, Section 7.2)
+   against the local vector, for **every** author the client holds records for — including the other
+   partner, since any device may re-upload any valid signed record it holds, not only its own (the
+   relay only checks a record's own signature, never who uploaded it). If the relay's vector for an
+   author is lower than the local vector, the client holds records the relay is missing: upload them
+   immediately, in another `sync` call, before continuing. Repeat until the relay's vector matches the
+   local vector for every author, or after 3 attempts, whichever comes first (then fall through to
+   step 6 — don't hang the app on a relay that keeps failing to persist).
+4. Run every returned record and conflict through 6.1, then add valid ones to the ledger.
+5. Recalculate (Section 6) and refresh the UI.
+6. Retry with exponential backoff when offline. Sync (including the repair rounds in step 3) is safe
+   to repeat any number of times.
+
+Never rely on a cached belief about what the relay holds to decide the sync is finished — only the
+relay's own freshly-returned vector, checked every time, can say that. This is what lets the ledger
+recover automatically if the relay ever loses data (e.g. a database restore): the very next sync from
+either partner's phone notices the gap and refills it, with no manual restore step.
 
 ---
 
@@ -254,3 +275,5 @@ The relay never edits, deletes, merges or interprets record content beyond the c
 - **Budgets:** an expense beyond its budget is flagged and excluded.
 - **Money:** profit and loss cases, remainder rule, ratio change by `effectiveFrom`.
 - **Relay:** stores exact strings, rejects bad signatures, reports conflicts, returns only missing records.
+- **Sync recovery:** wipe the relay's database, then run the next sync from either phone — the relay
+  must end up holding every record that exists on either phone (Section 7.3's compare-and-repair step).
