@@ -45,9 +45,9 @@ all tests pass, and its pull request is merged.
 
 ## Phase 3 — Keys, signatures and chains
 
-- [ ] Ed25519 key generation, `sign(record)`, `verify(record)`, base64url helpers
-- [ ] Validation pipeline spec §6.1 steps 1–6, including pending buffer and equivocation flag
-- [ ] Tests: tampered field rejected, wrong `prevHash` detected, gap buffered then released, equivocation flagged
+- [x] Ed25519 key generation, `sign(record)`, `verify(record)`, base64url helpers
+- [x] Validation pipeline spec §6.1 steps 1–6, including pending buffer and equivocation flag
+- [x] Tests: tampered field rejected, wrong `prevHash` detected, gap buffered then released, equivocation flagged
 
 **Done when:** every attack in the design report's threat table that applies to records has a passing test.
 
