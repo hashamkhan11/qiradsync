@@ -7,3 +7,4 @@ export 'src/ledger.dart';
 export 'src/record.dart';
 export 'src/record_hash.dart';
 export 'src/signing.dart';
+export 'src/validator.dart';
