@@ -34,10 +34,10 @@ all tests pass, and its pull request is merged.
 
 ## Phase 2 — Ledger and merge
 
-- [ ] `Ledger` holding records by `id` (G-Set)
-- [ ] `merge(other)` = union by `id`, duplicate handling per spec §6.1 step 6
-- [ ] Version vector computed from the ledger (spec §7.1)
-- [ ] **Property tests**: random orders, groupings and duplicates give identical ledgers
+- [x] `Ledger` holding records by `id` (G-Set)
+- [x] `merge(other)` = union by `id`, duplicate handling per spec §6.1 step 6
+- [x] Version vector computed from the ledger (spec §7.1)
+- [x] **Property tests**: random orders, groupings and duplicates give identical ledgers
 
 **Done when:** property tests pass for at least 1,000 random cases with fixed seeds.
 
