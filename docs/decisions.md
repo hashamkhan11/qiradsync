@@ -136,3 +136,31 @@ rules 3 and 5). Forbidding investor reversals was rejected: it removes a valid c
 **Decision:** A record arrives as text. It is accepted only if re-encoding its parsed form in canonical JSON gives the same bytes (spec 4.1, 6.1 step 1). Extra whitespace, wrong key order, duplicate keys and `[]` for `{}` are all refused. The phones apply this in `Validator.receiveText` (qirad_core). The relay applies it before storing (relay sync step, Phase 5 step 4). Unknown top-level keys, unknown `body` keys for a type, and unknown record types are also refused at step 1.
 
 **Reason:** Parsers disagree about duplicate keys: one keeps the first value, one keeps the last, and some reject. Two devices could then accept the "same" record and sign or hash different meanings. Comparing bytes after a round trip removes every such case at one point, so the relay can store the exact string and every phone hashes the same bytes. Refusing unknown keys stops extra data from riding along unsigned or being dropped by some devices and kept by others.
+
+---
+
+## 2026-10-03 — Device registration needs proof of possession
+
+**Decision:** Registering a device is two requests. `POST /devices/challenge` issues a single-use nonce for a
+public key, valid for 5 minutes. `POST /devices` must then carry a signature by that key over
+`"qiradsync-register-v1:" + nonce`. The nonce is deleted as soon as it is used, whether the attempt
+succeeds or fails. Spec 7.2 has the full rule.
+
+**Reason:** A public key is public. Without proof that the caller holds the private key, anyone who knows a
+partner's key could register it and receive a token. That token could download the whole ledger, which is the
+partners' private financial data. The signature proves possession. The prefix is domain separation, so a
+signature made for registration can never be replayed as a record signature (spec 4.2), and the reverse.
+
+---
+
+## 2026-10-03 — Known limitation: the relay can read ledger contents
+
+**Decision:** Records are stored by the relay as plain canonical JSON. The relay can read every amount, note
+and receipt hash in them. Encrypting records end to end is future work and is not part of v1.
+
+**Reason:** The relay only needs to store and forward records and check signatures, which needs no secret. The
+relay operator (or anyone who gets its database) can still read the ledger. This is accepted for v1. It must be
+stated to the partners and reviewed before any move to a hosted relay that third parties run.
+
+**Note:** The design report named in CLAUDE.md (docs/design-report.md) is not in the repository. This limitation is
+recorded here until that file exists.

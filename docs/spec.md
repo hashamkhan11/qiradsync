@@ -252,8 +252,21 @@ Example, for one partnership: `{ "<investorKey>": 12, "<managerKey>": 7 }`.
 All endpoints are JSON over HTTPS, prefix `/api/v1`. Records travel as the **exact canonical JSON
 string** the author produced; the relay stores that string unchanged.
 
-**`POST /devices`** — register a device.
-Request: `{ "publicKey": string }` → Response: `{ "token": string }` (Sanctum token).
+**Device registration** takes two steps. A public key is public, so a key alone proves nothing: without a
+proof of possession, anyone could register as a partner's device and download the whole ledger.
+
+1. **`POST /devices/challenge`** — request a nonce.
+   Request: `{ "publicKey": string }` → Response `201`: `{ "nonce": string, "expiresAt": string }`.
+   The nonce is 32 random bytes in base64url without padding (43 characters). It is single use, expires
+   5 minutes after it is issued, and is stored on the relay for that key.
+2. **`POST /devices`** — register the key with proof.
+   Request: `{ "publicKey": string, "nonce": string, "signature": string }`
+   → Response `201`: `{ "token": string }` (Sanctum token). Otherwise `422`.
+   The signature is Ed25519 over the UTF-8 bytes of `"qiradsync-register-v1:" + nonce` (the prefix is the
+   domain separator, so a registration signature can never be a record signature, Section 4.2).
+   The relay deletes the nonce as soon as it is presented, whether the registration succeeds or fails.
+   A nonce that is unknown, expired, issued for another key, or already used is refused, as is a
+   signature over the bare nonce without the prefix.
 
 **`POST /partnerships/{partnershipId}/sync`** — exchange records (auth: bearer token).
 
