@@ -82,10 +82,11 @@ all tests pass, and its pull request is merged.
 
 - [ ] SQLite tables for records (raw canonical string + indexed fields) and pending buffer
 - [ ] Secure storage for the private key
-- [ ] Sync client per spec §7.3: one sync run with compare-and-repair (up to 3 rounds)
-- [ ] Sync retry with exponential backoff when offline
+- [x] Sync client per spec §7.3: one sync run with compare-and-repair (up to 3 repair rounds)
+- [ ] Sync retry with exponential backoff when offline (network retries are counted apart from repair rounds)
+- [ ] Join flow with pinned keys per spec §2.1: join code (partnership id + investor key); the validator rejects any create that does not match the pins. Done before registration.
 - [ ] Device registration per spec §7.2 (challenge, signed registration). The token is stored in secure storage. On a 401, re-register once and retry the sync. A second 401 stops with a clear error.
-- [ ] Partnership scoping: queries and version vectors always take a partnership id
+- [x] Partnership scoping: queries and version vectors always take a partnership id
 - [ ] Integration test: two simulated devices + local relay, offline edits on both, converge after sync
 
 **Done when:** the two-device test converges with identical balances.
@@ -115,3 +116,7 @@ all tests pass, and its pull request is merged.
 - [ ] Clean README with screenshots, setup steps and a short demo video link
 
 **Done when:** the report's evaluation section contains real numbers with device model and run count.
+
+## Before the first release
+
+- [ ] Database schema migration path: versioned upgrades for the phone's SQLite file (the schema is version 1 with no upgrade step yet)

@@ -22,6 +22,25 @@ the set of valid records by deterministic rules (Section 6).
 - A partner is identified by their **public key**, encoded as base64url without padding (43 characters).
   This string is used in the `author` field and anywhere a partner is referenced.
 
+### 2.1 Joining a partnership (pinned keys)
+
+A phone must know the partnership's two keys before it accepts a `partnership_create`. Otherwise a relay could
+send a forged create, signed with the attacker's own keys, and the phone would accept it first.
+
+The keys come from a **join code**: the partnership id and the investor's public key. The join code is not
+secret. The protection is the pin: the phone checks every create against the keys it pinned.
+
+Key exchange (in the app):
+
+1. The manager's phone shows a QR code with the manager's public key.
+2. The investor scans it and creates the partnership, naming that key as `manager`.
+3. The investor's phone shows a QR code with the join code (partnership id and investor public key).
+4. The manager's phone scans the join code. It pins the investor key, and pins its own public key as the manager key.
+
+**Rule:** a phone accepts a `partnership_create` only if its `author` and `body.investor` equal the pinned
+investor key, and `body.manager` equals the pinned manager key. Any other create is rejected and not stored,
+even if it arrives first. The real create is still accepted after a forged one was refused.
+
 ---
 
 ## 3. Record format
@@ -148,7 +167,8 @@ Notes:
 2. **Signature:** `sig` verifies against `author` over `canonical(unsigned)`.
 3. **Membership:** `partnership` equals this ledger's partnership id (the `id` of its accepted
    `partnership_create`), and `author` is one of the two partnership keys. Before any create is accepted,
-   only a `partnership_create` passes (the bootstrap case in Section 5). A second `partnership_create` fails here.
+   only a `partnership_create` passes (the bootstrap case in Section 5), and only if it matches the keys
+   pinned by the join code (Section 2.1). A second `partnership_create` fails here.
 4. **Chain:** if the author's record with `seq − 1` is present, `prevHash` must match its hash.
    If it is missing, keep the record in a **pending** buffer until the gap is filled. Pending records are not used in calculations.
 5. **Equivocation:** if a different record already exists with the same `author` and `seq`, keep **both**,
@@ -331,8 +351,10 @@ The relay never edits, deletes, merges or interprets record content beyond the c
    relay only checks a record's own signature, never who uploaded it). If the relay's vector for an
    author is lower than the local vector, the client holds records the relay is missing: upload them
    immediately, in another `sync` call, before continuing. Repeat until the relay's vector matches the
-   local vector for every author, or after 3 attempts, whichever comes first (then fall through to
-   step 6 — don't hang the app on a relay that keeps failing to persist).
+   local vector for every author, or after **3 repair rounds**, whichever comes first (then fall through to
+   step 6 — don't hang the app on a relay that keeps failing to persist). A repair round is one upload in
+   this step. The count is per sync run, and it is separate from network retries in step 6: a retry starts
+   a new run with its own 3 repair rounds, and no retry uses or adds to this count.
 4. Run every returned record and conflict through 6.1, then add valid ones to the ledger.
 5. Recalculate (Section 6) and refresh the UI.
 6. Retry with exponential backoff when offline. Sync (including the repair rounds in step 3) is safe

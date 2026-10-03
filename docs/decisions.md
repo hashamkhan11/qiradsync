@@ -251,3 +251,20 @@ device is refused as `rejectedMembership` and never stored. `savedTexts(partners
 **Reason:** Spec 7.1 expects one version vector per partnership on a device that holds several. Creating a
 validator from incoming data would let a malicious relay create unlimited validators and storage (a denial of
 service). Explicit registration means the user decides which partnerships exist on the phone.
+
+---
+
+## 2026-10-03 — A joining phone pins the partnership's keys before accepting a create
+
+**Decision:** The join code carries the partnership id and the investor's public key. A phone accepts a
+`partnership_create` only if its `author` and `body.investor` equal the pinned investor key, and `body.manager`
+equals the pinned manager key. The manager's phone pins its own key as manager. A create that does not match is
+rejected and not stored, even if it arrives first. The key exchange is: the manager shows a QR with their key, the
+investor scans it and creates the partnership, then the investor shows a QR with the join code. Spec section 2.1.
+
+**Reason:** The relay could send a forged `partnership_create`, signed with the attacker's own keys. Without a pin,
+a joining phone would accept the first valid create it sees. The join code itself is not secret. The pin is what
+protects the phone.
+
+**Also decided:** "3 attempts" in spec 7.3 means 3 repair rounds per sync run. Network retries (step 6) start a new
+run with their own 3 repair rounds, and the two counts are kept separate.
