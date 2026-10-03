@@ -12,4 +12,5 @@ export 'src/ratio.dart';
 export 'src/record.dart';
 export 'src/record_hash.dart';
 export 'src/signing.dart';
+export 'src/sync_plan.dart';
 export 'src/validator.dart';
