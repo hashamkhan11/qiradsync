@@ -123,13 +123,14 @@ class Validator {
   /// from an equivocating author's `seq` onward (spec section 6.1 steps 4–5).
   /// Pending records are never in the ledger, so they are excluded already.
   Iterable<Record> get usableRecords => ledger.records.where((record) {
-        if (_chainInvalidIds.contains(record.id)) return false;
-        final equivocatingFrom = _equivocatingFromSeq[record.author];
-        return equivocatingFrom == null || record.seq < equivocatingFrom;
-      });
+    if (_chainInvalidIds.contains(record.id)) return false;
+    final equivocatingFrom = _equivocatingFromSeq[record.author];
+    return equivocatingFrom == null || record.seq < equivocatingFrom;
+  });
 
   /// `{ author -> lowest seq at which that author was caught equivocating }`.
-  Map<String, int> get equivocatingFromSeq => Map.unmodifiable(_equivocatingFromSeq);
+  Map<String, int> get equivocatingFromSeq =>
+      Map.unmodifiable(_equivocatingFromSeq);
 
   /// Ids of records that reached the front of the chain but had the wrong
   /// `prevHash` — stored as evidence, never advanced the chain.
@@ -208,7 +209,9 @@ class Validator {
     }
 
     final addOutcome = ledger.add(record);
-    if (addOutcome == AddOutcome.duplicateIgnored) return ReceiveOutcome.duplicateIgnored;
+    if (addOutcome == AddOutcome.duplicateIgnored) {
+      return ReceiveOutcome.duplicateIgnored;
+    }
     if (addOutcome == AddOutcome.idConflict) return ReceiveOutcome.idConflict;
 
     _chainHead[author] = record;
@@ -222,8 +225,9 @@ class Validator {
     final seq = incoming.seq;
 
     final currentFlagSeq = _equivocatingFromSeq[author];
-    _equivocatingFromSeq[author] =
-        currentFlagSeq == null ? seq : (seq < currentFlagSeq ? seq : currentFlagSeq);
+    _equivocatingFromSeq[author] = currentFlagSeq == null
+        ? seq
+        : (seq < currentFlagSeq ? seq : currentFlagSeq);
 
     ledger.add(existing);
     ledger.add(incoming);

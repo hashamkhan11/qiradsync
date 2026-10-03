@@ -67,3 +67,19 @@ flipping an already-relied-upon "valid" expense to "over budget," or an already-
 to "valid." Same monotonicity problem as the earlier "first response wins" (Section 5) and sync
 (Section 7.3) fixes: a decision both partners have already acted on must never be rewritten by
 something that happens later.
+
+---
+
+## 2026-10-03 — Only four record types can be reversed in v1
+
+**Decision:** A `reversal` may only cancel `invest`, `sale`, `expense` or `withdraw_request`. A
+reversal whose target is any other type is **invalid**: it is flagged, shown in the UI, and has no
+effect. Reversing an `approve` or `reject` is therefore invalid too. Other reversals whose target does
+not yet exist (for example, one that arrived before its target) have no effect yet, but are not
+flagged, because they may become valid when the target arrives.
+
+**Reason:** Reversing `partnership_create` would destroy the partnership. Reversing an active
+`ratio_proposal` would flip a decision backward, so a new proposal is used instead. Closing a
+`budget_proposal` early raises a cross-author ordering question (which of the grantee's expenses still
+count), so it is future work. Responses are final under first-response-wins (Section 5), so a partner
+changes their mind by proposing again, not by reversing a response.

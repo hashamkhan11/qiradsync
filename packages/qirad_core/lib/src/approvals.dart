@@ -24,7 +24,12 @@ class Decision {
   });
 }
 
-const _needsApproval = {'partnership_create', 'budget_proposal', 'withdraw_request', 'ratio_proposal'};
+const _needsApproval = {
+  'partnership_create',
+  'budget_proposal',
+  'withdraw_request',
+  'ratio_proposal',
+};
 
 /// Decides every record in [usable] that needs approval, spec section 5.
 ///
@@ -33,21 +38,35 @@ const _needsApproval = {'partnership_create', 'budget_proposal', 'withdraw_reque
 /// `reject` counts. The first one is the response with the lowest `seq`,
 /// not the one that arrived first over the network. Because the other
 /// partner is a single author, `seq` alone gives one fixed order everywhere.
+///
+/// A `reversal` needs approval only when it cancels the other partner's
+/// record. A reversal whose target is missing is not decided yet, because
+/// its target may still arrive.
 List<Decision> decideApprovals(
   Iterable<Record> usable, {
   required Set<String> partnershipKeys,
 }) {
   final records = usable.toList();
 
+  final byId = {for (final r in records) r.id: r};
+
   final responsesByTarget = <String, List<Record>>{};
   for (final record in records) {
     final target = record.refersTo;
-    if ((record.type == 'approve' || record.type == 'reject') && target != null) {
+    if ((record.type == 'approve' || record.type == 'reject') &&
+        target != null) {
       responsesByTarget.putIfAbsent(target, () => []).add(record);
     }
   }
 
-  final targets = records.where((r) => _needsApproval.contains(r.type)).toList()
+  bool needsApproval(Record record) {
+    if (_needsApproval.contains(record.type)) return true;
+    if (record.type != 'reversal' || record.refersTo == null) return false;
+    final target = byId[record.refersTo];
+    return target != null && target.author != record.author;
+  }
+
+  final targets = records.where(needsApproval).toList()
     ..sort((a, b) {
       final byAuthor = a.author.compareTo(b.author);
       return byAuthor != 0 ? byAuthor : a.seq.compareTo(b.seq);
@@ -55,17 +74,29 @@ List<Decision> decideApprovals(
 
   return [
     for (final target in targets)
-      _decide(target, responsesByTarget[target.id] ?? const [], partnershipKeys),
+      _decide(
+        target,
+        responsesByTarget[target.id] ?? const [],
+        partnershipKeys,
+      ),
   ];
 }
 
-Decision _decide(Record target, List<Record> responses, Set<String> partnershipKeys) {
+Decision _decide(
+  Record target,
+  List<Record> responses,
+  Set<String> partnershipKeys,
+) {
   // A partner cannot approve or reject their own proposal, so those responses
   // are not counted at all, not even as ignored evidence.
-  final counted = responses
-      .where((r) => r.author != target.author && partnershipKeys.contains(r.author))
-      .toList()
-    ..sort((a, b) => a.seq.compareTo(b.seq));
+  final counted =
+      responses
+          .where(
+            (r) =>
+                r.author != target.author && partnershipKeys.contains(r.author),
+          )
+          .toList()
+        ..sort((a, b) => a.seq.compareTo(b.seq));
 
   if (counted.isEmpty) {
     return Decision(
@@ -79,7 +110,9 @@ Decision _decide(Record target, List<Record> responses, Set<String> partnershipK
   final first = counted.first;
   return Decision(
     target: target,
-    status: first.type == 'approve' ? DecisionStatus.active : DecisionStatus.dead,
+    status: first.type == 'approve'
+        ? DecisionStatus.active
+        : DecisionStatus.dead,
     firstResponse: first,
     ignoredResponses: counted.sublist(1),
   );

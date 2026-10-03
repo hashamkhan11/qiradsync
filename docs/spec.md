@@ -104,7 +104,7 @@ author's responses in the same `seq` order regardless of network arrival order.
 | `expense` | manager | `{ "amount": int, "receiptHash": string or null }` | `id` of an approved `budget_proposal` whose grantee is the author | Removes money, drawn from that budget (Section 6.4). |
 | `withdraw_request` | either | `{ "amount": int, "kind": "capital" or "profit" }` | null | Money taken out of the fund. **Needs approval.** |
 | `ratio_proposal` | either | `{ "ratio": {"investor": int, "manager": int}, "effectiveFrom": "YYYY-MM-DD" }` | null | Proposes a new ratio. **Needs approval.** |
-| `reversal` | either | `{}` | `id` of the record to cancel | Cancels a record (Section 6.3). Reversing the other partner's record **needs approval**. |
+| `reversal` | either | `{}` | `id` of the record to cancel | Cancels a record (Section 6.3). Only `invest`, `sale`, `expense` and `withdraw_request` can be reversed. Reversing the other partner's record **needs approval**. |
 | `approve` | either | `{}` | `id` of a record that needs approval | Approves it. Must not be authored by the target's author. |
 | `reject` | either | `{}` | same as `approve` | Rejects it. |
 
@@ -112,7 +112,8 @@ Notes:
 
 - The partnership's two keys are fixed by the approved `partnership_create`. Records from any other key are invalid.
 - Until `partnership_create` is approved, only `partnership_create` and the manager's `approve`/`reject` of it are valid.
-- A `reversal` of a `reversal` is invalid in v1. Reversing a needs-approval record that is already approved is allowed (it cancels its effect).
+- Only `invest`, `sale`, `expense` and `withdraw_request` can be reversed in v1. A `reversal` whose target is any other type (`partnership_create`, `approve`, `reject`, `reversal`, `ratio_proposal`, `budget_proposal`) is **invalid**: it is flagged and shown in the UI, and has no effect. Reasons: reversing `partnership_create` would destroy the partnership; reversing an active `ratio_proposal` would flip a decision backward (propose a new ratio instead); closing a `budget_proposal` early raises a cross-author ordering question, so it is future work; responses are final under first-response-wins (propose again instead).
+- A `reversal` of a `reversal` is therefore invalid in v1. Reversing a needs-approval record that is already approved is allowed (it cancels its effect).
 
 ---
 
