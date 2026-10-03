@@ -33,5 +33,6 @@ jobs:
           php-version: '8.3'
           extensions: sodium, pdo_sqlite
       - run: composer install --no-interaction --prefer-dist
+      - run: cp .env.example .env && php artisan key:generate
       - run: vendor/bin/pint --test
-      - run: php artisan test
+      - run: php artisan test --display-warnings
