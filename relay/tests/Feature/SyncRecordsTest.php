@@ -383,6 +383,23 @@ class SyncRecordsTest extends TestCase
     }
 
     #[Test]
+    public function the_vector_counts_only_seq_without_gaps(): void
+    {
+        $this->startPartnership();
+
+        // seq 3 arrives before seq 2: the vector stops at 1 until the gap is filled.
+        $this->syncAs($this->investor, [$this->investText(3, 'invest-3')])->assertOk();
+        $this->syncAs($this->investor, [])->assertJsonPath('vector', [$this->investor[0] => 1]);
+
+        $this->syncAs($this->investor, [$this->investText(2, 'invest-2')])->assertOk();
+        $this->syncAs($this->investor, [])->assertJsonPath('vector', [$this->investor[0] => 3]);
+
+        // A manager with only seq 5 has no run from 1, so the author is left out.
+        $this->syncAs($this->manager, [$this->managerApprove(5, 'approve-5')])->assertOk();
+        $this->syncAs($this->investor, [])->assertJsonPath('vector', [$this->investor[0] => 3]);
+    }
+
+    #[Test]
     public function requests_without_a_token_are_refused(): void
     {
         $this->postJson('/api/v1/partnerships/'.self::PARTNERSHIP.'/sync', [

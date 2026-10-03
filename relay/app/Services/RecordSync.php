@@ -285,19 +285,36 @@ final class RecordSync
     }
 
     /**
-     * The relay's own vector, computed live from what it holds right now:
-     * the highest seq it has per author.
+     * The relay's own vector, computed live from what it holds right now.
+     * Per author: the highest seq held without gaps, counting from 1 (spec 7.1).
+     * A seq after a gap does not count, so a record missing from the relay
+     * shows up as a lower vector. Authors with no contiguous run are left out.
      *
      * @return array<string, int>
      */
     private function vectorOf(string $partnershipId): array
     {
-        return DB::table('records')
+        $rows = DB::table('records')
             ->where('partnership', $partnershipId)
-            ->groupBy('author')
-            ->selectRaw('author, max(seq) as top')
-            ->pluck('top', 'author')
-            ->map(fn ($top) => (int) $top)
-            ->all();
+            ->orderBy('author')
+            ->orderBy('seq')
+            ->get(['author', 'seq'])
+            ->groupBy('author');
+
+        $vector = [];
+        foreach ($rows as $author => $authorRows) {
+            $top = 0;
+            foreach ($authorRows as $row) {
+                if ((int) $row->seq !== $top + 1) {
+                    break;
+                }
+                $top++;
+            }
+            if ($top > 0) {
+                $vector[$author] = $top;
+            }
+        }
+
+        return $vector;
     }
 }
