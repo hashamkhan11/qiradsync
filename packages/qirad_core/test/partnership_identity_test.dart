@@ -2,6 +2,7 @@ import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
 import 'support/partnership_fixture.dart';
+import 'support/test_ids.dart';
 
 void main() {
   group('one partnership per ledger (decision 2026-10-03)', () {
@@ -10,11 +11,11 @@ void main() {
       () async {
         final investor = ChainAuthor(await generateEd25519KeyPair());
         final manager = ChainAuthor(await generateEd25519KeyPair());
-        final validator = Validator();
+        final validator = Validator.unpinnedForTesting();
         final create = await investor.next(
-          partnership: 'partnership-1',
+          partnership: testId('partnership-1'),
           type: 'partnership_create',
-          id: 'some-other-id',
+          id: testId('some-other-id'),
           body: {
             'investor': investor.key,
             'manager': manager.key,
@@ -34,9 +35,9 @@ void main() {
     test('a second partnership_create is rejected and never stored', () async {
       final (validator, investor, manager, _) = await setUpPartnership();
       final second = await investor.next(
-        partnership: 'partnership-2',
+        partnership: testId('partnership-2'),
         type: 'partnership_create',
-        id: 'partnership-2',
+        id: testId('partnership-2'),
         body: {
           'investor': investor.key,
           'manager': manager.key,
@@ -60,7 +61,7 @@ void main() {
       () async {
         final (validator, investor, _, _) = await setUpPartnership();
         final stray = await investor.next(
-          partnership: 'partnership-2',
+          partnership: testId('partnership-2'),
           type: 'invest',
           body: {'amount': 100},
         );
@@ -91,9 +92,9 @@ void main() {
         final investor = ChainAuthor(await generateEd25519KeyPair());
         final manager = ChainAuthor(await generateEd25519KeyPair());
         final create = await investor.next(
-          partnership: 'partnership-new',
+          partnership: testId('partnership-new'),
           type: 'partnership_create',
-          id: 'partnership-new',
+          id: testId('partnership-new'),
           body: {
             'investor': investor.key,
             'manager': manager.key,
@@ -104,7 +105,7 @@ void main() {
 
         expect(create.seq, 1);
         expect(
-          await Validator().receiveText(canonicalJson(create.toJson())),
+          await Validator.unpinnedForTesting().receiveText(canonicalJson(create.toJson())),
           ReceiveOutcome.accepted,
         );
       },

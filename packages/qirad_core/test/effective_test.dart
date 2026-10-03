@@ -292,7 +292,7 @@ void main() {
         final create = first.usableRecords.singleWhere(
           (r) => r.type == 'partnership_create',
         );
-        final validator = Validator();
+        final validator = Validator.unpinnedForTesting();
         await validator.receiveText(canonicalJson(create.toJson()));
 
         // The reversal is accepted first; its target is still missing.
@@ -345,7 +345,7 @@ void main() {
 
         Effectiveness? baseline;
         for (final order in orders) {
-          final validator = Validator();
+          final validator = Validator.unpinnedForTesting();
           await validator.receiveText(canonicalJson(create.toJson()));
           for (final record in order) {
             await validator.receiveText(canonicalJson(record.toJson()));

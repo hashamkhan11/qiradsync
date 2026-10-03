@@ -36,3 +36,40 @@ jobs:
       - run: cp .env.example .env && php artisan key:generate
       - run: vendor/bin/pint --test
       - run: php artisan test
+
+  mobile:
+    name: mobile analyzer, tests, and two-device test against a real relay
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: sodium, pdo_sqlite
+      - name: Prepare the relay on a fresh SQLite database
+        working-directory: relay
+        run: |
+          composer install --no-interaction --prefer-dist
+          cp .env.example .env && php artisan key:generate
+          touch database/integration.sqlite
+          DB_DATABASE="$PWD/database/integration.sqlite" php artisan migrate:fresh --force
+      - name: Start the relay
+        working-directory: relay
+        run: |
+          DB_DATABASE="$PWD/database/integration.sqlite" php artisan serve --port=8765 > relay.log 2>&1 &
+          echo $! > relay.pid
+          curl --retry 10 --retry-connrefused --retry-delay 1 -s -o /dev/null http://127.0.0.1:8765/api/v1/devices/challenge || true
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - working-directory: apps/mobile
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+          QIRAD_REAL_RELAY=1 flutter test test/two_device_sync_test.dart
+      - name: Stop the relay
+        if: always()
+        working-directory: relay
+        run: |
+          if [ -f relay.pid ]; then kill "$(cat relay.pid)" || true; fi

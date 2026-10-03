@@ -14,6 +14,12 @@ use JsonException;
  */
 final readonly class ReceivedRecord
 {
+    /**
+     * A record id is a lowercase UUID v4 (spec section 3). The same rule is in
+     * the Dart validator, so both sides refuse the same ids.
+     */
+    private const UUID_V4 = '/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/D';
+
     private function __construct(
         public string $text,
         public string $id,
@@ -55,6 +61,9 @@ final readonly class ReceivedRecord
 
         if (! is_string($id) || $id === '') {
             return 'missing id';
+        }
+        if (preg_match(self::UUID_V4, $id) !== 1) {
+            return 'id must be a lowercase UUID v4';
         }
         if (! is_string($partnership) || $partnership === '') {
             return 'missing partnership';

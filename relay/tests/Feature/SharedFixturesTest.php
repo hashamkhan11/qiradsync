@@ -7,9 +7,11 @@ use App\Support\CanonicalJson;
 use App\Support\ReceivedRecord;
 use App\Support\RecordSignature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Support\RecordFactory;
+use Tests\Support\TestIds;
 use Tests\TestCase;
 
 /**
@@ -32,7 +34,9 @@ class SharedFixturesTest extends TestCase
 
     private const RELAY_FIXTURE = '../testdata/relay_equivocation_sync.json';
 
-    private const RELAY_PARTNERSHIP = 'partnership-relay-fixture';
+    private const REGISTRATION_VECTOR = '../testdata/registration_vector.json';
+
+    private const RELAY_PARTNERSHIP = 'cdbe037a-aa7f-4c99-b816-1840578fcc4c'; // TestIds::of('partnership-relay-fixture')
 
     #[Test]
     public function the_relay_verifies_and_stores_records_signed_in_dart(): void
@@ -68,6 +72,31 @@ class SharedFixturesTest extends TestCase
     }
 
     #[Test]
+    public function the_relay_accepts_a_registration_signed_in_dart(): void
+    {
+        $vector = json_decode(
+            file_get_contents(base_path(self::REGISTRATION_VECTOR)),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+
+        // A real relay issues this nonce from /devices/challenge. The Dart
+        // signature is over this fixed nonce, so the test stores it directly.
+        DB::table('device_challenges')->insert([
+            'public_key' => $vector['publicKey'],
+            'nonce' => $vector['nonce'],
+            'expires_at' => now()->addMinutes(5),
+        ]);
+
+        $this->postJson('/api/v1/devices', [
+            'publicKey' => $vector['publicKey'],
+            'nonce' => $vector['nonce'],
+            'signature' => $vector['signature'],
+        ])->assertCreated()->assertJsonStructure(['token']);
+    }
+
+    #[Test]
     public function the_relay_response_for_two_versions_of_seq_5_matches_the_fixture(): void
     {
         $investor = RecordFactory::key('investor');
@@ -88,7 +117,7 @@ class SharedFixturesTest extends TestCase
             'note' => '',
         ]);
         $invest = RecordFactory::signed($investor, [
-            'id' => 'invest-2',
+            'id' => TestIds::of('invest-2'),
             'partnership' => $partnership,
             'seq' => 2,
             'type' => 'invest',
@@ -98,8 +127,8 @@ class SharedFixturesTest extends TestCase
         ]);
 
         // The manager writes two different records at the same position (seq 5).
-        $approveA = $this->approve($manager, $partnership, 5, 'approve-5a');
-        $approveB = $this->approve($manager, $partnership, 5, 'approve-5b');
+        $approveA = $this->approve($manager, $partnership, 5, TestIds::of('approve-5a'));
+        $approveB = $this->approve($manager, $partnership, 5, TestIds::of('approve-5b'));
 
         $this->actAs($investor[0]);
         $this->syncRecords($partnership, [$create, $invest]);
@@ -140,7 +169,7 @@ class SharedFixturesTest extends TestCase
             'partnership' => $partnership,
             'seq' => $seq,
             'type' => 'approve',
-            'refersTo' => 'invest-2',
+            'refersTo' => TestIds::of('invest-2'),
             'body' => (object) [],
             'note' => '',
         ]);

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:meta/meta.dart';
+
 import 'canonical_json.dart';
 import 'ledger.dart';
 import 'record.dart';
@@ -74,7 +76,7 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     final time = json['time'];
     final sig = json['sig'];
 
-    if (id is! String || id.isEmpty) return null;
+    if (id is! String || !_uuidV4.hasMatch(id)) return null;
     if (partnership is! String || partnership.isEmpty) return null;
     if (author is! String || author.isEmpty) return null;
     if (seq is! int || seq < 1) return null;
@@ -116,6 +118,13 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     return null;
   }
 }
+
+/// A record id is a lowercase UUID v4 (spec section 3): 8-4-4-4-12 hex digits,
+/// version 4, and variant 8, 9, a or b. A fixed format means every phone and
+/// the relay agree on what an id is, and a random id cannot collide by design.
+final _uuidV4 = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+);
 
 /// The fields of a record, spec section 3. Any other top-level key is invalid.
 const _recordFields = {
@@ -169,6 +178,25 @@ bool _hasExactlyRatioKeys(Object? ratio) {
 /// correctly; [equivocatingFromSeq] and [chainInvalidIds] are the markers
 /// that computation will read.
 class Validator {
+  /// [pinnedInvestorKey] and [pinnedManagerKey] come from the join code
+  /// (spec section 2.1). The first `partnership_create` is accepted only if it
+  /// names these keys. Both are required: without pins, any valid create
+  /// would be accepted, which is the forged-create attack (spec 2.1).
+  Validator({
+    required String pinnedInvestorKey,
+    required String pinnedManagerKey,
+  }) : this._(pinnedInvestorKey, pinnedManagerKey);
+
+  /// A validator with no pins. Any valid `partnership_create` is accepted.
+  /// Only the core's own rule tests may use this; the app must always pin.
+  @visibleForTesting
+  Validator.unpinnedForTesting() : this._(null, null);
+
+  Validator._(this.pinnedInvestorKey, this.pinnedManagerKey);
+
+  final String? pinnedInvestorKey;
+  final String? pinnedManagerKey;
+
   final Ledger ledger = Ledger();
 
   Set<String>? _partnershipKeys;
@@ -269,12 +297,27 @@ class Validator {
 
   bool _passesMembership(Record record) {
     if (_partnershipKeys == null) {
-      return record.type == 'partnership_create';
+      return record.type == 'partnership_create' && _matchesPins(record);
     }
     // Only one partnership per ledger. A second create (or any record for
     // another partnership) is rejected here, so it is never stored.
     if (record.partnership != _partnershipId) return false;
     return _partnershipKeys!.contains(record.author);
+  }
+
+  /// A create must name the pinned keys, and be signed by the pinned
+  /// investor. This stops a forged create from being accepted first. The
+  /// relay can send any signed record, so the signature alone proves only
+  /// that its author made it, not that it is the real partnership.
+  bool _matchesPins(Record record) {
+    final investor = pinnedInvestorKey;
+    if (investor != null) {
+      if (record.author != investor) return false;
+      if (record.body['investor'] != investor) return false;
+    }
+    final manager = pinnedManagerKey;
+    if (manager != null && record.body['manager'] != manager) return false;
+    return true;
   }
 
   ReceiveOutcome _acceptIntoChain(Record record) {

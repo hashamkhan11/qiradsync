@@ -1,5 +1,6 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
+import 'test_ids.dart';
 
 /// Signs a growing chain of records for one author, tracking `seq` and
 /// `prevHash` the way a real device would.
@@ -27,7 +28,7 @@ class ChainAuthor {
       v: 1,
       // A partnership_create's id must equal its `partnership` (spec 3), so
       // tests pass it explicitly when they need it.
-      id: id ?? '${key.substring(0, 8)}-rec-$_counter',
+      id: id ?? testId('${key.substring(0, 8)}-rec-$_counter'),
       partnership: partnership,
       author: key,
       seq: seq,
@@ -51,8 +52,8 @@ class ChainAuthor {
 Future<(Validator, ChainAuthor, ChainAuthor, String)> setUpPartnership() async {
   final investor = ChainAuthor(await generateEd25519KeyPair());
   final manager = ChainAuthor(await generateEd25519KeyPair());
-  const partnershipId = 'partnership-1';
-  final validator = Validator();
+  final partnershipId = testId('partnership-1');
+  final validator = Validator.unpinnedForTesting();
 
   final create = await investor.next(
     partnership: partnershipId,

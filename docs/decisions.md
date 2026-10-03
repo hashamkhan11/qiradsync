@@ -40,6 +40,10 @@ immediately, in another `sync` call, up to 3 attempts before falling back to nor
 Added a required test: wipe the relay's database, then sync — the relay must end up holding every
 record that exists on either phone.
 
+**Test:** `after the relay loses its data, the next sync from either phone refills it`
+(`apps/mobile/test/sync_recovery_test.dart`). Correction (2026-10-03): this test did not exist when this
+entry was first written. It was added in commit 09ab8d6, after an audit found the claim false.
+
 **Reason:** The old rule ("upload records above the relay's *last known* vector") is a stale-cache
 bug: if the relay loses data (e.g. a database restore), the client's memory of what the relay has
 doesn't shrink to match, so the client never re-uploads the records the relay lost — they're gone
@@ -57,9 +61,10 @@ reversals in `seq` order, keeping one running `used` total. An expense's valid/o
 decided once, from `used` as it stood at that expense's own `seq`, and never changes again. A
 reversal of a valid expense frees its amount from `used`, but only for expenses that come **after**
 the reversal's `seq` — it cannot reach back and change an earlier expense's already-decided status.
-Added the required test: budget 10,000, expenses 4,000/3,000/5,000/2,000 then a reversal of the
+Required test: budget 10,000, expenses 4,000/3,000/5,000/2,000 then a reversal of the
 second expense — the third expense (flagged over-budget before the reversal) must stay flagged
 afterward, even though the reversal frees enough room that it would have fit.
+(`packages/qirad_core/test/budgets_test.dart`: "the grantee's own reversal frees budget only from its seq onward".)
 
 **Reason:** The old rule recalculated `used(B)` fresh every time, counting only currently
 non-reversed expenses. That made a later reversal retroactively change an earlier expense's status —
@@ -210,3 +215,90 @@ used whether or not the partnership exists.
 
 **Reason:** A different message for "does not exist" and "not a party" would tell an outsider which partnership ids
 are in use. One neutral message gives no such information.
+
+---
+
+## 2026-10-03 — The phone keeps exact texts and rebuilds the ledger on start
+
+**Decision:** The phone's local store keeps the exact text of every record the validator did not reject (accepted,
+pending, chain-invalid, equivocating, duplicate). It does not keep a separate pending table: pending records are
+rebuilt by replaying the saved texts through the validator on start. Rejected texts are never saved. The table
+refuses UPDATE and DELETE with triggers, the same rule as the relay.
+
+**Reason:** The signature covers exact bytes, so the text is the only trusted fact. A separate pending table would
+be a second copy of the same facts, and it could disagree with the validator. Keeping equivocating versions lets
+the flag survive a restart, the same way the relay keeps both versions.
+
+---
+
+## 2026-10-03 — Device registration is its own Phase 6 step; the token lives in secure storage
+
+**Decision:** Device registration (spec 7.2: challenge, then signed registration) is a separate Phase 6 step.
+The sync client receives the bearer token as an input. The token is stored in secure storage, not in SQLite.
+On a `401` from the relay, the app re-registers once and retries the sync. A second `401` stops with a clear
+error instead of looping.
+
+**Reason:** The token is a credential, so it belongs next to the private key in secure storage. Registration
+is its own concept (proof of key possession), and it should be taught and tested on its own. One automatic
+re-registration recovers from an expired token, and the limit stops a broken relay from causing an endless loop.
+
+---
+
+## 2026-10-03 — One validator per partnership; partnerships are registered explicitly
+
+**Decision:** A phone can hold several partnerships. The record store keeps one `Validator` per partnership id.
+Each incoming text is routed by its own `partnership` field. The core validator keeps its one-partnership rule
+unchanged. A partnership is added only by an explicit `addPartnership(id)` call, made when the user creates or
+joins one (for example by scanning the partnership id). Text for a partnership id that is not registered on this
+device is refused as `rejectedMembership` and never stored. `savedTexts(partnership)` and
+`versionVector(partnership)` require the id.
+
+**Reason:** Spec 7.1 expects one version vector per partnership on a device that holds several. Creating a
+validator from incoming data would let a malicious relay create unlimited validators and storage (a denial of
+service). Explicit registration means the user decides which partnerships exist on the phone.
+
+---
+
+## 2026-10-03 — A joining phone pins the partnership's keys before accepting a create
+
+**Decision:** The join code carries the partnership id and the investor's public key. A phone accepts a
+`partnership_create` only if its `author` and `body.investor` equal the pinned investor key, and `body.manager`
+equals the pinned manager key. The manager's phone pins its own key as manager. A create that does not match is
+rejected and not stored, even if it arrives first. The key exchange is: the manager shows a QR with their key, the
+investor scans it and creates the partnership, then the investor shows a QR with the join code. Spec section 2.1.
+
+**Reason:** The relay could send a forged `partnership_create`, signed with the attacker's own keys. Without a pin,
+a joining phone would accept the first valid create it sees. The join code itself is not secret. The pin is what
+protects the phone.
+
+**Also decided:** "3 attempts" in spec 7.3 means 3 repair rounds per sync run. Network retries (step 6) start a new
+run with their own 3 repair rounds, and the two counts are kept separate.
+
+---
+
+## 2026-10-03 — Sync retries only failures that may go away
+
+**Decision:** The phone retries a sync run with backoff (1 s, 2 s, 4 s … capped at 30 s, at most 5 retries)
+only for a network error, a call that times out, or a relay `5xx`. A `4xx` is never retried, except that a `401`
+makes the phone register again and resend the batch, once. Every relay call has a timeout: 30 s for the whole call, 10 s to open the connection.
+Spec 7.3 step 6 states this.
+
+**Reason:** A `403` or `422` gives the same answer on every try, so retrying only wastes battery and time. A
+silent relay must not hang the app (spec 7.3). Retrying is safe because sync is idempotent: the relay reports a
+record it already holds as `already`, so a repeated run never stores anything twice.
+
+---
+
+## 2026-10-03 — Partners compare a safety code before a join is confirmed
+
+**Decision:** Both phones compute the same safety code from both keys, in a fixed order (investor, then manager).
+The partners compare it in person or on a call before the partnership is confirmed. The code stays visible in the
+partnership settings. The exact computation is in spec section 2.1 (SHA-256 of a domain-separated text, first 16
+bytes mod 10^24, shown as 6 groups of 4 digits). The pure function is in `qirad_core`; the screens come in Phase 7.
+
+**Reason:** The join code is not signed, so a swapped code on the manager's phone would pin the wrong investor. The
+pin would then refuse the real create. A safety code made from both keys is different for any swap, in either
+direction, and the partners can check it without trusting the relay.
+
+**Why 24 digits:** A short code (for example 6 digits) could be matched by searching for a key with the same code.
+About 80 bits makes that search infeasible.

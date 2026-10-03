@@ -38,6 +38,47 @@ Future<bool> verifyRecord(Record record) async {
   }
 }
 
+/// The domain separator for device registration (spec 7.2). It starts every
+/// registration message, so a registration signature is never a valid
+/// signature over anything a record could contain.
+const _registrationPrefix = 'qiradsync-register-v1:';
+
+/// Signs the registration challenge for [nonce] with [keyPair] (spec 7.2,
+/// step 2). The prefix is added here, not by the caller, so no caller can
+/// sign the bare nonce or any other bytes through this function.
+Future<String> signRegistrationChallenge(
+  Ed25519KeyPair keyPair,
+  String nonce,
+) async {
+  final bytesToSign = utf8.encode('$_registrationPrefix$nonce');
+  final cryptoKeyPair = await Ed25519().newKeyPairFromSeed(
+    keyPair.privateKeyBytes,
+  );
+  final signature = await Ed25519().sign(bytesToSign, keyPair: cryptoKeyPair);
+  return encodeBase64UrlNoPadding(signature.bytes);
+}
+
+/// True when [signature] is a valid registration signature for [publicKey]
+/// and [nonce]. Malformed input returns `false`, as in [verifyRecord]: this
+/// also sits at a trust boundary.
+Future<bool> verifyRegistrationChallenge({
+  required String publicKey,
+  required String nonce,
+  required String signature,
+}) async {
+  try {
+    final bytesToVerify = utf8.encode('$_registrationPrefix$nonce');
+    final key = SimplePublicKey(
+      decodeBase64UrlNoPadding(publicKey),
+      type: KeyPairType.ed25519,
+    );
+    final sig = Signature(decodeBase64UrlNoPadding(signature), publicKey: key);
+    return await Ed25519().verify(bytesToVerify, signature: sig);
+  } catch (_) {
+    return false;
+  }
+}
+
 Map<String, dynamic> _withoutSig(Map<String, dynamic> json) {
   return Map<String, dynamic>.from(json)..remove('sig');
 }

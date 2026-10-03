@@ -12,6 +12,8 @@ import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:qirad_core/qirad_core.dart';
 
+import '../test/support/test_ids.dart';
+
 const fixturePath = '../../testdata/dart_signed_records.json';
 
 /// A key pair from a label. The seed is the private key, so only test code uses this.
@@ -28,7 +30,7 @@ Future<String> buildDartFixture() async {
   final manager = await testKey('manager');
   final investorKey = encodeBase64UrlNoPadding(investor.publicKeyBytes);
   final managerKey = encodeBase64UrlNoPadding(manager.publicKeyBytes);
-  const partnership = 'partnership-dart-fixture';
+  final partnership = testId('partnership-dart-fixture');
   final zeroHash = '0' * 64;
 
   final create = await signRecord(
@@ -58,7 +60,7 @@ Future<String> buildDartFixture() async {
   final invest = await signRecord(
     Record(
       v: 1,
-      id: 'dart-invest-2',
+      id: testId('dart-invest-2'),
       partnership: partnership,
       author: investorKey,
       seq: 2,
@@ -77,7 +79,7 @@ Future<String> buildDartFixture() async {
   final approve = await signRecord(
     Record(
       v: 1,
-      id: 'dart-approve-1',
+      id: testId('dart-approve-1'),
       partnership: partnership,
       author: managerKey,
       seq: 1,
@@ -102,7 +104,69 @@ Future<String> buildDartFixture() async {
   return '${const JsonEncoder.withIndent('  ').convert(output)}\n';
 }
 
+const registrationPath = '../../testdata/registration_vector.json';
+
+/// A device registration signed in Dart, for the relay to verify (spec 7.2).
+/// The nonce is fixed here; a real relay issues random ones. The PHP test
+/// stores this nonce itself, then posts the registration.
+Future<String> buildRegistrationVector() async {
+  final device = await testKey('device');
+  final nonce = encodeBase64UrlNoPadding(
+    sha256.convert(utf8.encode('qiradsync test nonce')).bytes,
+  );
+  final output = {
+    'publicKey': device.publicKeyBase64Url,
+    'nonce': nonce,
+    'signature': await signRegistrationChallenge(device, nonce),
+  };
+  return '${const JsonEncoder.withIndent('  ').convert(output)}\n';
+}
+
+const relayVectorPath = '../../relay/tests/Fixtures/record_vector.json';
+
+/// One signed record for the relay's own PHP tests (RecordSignatureTest and
+/// RecordsStorageTest). The PHP side checks the signature and the stored bytes.
+Future<String> buildRelayVector() async {
+  final investor = await testKey('investor');
+  final investorKey = encodeBase64UrlNoPadding(investor.publicKeyBytes);
+  final partnership = testId('partnership-vector');
+  final id = testId('vector-invest-1');
+  final record = await signRecord(
+    Record(
+      v: 1,
+      id: id,
+      partnership: partnership,
+      author: investorKey,
+      seq: 1,
+      prevHash: '0' * 64,
+      type: 'invest',
+      body: {'amount': 150000},
+      refersTo: null,
+      // Non-ASCII note: the relay must keep these bytes exactly.
+      note: 'سرمایہ کاری کی پہلی قسط',
+      time: '2026-10-02T10:00:00Z',
+      sig: '',
+    ),
+    investor,
+  );
+  final canonical = canonicalJson(record.toJson());
+  final output = {
+    'canonical': canonical,
+    'hash': recordHash(record.toJson()),
+    'partnership': partnership,
+    'author': investorKey,
+    'seq': 1,
+    'id': id,
+    'publicKey': investorKey,
+  };
+  return '${const JsonEncoder.withIndent('  ').convert(output)}\n';
+}
+
 Future<void> main() async {
   await File(fixturePath).writeAsString(await buildDartFixture());
   stdout.writeln('wrote $fixturePath');
+  await File(registrationPath).writeAsString(await buildRegistrationVector());
+  stdout.writeln('wrote $registrationPath');
+  await File(relayVectorPath).writeAsString(await buildRelayVector());
+  stdout.writeln('wrote $relayVectorPath');
 }

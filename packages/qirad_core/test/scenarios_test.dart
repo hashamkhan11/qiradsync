@@ -160,7 +160,7 @@ Future<_Story> _buildStory() async {
 }
 
 Future<Validator> _receiveAll(List<Record> records) async {
-  final validator = Validator();
+  final validator = Validator.unpinnedForTesting();
   for (final record in records) {
     await validator.receiveText(canonicalJson(record.toJson()));
   }
@@ -271,7 +271,7 @@ void main() {
             );
           }
 
-          final validator = Validator();
+          final validator = Validator.unpinnedForTesting();
           await validator.receiveText(canonicalJson(story.records.first.toJson()));
           for (final record in shuffled) {
             await validator.receiveText(canonicalJson(record.toJson()));

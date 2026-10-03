@@ -97,7 +97,7 @@ void main() {
     });
 
     test('text that is not JSON is refused as a schema error', () async {
-      final validator = Validator();
+      final validator = Validator.unpinnedForTesting();
 
       expect(
         await validator.receiveText('not json'),
@@ -108,7 +108,7 @@ void main() {
     test(
       'a float in the text is refused, since canonical JSON has none',
       () async {
-        final validator = Validator();
+        final validator = Validator.unpinnedForTesting();
 
         expect(
           await validator.receiveText('{"amount":1.5}'),

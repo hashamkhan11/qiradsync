@@ -10,13 +10,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
+use Tests\Support\TestIds;
 use Tests\TestCase;
 
 class SyncRecordsTest extends TestCase
 {
     use RefreshDatabase;
 
-    private const PARTNERSHIP = 'partnership-1';
+    private const PARTNERSHIP = 'fc3651ef-df78-46bf-9fc8-d3ef8c2c9f20'; // TestIds::of('partnership-1')
 
     private array $investor;
 
@@ -158,14 +159,14 @@ class SyncRecordsTest extends TestCase
     {
         // If Laravel trimmed the space, this would be canonical and stored.
         $this->startPartnership();
-        $text = $this->investText(2, 'invest-2').' ';
+        $text = $this->investText(2, TestIds::of('invest-2')).' ';
 
         $this->syncAs($this->investor, [$text])
             ->assertOk()
             ->assertJsonPath('rejected.0.reason', 'not in canonical form')
             ->assertJsonPath('accepted', []);
 
-        $this->assertFalse(DB::table('records')->where('record_id', 'invest-2')->exists());
+        $this->assertFalse(DB::table('records')->where('record_id', TestIds::of('invest-2'))->exists());
     }
 
     #[Test]
@@ -199,7 +200,7 @@ class SyncRecordsTest extends TestCase
         $this->startPartnership();
 
         $managerRecord = $this->signed($this->manager, [
-            'id' => 'manager-rec-1',
+            'id' => TestIds::of('manager-rec-1'),
             'partnership' => self::PARTNERSHIP,
             'seq' => 1,
             'type' => 'approve',
@@ -208,7 +209,7 @@ class SyncRecordsTest extends TestCase
 
         $this->syncAs($this->manager, [$managerRecord])
             ->assertOk()
-            ->assertJsonPath('accepted', ['manager-rec-1']);
+            ->assertJsonPath('accepted', [TestIds::of('manager-rec-1')]);
     }
 
     #[Test]
@@ -226,7 +227,7 @@ class SyncRecordsTest extends TestCase
 
         // The investor's device is allowed to sync, but the record's author is not a party.
         $outsider = $this->signed($this->stranger, [
-            'id' => 'outsider-1',
+            'id' => TestIds::of('outsider-1'),
             'partnership' => self::PARTNERSHIP,
             'seq' => 1,
             'type' => 'invest',
@@ -243,8 +244,8 @@ class SyncRecordsTest extends TestCase
         $this->startPartnership();
 
         $other = $this->signed($this->investor, [
-            'id' => 'other-1',
-            'partnership' => 'some-other-partnership',
+            'id' => TestIds::of('other-1'),
+            'partnership' => TestIds::of('some-other-partnership'),
             'seq' => 2,
             'type' => 'invest',
             'body' => (object) ['amount' => 1],
@@ -261,7 +262,7 @@ class SyncRecordsTest extends TestCase
 
         // Canonical text with `"body":[]`: it is valid JSON, but a body must be an object.
         $text = $this->signed($this->investor, [
-            'id' => 'bad-body',
+            'id' => TestIds::of('bad-body'),
             'partnership' => self::PARTNERSHIP,
             'seq' => 2,
             'type' => 'invest',
@@ -276,7 +277,7 @@ class SyncRecordsTest extends TestCase
     public function the_relay_returns_only_the_records_the_phone_is_missing(): void
     {
         $this->startPartnership();
-        $invest = $this->investText(2, 'invest-2');
+        $invest = $this->investText(2, TestIds::of('invest-2'));
         $this->syncAs($this->investor, [$invest])->assertOk();
 
         $investorKey = $this->investor[0];
@@ -297,11 +298,11 @@ class SyncRecordsTest extends TestCase
     public function a_resent_identical_record_is_reported_as_already_stored(): void
     {
         $this->startPartnership();
-        $invest = $this->investText(2, 'invest-2');
+        $invest = $this->investText(2, TestIds::of('invest-2'));
         $this->syncAs($this->investor, [$invest])->assertOk();
 
         $this->syncAs($this->investor, [$invest])
-            ->assertJsonPath('already', ['invest-2'])
+            ->assertJsonPath('already', [TestIds::of('invest-2')])
             ->assertJsonPath('accepted', []);
 
         $this->assertSame(2, DB::table('records')->count());
@@ -311,14 +312,14 @@ class SyncRecordsTest extends TestCase
     public function two_different_records_at_one_position_are_reported_as_a_conflict(): void
     {
         $this->startPartnership();
-        $first = $this->investText(2, 'invest-2a', 100);
-        $second = $this->investText(2, 'invest-2b', 200);
+        $first = $this->investText(2, TestIds::of('invest-2a'), 100);
+        $second = $this->investText(2, TestIds::of('invest-2b'), 200);
 
         $this->syncAs($this->investor, [$first])->assertOk();
 
         $response = $this->syncAs($this->investor, [$second])
             ->assertOk()
-            ->assertJsonPath('accepted', ['invest-2b']);
+            ->assertJsonPath('accepted', [TestIds::of('invest-2b')]);
 
         // Both versions are sent back, the stored one first.
         $this->assertSame([$first, $second], $response->json('conflicts'));
@@ -332,11 +333,11 @@ class SyncRecordsTest extends TestCase
     public function equivocation_is_sent_to_the_other_partner(): void
     {
         $this->startPartnership();
-        $first = $this->managerApprove(5, 'approve-5a');
-        $second = $this->managerApprove(5, 'approve-5b');
+        $first = $this->managerApprove(5, TestIds::of('approve-5a'));
+        $second = $this->managerApprove(5, TestIds::of('approve-5b'));
 
-        $this->syncAs($this->manager, [$first])->assertJsonPath('accepted', ['approve-5a']);
-        $this->syncAs($this->manager, [$second])->assertJsonPath('accepted', ['approve-5b']);
+        $this->syncAs($this->manager, [$first])->assertJsonPath('accepted', [TestIds::of('approve-5a')]);
+        $this->syncAs($this->manager, [$second])->assertJsonPath('accepted', [TestIds::of('approve-5b')]);
 
         // The investor's next sync receives both versions, so the investor's phone can flag the manager.
         $this->syncAs($this->investor, [])
@@ -345,7 +346,7 @@ class SyncRecordsTest extends TestCase
 
         // Re-sending the same conflicting version is reported as already stored, not stored twice.
         $this->syncAs($this->manager, [$second])
-            ->assertJsonPath('already', ['approve-5b'])
+            ->assertJsonPath('already', [TestIds::of('approve-5b')])
             ->assertJsonPath('conflicts', [$first, $second]);
         $this->assertSame(1, DB::table('conflicts')->count());
     }
@@ -355,9 +356,9 @@ class SyncRecordsTest extends TestCase
     {
         $create = $this->createText();
         $response = $this->syncAs($this->investor, [
-            $this->investText(3, 'invest-3'),
-            $this->managerApprove(1, 'approve-1'),
-            $this->investText(2, 'invest-2'),
+            $this->investText(3, TestIds::of('invest-3')),
+            $this->managerApprove(1, TestIds::of('approve-1')),
+            $this->investText(2, TestIds::of('invest-2')),
             $create,
         ]);
 
@@ -365,7 +366,7 @@ class SyncRecordsTest extends TestCase
         // against an existing partnership, whatever order they arrived in.
         $response->assertOk()->assertJsonPath('rejected', []);
         $this->assertEqualsCanonicalizing(
-            [json_decode($create)->id, 'invest-3', 'approve-1', 'invest-2'],
+            [json_decode($create)->id, TestIds::of('invest-3'), TestIds::of('approve-1'), TestIds::of('invest-2')],
             $response->json('accepted'),
         );
         $this->assertSame(4, DB::table('records')->count());
@@ -375,7 +376,7 @@ class SyncRecordsTest extends TestCase
     public function the_vector_is_the_highest_seq_stored_per_author(): void
     {
         $this->startPartnership();
-        $this->syncAs($this->investor, [$this->investText(2, 'invest-2'), $this->investText(3, 'invest-3')])
+        $this->syncAs($this->investor, [$this->investText(2, TestIds::of('invest-2')), $this->investText(3, TestIds::of('invest-3'))])
             ->assertOk();
 
         $this->syncAs($this->investor, [])
@@ -388,14 +389,14 @@ class SyncRecordsTest extends TestCase
         $this->startPartnership();
 
         // seq 3 arrives before seq 2: the vector stops at 1 until the gap is filled.
-        $this->syncAs($this->investor, [$this->investText(3, 'invest-3')])->assertOk();
+        $this->syncAs($this->investor, [$this->investText(3, TestIds::of('invest-3'))])->assertOk();
         $this->syncAs($this->investor, [])->assertJsonPath('vector', [$this->investor[0] => 1]);
 
-        $this->syncAs($this->investor, [$this->investText(2, 'invest-2')])->assertOk();
+        $this->syncAs($this->investor, [$this->investText(2, TestIds::of('invest-2'))])->assertOk();
         $this->syncAs($this->investor, [])->assertJsonPath('vector', [$this->investor[0] => 3]);
 
         // A manager with only seq 5 has no run from 1, so the author is left out.
-        $this->syncAs($this->manager, [$this->managerApprove(5, 'approve-5')])->assertOk();
+        $this->syncAs($this->manager, [$this->managerApprove(5, TestIds::of('approve-5'))])->assertOk();
         $this->syncAs($this->investor, [])->assertJsonPath('vector', [$this->investor[0] => 3]);
     }
 

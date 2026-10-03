@@ -30,6 +30,21 @@ Future<Ed25519KeyPair> generateEd25519KeyPair() async {
   );
 }
 
+/// Rebuilds a key pair from its 32-byte seed (the private key), for example
+/// after the seed was read back from secure storage. The public key is
+/// calculated from the seed, so it can never disagree with it.
+Future<Ed25519KeyPair> ed25519KeyPairFromSeed(List<int> seed) async {
+  if (seed.length != 32) {
+    throw ArgumentError.value(seed.length, 'seed.length', 'must be 32 bytes');
+  }
+  final keyPair = await Ed25519().newKeyPairFromSeed(seed);
+  final publicKey = await keyPair.extractPublicKey();
+  return Ed25519KeyPair(
+    privateKeyBytes: List<int>.of(seed),
+    publicKeyBytes: publicKey.bytes,
+  );
+}
+
 /// Base64url without padding (spec sections 2 and 4.2) — `dart:convert`'s
 /// `base64Url` pads with `=`, so that padding is stripped here.
 String encodeBase64UrlNoPadding(List<int> bytes) {

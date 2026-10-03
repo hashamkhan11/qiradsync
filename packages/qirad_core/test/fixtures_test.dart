@@ -24,7 +24,7 @@ void main() {
       final fixture =
           jsonDecode(await File(fixturePath).readAsString())
               as Map<String, dynamic>;
-      final validator = Validator();
+      final validator = Validator.unpinnedForTesting();
 
       for (final text in (fixture['records'] as List).cast<String>()) {
         expect(
@@ -34,5 +34,37 @@ void main() {
         );
       }
     });
+  });
+
+  group('testdata/registration_vector.json (Dart -> PHP)', () {
+    test('is up to date: regenerating it gives the same content', () async {
+      final onDisk = jsonDecode(await File(registrationPath).readAsString());
+      final regenerated = jsonDecode(await buildRegistrationVector());
+
+      expect(
+        onDisk,
+        regenerated,
+        reason:
+            'The vector is stale. Run: dart run tool/generate_fixtures.dart',
+      );
+    });
+
+    test(
+      'the signature verifies with the public key and nonce in the file',
+      () async {
+        final vector =
+            jsonDecode(await File(registrationPath).readAsString())
+                as Map<String, dynamic>;
+
+        expect(
+          await verifyRegistrationChallenge(
+            publicKey: vector['publicKey'] as String,
+            nonce: vector['nonce'] as String,
+            signature: vector['signature'] as String,
+          ),
+          isTrue,
+        );
+      },
+    );
   });
 }

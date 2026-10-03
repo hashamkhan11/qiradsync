@@ -1,11 +1,12 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
+import 'support/test_ids.dart';
 
 Record _record({required String id, String note = ''}) {
   return Record(
     v: 1,
     id: id,
-    partnership: 'p1',
+    partnership: testId('p1'),
     author: 'author1',
     seq: 1,
     prevHash: '0' * 64,
@@ -23,15 +24,15 @@ void main() {
     test('a new id is added', () {
       final ledger = Ledger();
 
-      final outcome = ledger.add(_record(id: 'r1'));
+      final outcome = ledger.add(_record(id: testId('r1')));
 
       expect(outcome, AddOutcome.added);
-      expect(ledger.records, [predicate<Record>((r) => r.id == 'r1')]);
+      expect(ledger.records, [predicate<Record>((r) => r.id == testId('r1'))]);
     });
 
     test('the same record added twice is a harmless duplicate', () {
       final ledger = Ledger();
-      final record = _record(id: 'r1');
+      final record = _record(id: testId('r1'));
 
       ledger.add(record);
       final outcome = ledger.add(record);
@@ -43,8 +44,8 @@ void main() {
     test('same id, different content is rejected and kept as a conflict', () {
       final ledger = Ledger();
 
-      ledger.add(_record(id: 'r1', note: 'original'));
-      final outcome = ledger.add(_record(id: 'r1', note: 'forged'));
+      ledger.add(_record(id: testId('r1'), note: 'original'));
+      final outcome = ledger.add(_record(id: testId('r1'), note: 'forged'));
 
       expect(outcome, AddOutcome.idConflict);
       expect(ledger.records.length, 1);
@@ -56,8 +57,8 @@ void main() {
     test('different ids are both stored', () {
       final ledger = Ledger();
 
-      ledger.add(_record(id: 'r1'));
-      ledger.add(_record(id: 'r2'));
+      ledger.add(_record(id: testId('r1')));
+      ledger.add(_record(id: testId('r2')));
 
       expect(ledger.records.length, 2);
     });

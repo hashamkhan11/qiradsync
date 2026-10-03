@@ -2,12 +2,13 @@ import 'dart:math';
 
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
+import 'support/test_ids.dart';
 
 Record _record({required String id, required String author, required int seq}) {
   return Record(
     v: 1,
     id: id,
-    partnership: 'p1',
+    partnership: testId('p1'),
     author: author,
     seq: seq,
     prevHash: '0' * 64,
@@ -39,7 +40,7 @@ void main() {
           final author = authors[random.nextInt(authors.length)];
           final seq = (seqByAuthor[author] ?? 0) + 1;
           seqByAuthor[author] = seq;
-          uniqueRecords.add(_record(id: 'r$iteration-$i', author: author, seq: seq));
+          uniqueRecords.add(_record(id: testId('r$iteration-$i'), author: author, seq: seq));
         }
 
         // 2. Duplicate a random few, so the batch has real repeats in it.
