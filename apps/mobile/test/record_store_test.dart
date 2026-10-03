@@ -289,6 +289,46 @@ void main() {
     },
   );
 
+  test(
+    'savedTextsFrom returns one author from a seq on, in seq order',
+    () async {
+      final store = await openStore();
+      await store.addPartnership('p1');
+      final create = await createText();
+      final invest2 = await investText(
+        id: 'invest-2',
+        seq: 2,
+        prevText: create,
+      );
+      final invest3 = await investText(
+        id: 'invest-3',
+        seq: 3,
+        prevText: invest2,
+      );
+      await store.receive(create);
+      await store.receive(invest2);
+      await store.receive(invest3);
+
+      expect(
+        await store.savedTextsFrom(
+          'p1',
+          author: investor.publicKeyBase64Url,
+          fromSeq: 2,
+        ),
+        [invest2, invest3],
+      );
+      expect(
+        await store.savedTextsFrom(
+          'p1',
+          author: manager.publicKeyBase64Url,
+          fromSeq: 1,
+        ),
+        isEmpty,
+      );
+      await store.close();
+    },
+  );
+
   test('the database refuses UPDATE and DELETE', () async {
     final store = await openStore();
     await store.addPartnership('p1');

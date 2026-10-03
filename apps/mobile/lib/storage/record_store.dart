@@ -114,6 +114,25 @@ class RecordStore {
     return [for (final row in rows) row['text']! as String];
   }
 
+  /// The saved texts of one author in one partnership, from [fromSeq] on, in
+  /// seq order. The sync repair step uses this to re-upload what the relay is
+  /// missing (spec 7.3 step 3).
+  Future<List<String>> savedTextsFrom(
+    String partnership, {
+    required String author,
+    required int fromSeq,
+  }) async {
+    validatorFor(partnership); // Refuses an unregistered id.
+    final rows = await _db.query(
+      'records',
+      columns: ['text'],
+      where: 'partnership = ? AND author = ? AND seq >= ?',
+      whereArgs: [partnership, author, fromSeq],
+      orderBy: 'seq',
+    );
+    return [for (final row in rows) row['text']! as String];
+  }
+
   Future<void> close() => _db.close();
 
   /// The `partnership` field of [text], or null if the text is not a JSON
