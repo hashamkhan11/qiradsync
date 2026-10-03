@@ -6,23 +6,27 @@ import 'package:sqflite/sqflite.dart';
 /// The phone's local record store (spec 7.3).
 ///
 /// It keeps the exact text of every record it did not reject, in SQLite.
-/// It also holds one live [Validator]. The store never saves the ledger
-/// itself: on open, it feeds the saved texts back through the validator to
-/// rebuild the ledger. The saved text is the only fact; everything else is
-/// calculated again. (CLAUDE.md rule 4.)
+/// A phone can hold several partnerships (spec 7.1), so the store keeps one
+/// [Validator] per registered partnership id. Each text goes to the validator
+/// for its own `partnership` field, so the partnerships never mix.
 ///
-/// All texts go through [receive], the single entry point. A rejected text
-/// never reaches the disk.
+/// The store never saves the ledger itself: on open, it feeds the saved texts
+/// back through the validators to rebuild the ledgers. The saved text is the
+/// only fact; everything else is calculated again. (CLAUDE.md rule 4.)
+///
+/// A partnership must be registered with [addPartnership] before any of its
+/// records is accepted. Incoming data never creates a partnership, so a
+/// malicious relay cannot make the phone create unlimited storage.
 class RecordStore {
-  RecordStore._(this._db, this.validator);
+  RecordStore._(this._db, this._validators);
 
   final Database _db;
 
-  /// Holds the ledger, pending records and equivocation flags.
-  final Validator validator;
+  /// One validator per registered partnership id.
+  final Map<String, Validator> _validators;
 
-  /// Opens the store at [path], creating it if needed, and rebuilds the
-  /// validator from every saved text.
+  /// Opens the store at [path], creating it if needed, and rebuilds every
+  /// registered partnership's validator from its saved texts.
   static Future<RecordStore> open({
     required DatabaseFactory factory,
     required String path,
@@ -31,26 +35,101 @@ class RecordStore {
       path,
       options: OpenDatabaseOptions(version: 1, onCreate: _createTables),
     );
-    final store = RecordStore._(db, Validator());
+
+    final validators = <String, Validator>{};
+    final registered = await db.query('partnerships', columns: ['id']);
+    for (final row in registered) {
+      validators[row['id']! as String] = Validator();
+    }
+
+    final store = RecordStore._(db, validators);
     // Replaying in saved order gives the same ledger as the first run. The
     // validator's result does not depend on arrival order (spec section 8).
-    for (final text in await store._savedTexts()) {
-      await store.validator.receiveText(text);
+    // The replay does not insert again: the rows are already on disk.
+    final rows = await db.query(
+      'records',
+      columns: ['partnership', 'text'],
+      orderBy: 'n',
+    );
+    for (final row in rows) {
+      final validator = validators[row['partnership']! as String];
+      await validator?.receiveText(row['text']! as String);
     }
     return store;
   }
 
-  /// Runs [text] through the validator and keeps it unless it was rejected.
+  /// The partnership ids registered on this device, sorted.
+  List<String> get partnerships => _validators.keys.toList()..sort();
+
+  /// Registers [id] on this device, so its records can be accepted. Called
+  /// only when the user creates or joins the partnership. Calling it again
+  /// for the same id changes nothing.
+  Future<void> addPartnership(String id) async {
+    if (id.isEmpty) throw ArgumentError.value(id, 'id', 'must not be empty');
+    if (_validators.containsKey(id)) return;
+    await _db.insert('partnerships', {'id': id});
+    _validators[id] = Validator();
+  }
+
+  /// The live validator (and so the ledger) for a registered partnership.
+  Validator validatorFor(String partnership) {
+    final validator = _validators[partnership];
+    if (validator == null) {
+      throw StateError('partnership $partnership is not registered here');
+    }
+    return validator;
+  }
+
+  /// `{ author -> highest seq held without gaps }` for one partnership.
+  /// The id is required, so one partnership's vector can never include
+  /// another's records (spec 7.1).
+  Map<String, int> versionVector(String partnership) =>
+      validatorFor(partnership).ledger.versionVector();
+
+  /// Runs [text] through the validator for its partnership and keeps it
+  /// unless it was rejected. A text for an unregistered partnership is
+  /// refused as `rejectedMembership` and never stored.
   Future<ReceiveOutcome> receive(String text) async {
+    final partnership = _partnershipOf(text);
+    if (partnership == null) return ReceiveOutcome.rejectedSchema;
+
+    final validator = _validators[partnership];
+    if (validator == null) return ReceiveOutcome.rejectedMembership;
+
     final outcome = await validator.receiveText(text);
-    if (_isKept(outcome)) await _insert(text);
+    if (_isKept(outcome)) await _insert(text, partnership);
     return outcome;
   }
 
-  /// Every saved text, in the order it was first kept.
-  Future<List<String>> savedTexts() => _savedTexts();
+  /// Every saved text of one partnership, in the order it was first kept.
+  Future<List<String>> savedTexts(String partnership) async {
+    validatorFor(partnership); // Refuses an unregistered id.
+    final rows = await _db.query(
+      'records',
+      columns: ['text'],
+      where: 'partnership = ?',
+      whereArgs: [partnership],
+      orderBy: 'n',
+    );
+    return [for (final row in rows) row['text']! as String];
+  }
 
   Future<void> close() => _db.close();
+
+  /// The `partnership` field of [text], or null if the text is not a JSON
+  /// object with a string in that field. The validator does the full checks
+  /// after this; this only picks the validator to ask.
+  static String? _partnershipOf(String text) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(text);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map<String, dynamic>) return null;
+    final partnership = decoded['partnership'];
+    return partnership is String ? partnership : null;
+  }
 
   /// Rejected texts are never saved. Accepted, pending, chain-invalid and
   /// equivocating records are all kept: a pending record is released later,
@@ -72,26 +151,26 @@ class RecordStore {
     }
   }
 
-  Future<void> _insert(String text) async {
+  Future<void> _insert(String text, String partnership) async {
     final json = jsonDecode(text) as Map<String, dynamic>;
     await _db.insert('records', {
       // Same hash as the relay (SHA-256 of the exact text). UNIQUE, so a
       // repeated text is stored once.
       'hash': recordHash(json),
       'id': json['id'],
-      'partnership': json['partnership'],
+      'partnership': partnership,
       'author': json['author'],
       'seq': json['seq'],
       'text': text,
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
-  Future<List<String>> _savedTexts() async {
-    final rows = await _db.query('records', columns: ['text'], orderBy: 'n');
-    return [for (final row in rows) row['text']! as String];
-  }
-
   static Future<void> _createTables(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE partnerships (
+        id TEXT PRIMARY KEY
+      )
+    ''');
     // `n` gives the saved order. Replay depends on it.
     await db.execute('''
       CREATE TABLE records (

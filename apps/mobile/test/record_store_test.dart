@@ -29,12 +29,13 @@ void main() {
   Future<RecordStore> openStore() =>
       RecordStore.open(factory: databaseFactoryFfi, path: dbPath);
 
-  /// The partnership_create text, with a non-ASCII note.
-  Future<String> createText() async {
+  /// The partnership_create text, with a non-ASCII note. The partnership id
+  /// is also the id of the create record, as in the app.
+  Future<String> createText({String partnership = 'p1'}) async {
     final unsigned = Record(
       v: 1,
-      id: 'p1',
-      partnership: 'p1',
+      id: partnership,
+      partnership: partnership,
       author: investor.publicKeyBase64Url,
       seq: 1,
       prevHash: '0' * 64,
@@ -58,11 +59,12 @@ void main() {
     required String id,
     required int seq,
     required String prevText,
+    String partnership = 'p1',
   }) async {
     final unsigned = Record(
       v: 1,
       id: id,
-      partnership: 'p1',
+      partnership: partnership,
       author: investor.publicKeyBase64Url,
       seq: seq,
       prevHash: recordHash(jsonDecode(prevText) as Map<String, dynamic>),
@@ -77,11 +79,15 @@ void main() {
   }
 
   /// A manager's approve at a given seq. The manager can write any seq.
-  Future<String> approveText({required String id, required int seq}) async {
+  Future<String> approveText({
+    required String id,
+    required int seq,
+    String partnership = 'p1',
+  }) async {
     final unsigned = Record(
       v: 1,
       id: id,
-      partnership: 'p1',
+      partnership: partnership,
       author: manager.publicKeyBase64Url,
       seq: seq,
       prevHash: '0' * 64,
@@ -97,25 +103,28 @@ void main() {
 
   test('an accepted record is saved with its exact text', () async {
     final store = await openStore();
+    await store.addPartnership('p1');
     final text = await createText();
 
     expect(await store.receive(text), ReceiveOutcome.accepted);
-    expect(await store.savedTexts(), [text]);
+    expect(await store.savedTexts('p1'), [text]);
     await store.close();
   });
 
   test('a repeated text is saved once', () async {
     final store = await openStore();
+    await store.addPartnership('p1');
     final text = await createText();
 
     await store.receive(text);
     expect(await store.receive(text), ReceiveOutcome.duplicateIgnored);
-    expect(await store.savedTexts(), hasLength(1));
+    expect(await store.savedTexts('p1'), hasLength(1));
     await store.close();
   });
 
   test('a rejected text is never saved', () async {
     final store = await openStore();
+    await store.addPartnership('p1');
     final text = await createText();
     // Valid JSON, but not canonical: one extra space after the opening brace.
     final notCanonical = '{ ${text.substring(1)}';
@@ -124,12 +133,13 @@ void main() {
       await store.receive(notCanonical),
       ReceiveOutcome.rejectedNotCanonical,
     );
-    expect(await store.savedTexts(), isEmpty);
+    expect(await store.savedTexts('p1'), isEmpty);
     await store.close();
   });
 
   test('after reopening, the ledger is rebuilt from the saved texts', () async {
     final store = await openStore();
+    await store.addPartnership('p1');
     final create = await createText();
     final invest = await investText(id: 'invest-2', seq: 2, prevText: create);
     await store.receive(create);
@@ -137,10 +147,11 @@ void main() {
     await store.close();
 
     final reopened = await openStore();
-    expect(reopened.validator.ledger.records.map((r) => r.id), [
+    expect(reopened.validatorFor('p1').ledger.records.map((r) => r.id), [
       'p1',
       'invest-2',
     ]);
+    expect(reopened.versionVector('p1'), {investor.publicKeyBase64Url: 2});
     await reopened.close();
   });
 
@@ -148,6 +159,7 @@ void main() {
     'a record that arrives early waits in the pending buffer, then is released',
     () async {
       final store = await openStore();
+      await store.addPartnership('p1');
       final create = await createText();
       final invest2 = await investText(
         id: 'invest-2',
@@ -166,9 +178,11 @@ void main() {
 
       // The pending record survives a restart, and arrives when seq 2 does.
       final reopened = await openStore();
-      expect(reopened.validator.pendingRecords.map((r) => r.id), ['invest-3']);
+      expect(reopened.validatorFor('p1').pendingRecords.map((r) => r.id), [
+        'invest-3',
+      ]);
       expect(await reopened.receive(invest2), ReceiveOutcome.accepted);
-      expect(reopened.validator.ledger.records.map((r) => r.id), [
+      expect(reopened.validatorFor('p1').ledger.records.map((r) => r.id), [
         'p1',
         'invest-2',
         'invest-3',
@@ -181,6 +195,7 @@ void main() {
     'two versions at the same position are both kept and the author is flagged after a restart',
     () async {
       final store = await openStore();
+      await store.addPartnership('p1');
       final create = await createText();
       await store.receive(create);
       final approveA = await approveText(id: 'approve-5a', seq: 5);
@@ -190,16 +205,93 @@ void main() {
       await store.close();
 
       final reopened = await openStore();
-      expect(await reopened.savedTexts(), containsAll([approveA, approveB]));
-      expect(reopened.validator.equivocatingFromSeq, {
+      expect(
+        await reopened.savedTexts('p1'),
+        containsAll([approveA, approveB]),
+      );
+      expect(reopened.validatorFor('p1').equivocatingFromSeq, {
         manager.publicKeyBase64Url: 5,
       });
       await reopened.close();
     },
   );
 
+  test(
+    'a text for an unregistered partnership is refused and not stored',
+    () async {
+      final store = await openStore();
+      await store.addPartnership('p1');
+      final stranger = await createText(partnership: 'p9');
+
+      expect(await store.receive(stranger), ReceiveOutcome.rejectedMembership);
+      expect(store.partnerships, ['p1']);
+      expect(() => store.savedTexts('p9'), throwsStateError);
+      await store.close();
+
+      // Nothing was written for p9, even after a restart.
+      final reopened = await openStore();
+      expect(reopened.partnerships, ['p1']);
+      expect(await reopened.savedTexts('p1'), isEmpty);
+      await reopened.close();
+    },
+  );
+
+  test('registering a partnership survives a restart', () async {
+    final store = await openStore();
+    await store.addPartnership('p1');
+    await store.addPartnership('p1'); // Calling it again changes nothing.
+    await store.close();
+
+    final reopened = await openStore();
+    expect(reopened.partnerships, ['p1']);
+    await reopened.close();
+  });
+
+  test(
+    'two registered partnerships keep their records and vectors separate',
+    () async {
+      final store = await openStore();
+      await store.addPartnership('p1');
+      await store.addPartnership('p2');
+
+      final create1 = await createText();
+      final invest1 = await investText(
+        id: 'invest-1-2',
+        seq: 2,
+        prevText: create1,
+      );
+      final create2 = await createText(partnership: 'p2');
+      // Seq 2 in p2 is valid on its own chain, even though p1 also has seq 2.
+      final invest2 = await investText(
+        id: 'invest-2-2',
+        seq: 2,
+        prevText: create2,
+        partnership: 'p2',
+      );
+
+      for (final text in [create1, invest1, create2, invest2]) {
+        expect(await store.receive(text), ReceiveOutcome.accepted);
+      }
+
+      expect(await store.savedTexts('p1'), [create1, invest1]);
+      expect(await store.savedTexts('p2'), [create2, invest2]);
+      expect(store.versionVector('p1'), {investor.publicKeyBase64Url: 2});
+      expect(store.versionVector('p2'), {investor.publicKeyBase64Url: 2});
+      expect(store.validatorFor('p1').ledger.records.map((r) => r.id), [
+        'p1',
+        'invest-1-2',
+      ]);
+      expect(store.validatorFor('p2').ledger.records.map((r) => r.id), [
+        'p2',
+        'invest-2-2',
+      ]);
+      await store.close();
+    },
+  );
+
   test('the database refuses UPDATE and DELETE', () async {
     final store = await openStore();
+    await store.addPartnership('p1');
     await store.receive(await createText());
     await store.close();
 
