@@ -66,7 +66,17 @@ To sign or hash a record, encode it as canonical JSON:
 - Strings in UTF-8 with standard JSON escaping; integers in plain decimal; no floats anywhere.
 - `null` written as `null`.
 
+"Unicode code point" means the number of the character itself (U+0041 for `A`, U+1F600 for an emoji).
+Sorting by UTF-16 code units gives a different order for characters above U+FFFF, so do not use it.
+In v1 all keys are ASCII, so the two orders agree today; the rule is still stated exactly.
+
 `canonical(x)` below means the UTF-8 bytes of this encoding.
+
+**Canonical form on receive.** A record received as text is accepted only if the text is already
+canonical: parse it, encode it again with this section's rules, and the result must equal the received
+text byte for byte. This refuses extra whitespace, keys in the wrong order, duplicate keys (a parser
+keeps only one, so two parsers could disagree) and `[]` where `{}` belongs. Every device stores the same
+bytes, so every hash and signature means the same thing everywhere.
 
 ### 4.2 Signature
 
@@ -130,8 +140,11 @@ Notes:
 
 ### 6.1 Receiving a record (per record, in this order)
 
-1. **Schema:** all fields present with correct types; `v == 1`; amounts are positive integers. For a
-   `partnership_create`, `partnership` equals its own `id`.
+1. **Schema:** the text is in canonical form (Section 4.1, byte for byte). All fields present with correct
+   types; `v == 1`; amounts are positive integers. For a `partnership_create`, `partnership` equals its own
+   `id`. No key other than the fields in Section 3 at the top level, and no key in `body` other than the
+   ones Section 5 lists for that `type`; a `ratio` object has exactly `investor` and `manager`. A `type`
+   not in Section 5 is invalid.
 2. **Signature:** `sig` verifies against `author` over `canonical(unsigned)`.
 3. **Membership:** `partnership` equals this ledger's partnership id (the `id` of its accepted
    `partnership_create`), and `author` is one of the two partnership keys. Before any create is accepted,

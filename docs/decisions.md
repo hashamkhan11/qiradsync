@@ -120,3 +120,19 @@ rules 3 and 5). Forbidding investor reversals was rejected: it removes a valid c
 **Decision:** `seq` and `prevHash` belong to a (partnership, author) pair. Each partner's `seq` starts at 1 in each partnership. A device's version vector is kept per partnership.
 
 **Reason:** Once a partnership can be rejected and replaced, the same two keys can start a second partnership. Counting `seq` across partnerships would make the new chain look like it has a gap, or would let records from the old one be replayed into it.
+
+---
+
+## 2026-10-03 — Canonical JSON sorts by code point
+
+**Decision:** Object keys are sorted by Unicode code point (spec 4.1), not by UTF-16 code units, which is what Dart's `String.compareTo` does. The Dart encoder compares code points directly.
+
+**Reason:** The two orders differ for characters above U+FFFF (an emoji sorts before U+FF5E in UTF-16 but after it by code point). If the phone and the relay disagreed, the same record would give different bytes and hashes on each. The spec already says code point, so the code now matches it. v1 keys are ASCII, so no record changes today. A test pins the order with a key above U+FFFF.
+
+---
+
+## 2026-10-03 — Records are accepted only in canonical form
+
+**Decision:** A record arrives as text. It is accepted only if re-encoding its parsed form in canonical JSON gives the same bytes (spec 4.1, 6.1 step 1). Extra whitespace, wrong key order, duplicate keys and `[]` for `{}` are all refused. The phones apply this in `Validator.receiveText` (qirad_core). The relay applies it before storing (relay sync step, Phase 5 step 4). Unknown top-level keys, unknown `body` keys for a type, and unknown record types are also refused at step 1.
+
+**Reason:** Parsers disagree about duplicate keys: one keeps the first value, one keeps the last, and some reject. Two devices could then accept the "same" record and sign or hash different meanings. Comparing bytes after a round trip removes every such case at one point, so the relay can store the exact string and every phone hashes the same bytes. Refusing unknown keys stops extra data from riding along unsigned or being dropped by some devices and kept by others.
