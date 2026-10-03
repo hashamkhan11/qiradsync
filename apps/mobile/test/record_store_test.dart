@@ -103,7 +103,11 @@ void main() {
 
   test('an accepted record is saved with its exact text', () async {
     final store = await openStore();
-    await store.addPartnership('p1');
+    await store.addPartnership(
+      'p1',
+      investorKey: investor.publicKeyBase64Url,
+      managerKey: manager.publicKeyBase64Url,
+    );
     final text = await createText();
 
     expect(await store.receive(text), ReceiveOutcome.accepted);
@@ -113,7 +117,11 @@ void main() {
 
   test('a repeated text is saved once', () async {
     final store = await openStore();
-    await store.addPartnership('p1');
+    await store.addPartnership(
+      'p1',
+      investorKey: investor.publicKeyBase64Url,
+      managerKey: manager.publicKeyBase64Url,
+    );
     final text = await createText();
 
     await store.receive(text);
@@ -124,7 +132,11 @@ void main() {
 
   test('a rejected text is never saved', () async {
     final store = await openStore();
-    await store.addPartnership('p1');
+    await store.addPartnership(
+      'p1',
+      investorKey: investor.publicKeyBase64Url,
+      managerKey: manager.publicKeyBase64Url,
+    );
     final text = await createText();
     // Valid JSON, but not canonical: one extra space after the opening brace.
     final notCanonical = '{ ${text.substring(1)}';
@@ -139,7 +151,11 @@ void main() {
 
   test('after reopening, the ledger is rebuilt from the saved texts', () async {
     final store = await openStore();
-    await store.addPartnership('p1');
+    await store.addPartnership(
+      'p1',
+      investorKey: investor.publicKeyBase64Url,
+      managerKey: manager.publicKeyBase64Url,
+    );
     final create = await createText();
     final invest = await investText(id: 'invest-2', seq: 2, prevText: create);
     await store.receive(create);
@@ -159,7 +175,11 @@ void main() {
     'a record that arrives early waits in the pending buffer, then is released',
     () async {
       final store = await openStore();
-      await store.addPartnership('p1');
+      await store.addPartnership(
+        'p1',
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      );
       final create = await createText();
       final invest2 = await investText(
         id: 'invest-2',
@@ -195,7 +215,11 @@ void main() {
     'two versions at the same position are both kept and the author is flagged after a restart',
     () async {
       final store = await openStore();
-      await store.addPartnership('p1');
+      await store.addPartnership(
+        'p1',
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      );
       final create = await createText();
       await store.receive(create);
       final approveA = await approveText(id: 'approve-5a', seq: 5);
@@ -220,7 +244,11 @@ void main() {
     'a text for an unregistered partnership is refused and not stored',
     () async {
       final store = await openStore();
-      await store.addPartnership('p1');
+      await store.addPartnership(
+        'p1',
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      );
       final stranger = await createText(partnership: 'p9');
 
       expect(await store.receive(stranger), ReceiveOutcome.rejectedMembership);
@@ -238,8 +266,16 @@ void main() {
 
   test('registering a partnership survives a restart', () async {
     final store = await openStore();
-    await store.addPartnership('p1');
-    await store.addPartnership('p1'); // Calling it again changes nothing.
+    await store.addPartnership(
+      'p1',
+      investorKey: investor.publicKeyBase64Url,
+      managerKey: manager.publicKeyBase64Url,
+    );
+    await store.addPartnership(
+      'p1',
+      investorKey: investor.publicKeyBase64Url,
+      managerKey: manager.publicKeyBase64Url,
+    ); // Calling it again changes nothing.
     await store.close();
 
     final reopened = await openStore();
@@ -251,8 +287,16 @@ void main() {
     'two registered partnerships keep their records and vectors separate',
     () async {
       final store = await openStore();
-      await store.addPartnership('p1');
-      await store.addPartnership('p2');
+      await store.addPartnership(
+        'p1',
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      );
+      await store.addPartnership(
+        'p2',
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      );
 
       final create1 = await createText();
       final invest1 = await investText(
@@ -293,7 +337,11 @@ void main() {
     'savedTextsFrom returns one author from a seq on, in seq order',
     () async {
       final store = await openStore();
-      await store.addPartnership('p1');
+      await store.addPartnership(
+        'p1',
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      );
       final create = await createText();
       final invest2 = await investText(
         id: 'invest-2',
@@ -329,9 +377,124 @@ void main() {
     },
   );
 
+  test(
+    'a forged create arriving first is refused, then the real create is accepted',
+    () async {
+      final store = await openStore();
+      await store.addPartnership(
+        'p1',
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      );
+      // The attacker signs a create with their own key, and names the real
+      // manager. Only the pinned investor key can refuse it.
+      final attacker = await generateEd25519KeyPair();
+      final forgedUnsigned = Record(
+        v: 1,
+        id: 'p1',
+        partnership: 'p1',
+        author: attacker.publicKeyBase64Url,
+        seq: 1,
+        prevHash: '0' * 64,
+        type: 'partnership_create',
+        body: {
+          'investor': attacker.publicKeyBase64Url,
+          'manager': manager.publicKeyBase64Url,
+          'ratio': {'investor': 60, 'manager': 40},
+          'currency': 'PKR',
+        },
+        refersTo: null,
+        note: '',
+        time: '2026-10-03T10:00:00Z',
+        sig: '',
+      );
+      final forged = canonicalJson(
+        (await signRecord(forgedUnsigned, attacker)).toJson(),
+      );
+
+      expect(await store.receive(forged), ReceiveOutcome.rejectedMembership);
+      expect(await store.savedTexts('p1'), isEmpty);
+
+      final real = await createText();
+      expect(await store.receive(real), ReceiveOutcome.accepted);
+      expect(await store.savedTexts('p1'), [real]);
+      await store.close();
+    },
+  );
+
+  test(
+    'a create naming another manager is refused, even after a restart',
+    () async {
+      final store = await openStore();
+      await store.addPartnership(
+        'p1',
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      );
+      await store.close();
+
+      // The pins were saved, so a restart still refuses the wrong manager.
+      final reopened = await openStore();
+      final otherManager = await generateEd25519KeyPair();
+      final wrongManagerUnsigned = Record(
+        v: 1,
+        id: 'p1',
+        partnership: 'p1',
+        author: investor.publicKeyBase64Url,
+        seq: 1,
+        prevHash: '0' * 64,
+        type: 'partnership_create',
+        body: {
+          'investor': investor.publicKeyBase64Url,
+          'manager': otherManager.publicKeyBase64Url,
+          'ratio': {'investor': 60, 'manager': 40},
+          'currency': 'PKR',
+        },
+        refersTo: null,
+        note: '',
+        time: '2026-10-03T10:00:00Z',
+        sig: '',
+      );
+      final wrongManager = canonicalJson(
+        (await signRecord(wrongManagerUnsigned, investor)).toJson(),
+      );
+
+      expect(
+        await reopened.receive(wrongManager),
+        ReceiveOutcome.rejectedMembership,
+      );
+      expect(await reopened.savedTexts('p1'), isEmpty);
+      await reopened.close();
+    },
+  );
+
+  test('registering again with other keys throws', () async {
+    final store = await openStore();
+    await store.addPartnership(
+      'p1',
+      investorKey: investor.publicKeyBase64Url,
+      managerKey: manager.publicKeyBase64Url,
+    );
+    final stranger = await generateEd25519KeyPair();
+
+    await expectLater(
+      store.addPartnership(
+        'p1',
+        investorKey: stranger.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      ),
+      throwsStateError,
+    );
+    await store.close();
+  });
+
   test('the database refuses UPDATE and DELETE', () async {
     final store = await openStore();
-    await store.addPartnership('p1');
+    await store.addPartnership(
+      'p1',
+      investorKey: investor.publicKeyBase64Url,
+      managerKey: manager.publicKeyBase64Url,
+    );
     await store.receive(await createText());
     await store.close();
 

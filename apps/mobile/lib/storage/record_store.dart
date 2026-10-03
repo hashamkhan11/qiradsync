@@ -37,9 +37,15 @@ class RecordStore {
     );
 
     final validators = <String, Validator>{};
-    final registered = await db.query('partnerships', columns: ['id']);
+    final registered = await db.query(
+      'partnerships',
+      columns: ['id', 'investor_key', 'manager_key'],
+    );
     for (final row in registered) {
-      validators[row['id']! as String] = Validator();
+      validators[row['id']! as String] = Validator(
+        pinnedInvestorKey: row['investor_key']! as String,
+        pinnedManagerKey: row['manager_key']! as String,
+      );
     }
 
     final store = RecordStore._(db, validators);
@@ -61,14 +67,34 @@ class RecordStore {
   /// The partnership ids registered on this device, sorted.
   List<String> get partnerships => _validators.keys.toList()..sort();
 
-  /// Registers [id] on this device, so its records can be accepted. Called
-  /// only when the user creates or joins the partnership. Calling it again
-  /// for the same id changes nothing.
-  Future<void> addPartnership(String id) async {
+  /// Registers [id] on this device, pinned to its two keys (spec 2.1). The
+  /// keys come from the join code, so the validator accepts only a create
+  /// that names them. Called only when the user creates or joins the
+  /// partnership. Calling it again with the same keys changes nothing; with
+  /// different keys it throws, because a partnership cannot change its keys.
+  Future<void> addPartnership(
+    String id, {
+    required String investorKey,
+    required String managerKey,
+  }) async {
     if (id.isEmpty) throw ArgumentError.value(id, 'id', 'must not be empty');
-    if (_validators.containsKey(id)) return;
-    await _db.insert('partnerships', {'id': id});
-    _validators[id] = Validator();
+    final existing = _validators[id];
+    if (existing != null) {
+      if (existing.pinnedInvestorKey == investorKey &&
+          existing.pinnedManagerKey == managerKey) {
+        return;
+      }
+      throw StateError('partnership $id is already registered with other keys');
+    }
+    await _db.insert('partnerships', {
+      'id': id,
+      'investor_key': investorKey,
+      'manager_key': managerKey,
+    });
+    _validators[id] = Validator(
+      pinnedInvestorKey: investorKey,
+      pinnedManagerKey: managerKey,
+    );
   }
 
   /// The live validator (and so the ledger) for a registered partnership.
@@ -185,9 +211,12 @@ class RecordStore {
   }
 
   static Future<void> _createTables(Database db, int version) async {
+    // The pins are stored with the id, so a restart pins the same keys.
     await db.execute('''
       CREATE TABLE partnerships (
-        id TEXT PRIMARY KEY
+        id TEXT PRIMARY KEY,
+        investor_key TEXT NOT NULL,
+        manager_key TEXT NOT NULL
       )
     ''');
     // `n` gives the saved order. Replay depends on it.

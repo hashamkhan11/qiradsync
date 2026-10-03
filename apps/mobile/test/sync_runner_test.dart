@@ -27,7 +27,11 @@ void main() {
       path: p.join(dir.path, 'records.db'),
     );
     // The partnership is registered, as when the user joins it.
-    await store.addPartnership('p1');
+    await store.addPartnership(
+      'p1',
+      investorKey: texts.investor.publicKeyBase64Url,
+      managerKey: texts.manager.publicKeyBase64Url,
+    );
   });
 
   tearDown(() async {
