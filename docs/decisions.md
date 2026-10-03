@@ -210,3 +210,16 @@ used whether or not the partnership exists.
 
 **Reason:** A different message for "does not exist" and "not a party" would tell an outsider which partnership ids
 are in use. One neutral message gives no such information.
+
+---
+
+## 2026-10-03 — The phone keeps exact texts and rebuilds the ledger on start
+
+**Decision:** The phone's local store keeps the exact text of every record the validator did not reject (accepted,
+pending, chain-invalid, equivocating, duplicate). It does not keep a separate pending table: pending records are
+rebuilt by replaying the saved texts through the validator on start. Rejected texts are never saved. The table
+refuses UPDATE and DELETE with triggers, the same rule as the relay.
+
+**Reason:** The signature covers exact bytes, so the text is the only trusted fact. A separate pending table would
+be a second copy of the same facts, and it could disagree with the validator. Keeping equivocating versions lets
+the flag survive a restart, the same way the relay keeps both versions.
