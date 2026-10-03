@@ -53,6 +53,12 @@ class FakeRelay {
   /// Puts a text on the relay as if another device had uploaded it.
   void seed(String text) => _store(text);
 
+  /// Empties the relay, as after a lost database (spec 8, sync recovery).
+  void wipe() {
+    _positions.clear();
+    _hashes.clear();
+  }
+
   void _store(String text) {
     final json = jsonDecode(text) as Map<String, dynamic>;
     if (!_hashes.add(recordHash(json))) return;
