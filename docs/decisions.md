@@ -236,3 +236,18 @@ error instead of looping.
 **Reason:** The token is a credential, so it belongs next to the private key in secure storage. Registration
 is its own concept (proof of key possession), and it should be taught and tested on its own. One automatic
 re-registration recovers from an expired token, and the limit stops a broken relay from causing an endless loop.
+
+---
+
+## 2026-10-03 — One validator per partnership; partnerships are registered explicitly
+
+**Decision:** A phone can hold several partnerships. The record store keeps one `Validator` per partnership id.
+Each incoming text is routed by its own `partnership` field. The core validator keeps its one-partnership rule
+unchanged. A partnership is added only by an explicit `addPartnership(id)` call, made when the user creates or
+joins one (for example by scanning the partnership id). Text for a partnership id that is not registered on this
+device is refused as `rejectedMembership` and never stored. `savedTexts(partnership)` and
+`versionVector(partnership)` require the id.
+
+**Reason:** Spec 7.1 expects one version vector per partnership on a device that holds several. Creating a
+validator from incoming data would let a malicious relay create unlimited validators and storage (a denial of
+service). Explicit registration means the user decides which partnerships exist on the phone.
