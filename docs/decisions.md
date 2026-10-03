@@ -276,6 +276,19 @@ run with their own 3 repair rounds, and the two counts are kept separate.
 
 ---
 
+## 2026-10-03 — Sync retries only failures that may go away
+
+**Decision:** The phone retries a sync run with backoff (1 s, 2 s, 4 s … capped at 30 s, at most 5 retries)
+only for a network error, a call that times out, or a relay `5xx`. A `4xx` is never retried, except that a `401`
+makes the phone register again and resend the batch, once. Every relay call has a timeout: 30 s for the whole call, 10 s to open the connection.
+Spec 7.3 step 6 states this.
+
+**Reason:** A `403` or `422` gives the same answer on every try, so retrying only wastes battery and time. A
+silent relay must not hang the app (spec 7.3). Retrying is safe because sync is idempotent: the relay reports a
+record it already holds as `already`, so a repeated run never stores anything twice.
+
+---
+
 ## 2026-10-03 — Partners compare a safety code before a join is confirmed
 
 **Decision:** Both phones compute the same safety code from both keys, in a fixed order (investor, then manager).

@@ -370,8 +370,14 @@ The relay never edits, deletes, merges or interprets record content beyond the c
    a new run with its own 3 repair rounds, and no retry uses or adds to this count.
 4. Run every returned record and conflict through 6.1, then add valid ones to the ledger.
 5. Recalculate (Section 6) and refresh the UI.
-6. Retry with exponential backoff when offline. Sync (including the repair rounds in step 3) is safe
-   to repeat any number of times.
+6. Retry with exponential backoff when a failure may go away: a network error, a call that times out
+   (no answer within 30 seconds, and a connection that does not open within 10 seconds), or a relay
+   `5xx` status. Each wait is 1 s, then 2 s, 4 s and so on, capped at 30 s, and there are at most 5
+   retries. Never retry a `4xx` status, with one exception: a `401` makes the phone register again
+   (spec 7.2) and resend the same batch, once. A second `401` in the same run stops the sync with a clear
+   error. A `403` or `422` gives the same answer again, so it is not retried. Retries are safe because sync is
+   idempotent: the relay reports a record it already holds as `already`, so repeating a sync never
+   stores a record twice, and the repair rounds in step 3 run again from the start.
 
 Never rely on a cached belief about what the relay holds to decide the sync is finished — only the
 relay's own freshly-returned vector, checked every time, can say that. This is what lets the ledger
