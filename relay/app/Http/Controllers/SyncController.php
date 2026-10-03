@@ -22,7 +22,9 @@ class SyncController extends Controller
         );
 
         if ($result === null) {
-            return response()->json(['message' => 'This device is not a party to this partnership.'], 403);
+            return response()->json([
+                'message' => 'This device is not allowed to sync this partnership. If you are creating it, upload a valid partnership_create signed by the investor.',
+            ], 403);
         }
 
         return response()->json($result);

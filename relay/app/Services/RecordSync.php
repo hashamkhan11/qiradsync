@@ -43,9 +43,8 @@ final class RecordSync
         uasort($parsed, fn (ReceivedRecord $a, ReceivedRecord $b) => ($b->type === 'partnership_create') <=> ($a->type === 'partnership_create'));
 
         return DB::transaction(function () use ($device, $partnershipId, $clientVector, $parsed, $rejected) {
-            $stored = [];
+            $accepted = [];
             $already = [];
-            $conflicts = [];
 
             foreach ($parsed as $index => $record) {
                 $reason = $this->refusalReason($device, $partnershipId, $record);
@@ -61,19 +60,21 @@ final class RecordSync
                     ->where('seq', $record->seq)
                     ->first();
 
-                // Same position: either a harmless re-send, or two different
-                // records for one seq (equivocation). Both are kept as evidence,
-                // but the relay never overwrites the stored one.
+                $hash = hash('sha256', $record->text);
+
+                // Same position with the same hash: a harmless re-send.
+                // Same position with a different hash: equivocation. The stored
+                // record is never overwritten; the new version goes to `conflicts`.
+                if ($existing !== null && $existing->hash === $hash) {
+                    $already[] = $record->id;
+
+                    continue;
+                }
                 if ($existing !== null) {
-                    if ($existing->canonical === $record->text) {
-                        $already[] = $record->id;
+                    if ($this->storeConflict($partnershipId, $record, $hash)) {
+                        $accepted[] = $record->id;
                     } else {
-                        $conflicts[] = [
-                            'author' => $record->author,
-                            'seq' => $record->seq,
-                            'stored' => $existing->canonical,
-                            'received' => $record->text,
-                        ];
+                        $already[] = $record->id;
                     }
 
                     continue;
@@ -84,19 +85,19 @@ final class RecordSync
                     'partnership' => $partnershipId,
                     'author' => $record->author,
                     'seq' => $record->seq,
-                    'hash' => hash('sha256', $record->text),
+                    'hash' => $hash,
                     'canonical' => $record->text,
                 ]);
-                $stored[] = $record->id;
+                $accepted[] = $record->id;
             }
 
             usort($rejected, fn (array $a, array $b) => $a['index'] <=> $b['index']);
 
             return [
-                'stored' => $stored,
+                'accepted' => $accepted,
                 'already' => $already,
                 'rejected' => $rejected,
-                'conflicts' => $conflicts,
+                'conflicts' => $this->conflictTexts($partnershipId),
                 'records' => $this->recordsMissingFrom($partnershipId, $clientVector),
                 'vector' => (object) $this->vectorOf($partnershipId),
             ];
@@ -184,6 +185,68 @@ final class RecordSync
         }
 
         return null;
+    }
+
+    /**
+     * Keep a conflicting version. It is stored once, by hash, so re-sending the
+     * same conflict changes nothing. Returns false when it was already there.
+     */
+    private function storeConflict(string $partnershipId, ReceivedRecord $record, string $hash): bool
+    {
+        if (DB::table('conflicts')->where('hash', $hash)->exists()) {
+            return false;
+        }
+
+        DB::table('conflicts')->insert([
+            'partnership' => $partnershipId,
+            'author' => $record->author,
+            'seq' => $record->seq,
+            'hash' => $hash,
+            'canonical' => $record->text,
+        ]);
+
+        return true;
+    }
+
+    /**
+     * Every version the relay holds at each conflicted (author, seq): the
+     * stored record first, then each conflicting version in the order it
+     * arrived. Sent to both partners, so each one can check for equivocation.
+     *
+     * @return list<string>
+     */
+    private function conflictTexts(string $partnershipId): array
+    {
+        $positions = DB::table('conflicts')
+            ->where('partnership', $partnershipId)
+            ->select('author', 'seq')
+            ->distinct()
+            ->orderBy('author')
+            ->orderBy('seq')
+            ->get();
+
+        $texts = [];
+        foreach ($positions as $position) {
+            $original = DB::table('records')
+                ->where('partnership', $partnershipId)
+                ->where('author', $position->author)
+                ->where('seq', $position->seq)
+                ->value('canonical');
+            if ($original !== null) {
+                $texts[] = $original;
+            }
+
+            $versions = DB::table('conflicts')
+                ->where('partnership', $partnershipId)
+                ->where('author', $position->author)
+                ->where('seq', $position->seq)
+                ->orderBy('id')
+                ->pluck('canonical');
+
+            array_push($texts, ...$versions->all());
+        }
+
+        return $texts;
     }
 
     /**
