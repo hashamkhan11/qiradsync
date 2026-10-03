@@ -1,5 +1,6 @@
 import 'approvals.dart';
 import 'amounts.dart';
+import 'ratio.dart';
 import 'record.dart';
 
 /// Record types a `reversal` may cancel in v1 (spec section 5). Reversing any
@@ -226,6 +227,14 @@ bool _isEffective(
     final kind = record.body['kind'];
     return positiveAmount(record) != null &&
         (kind == 'capital' || kind == 'profit');
+  }
+  // A ratio that does not add up to 100, or a date that is not YYYY-MM-DD,
+  // would give wrong profit shares, so it is never effective (spec 6.6).
+  if (record.type == 'partnership_create') {
+    return ratioOf(record) != null;
+  }
+  if (record.type == 'ratio_proposal') {
+    return ratioOf(record) != null && isIsoDate(record.body['effectiveFrom']);
   }
   return true;
 }

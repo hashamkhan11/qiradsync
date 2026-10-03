@@ -54,7 +54,12 @@ Future<(Validator, ChainAuthor, ChainAuthor, String)> setUpPartnership() async {
   final create = await investor.next(
     partnership: partnershipId,
     type: 'partnership_create',
-    body: {'investor': investor.key, 'manager': manager.key},
+    body: {
+      'investor': investor.key,
+      'manager': manager.key,
+      'ratio': {'investor': 60, 'manager': 40},
+      'currency': 'PKR',
+    },
   );
   expect(await validator.receive(create.toJson()), ReceiveOutcome.accepted);
 
