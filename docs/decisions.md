@@ -104,3 +104,19 @@ rules 3 and 5). Forbidding investor reversals was rejected: it removes a valid c
 **Decision:** A profit is split with integer division. The manager gets `result * managerPercent ~/ 100`, and the investor gets the rest, so any remainder in paisa goes to the investor. A loss is carried entirely by the investor, and the manager's share is 0.
 
 **Reason:** Shares must add up to the result exactly, with no paisa lost or created (hard rule 1, integers only). The investor is the party who puts up the capital, so the rounding goes to them. This matches spec section 6.5.
+
+---
+
+## 2026-10-03 — One partnership per ledger
+
+**Decision:** A ledger holds exactly one partnership, named by the `id` of its accepted `partnership_create`. A `partnership_create` is valid only if its `partnership` equals its own `id`. Any record whose `partnership` differs from the ledger's is rejected at membership (spec 6.1, step 3). So a second `partnership_create` is never stored. If the manager rejects a create, the investor makes a new create, which is a new partnership with its own ledger. The rejected one stays as history.
+
+**Reason:** The spec says "the approved `partnership_create`" (singular). Two creates in one ledger would make the active ratio depend on a tie-break, and no partner could say which partnership they were in. Making the id rule a validation rule removes the problem at the source, so the active ratio needs no tie-break.
+
+---
+
+## 2026-10-03 — Chains and version vectors are per partnership
+
+**Decision:** `seq` and `prevHash` belong to a (partnership, author) pair. Each partner's `seq` starts at 1 in each partnership. A device's version vector is kept per partnership.
+
+**Reason:** Once a partnership can be rejected and replaced, the same two keys can start a second partnership. Counting `seq` across partnerships would make the new chain look like it has a gap, or would let records from the old one be replayed into it.

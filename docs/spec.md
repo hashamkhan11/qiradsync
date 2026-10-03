@@ -45,6 +45,14 @@ Every record is a JSON object with these fields:
 
 All money amounts inside `body` are **integers in paisa** (1 PKR = 100 paisa) and must be `> 0`.
 
+**One partnership per ledger.** A ledger holds exactly one partnership, named by the `id` of its accepted
+`partnership_create`. A record whose `partnership` is different is rejected (Section 6.1, step 3). This
+includes a second `partnership_create`. If the manager rejects a create, the investor makes a new create.
+That is a new partnership with its own ledger, and the rejected one stays as history.
+
+**Chains are per partnership.** `seq` and `prevHash` belong to a (partnership, author) pair. Each partner's
+`seq` starts at 1 in each partnership.
+
 ---
 
 ## 4. Canonical encoding, signatures and hashes
@@ -74,6 +82,7 @@ hash(record) = hex( SHA-256( canonical(record including "sig") ) )
 ```
 
 `prevHash` of record with `seq = n` must equal `hash` of the same author's record with `seq = n − 1`.
+Both `seq` and `prevHash` are counted per (partnership, author), see Section 3.
 
 ---
 
@@ -121,9 +130,12 @@ Notes:
 
 ### 6.1 Receiving a record (per record, in this order)
 
-1. **Schema:** all fields present with correct types; `v == 1`; amounts are positive integers.
+1. **Schema:** all fields present with correct types; `v == 1`; amounts are positive integers. For a
+   `partnership_create`, `partnership` equals its own `id`.
 2. **Signature:** `sig` verifies against `author` over `canonical(unsigned)`.
-3. **Membership:** `author` is one of the two partnership keys (except the bootstrap case in Section 5).
+3. **Membership:** `partnership` equals this ledger's partnership id (the `id` of its accepted
+   `partnership_create`), and `author` is one of the two partnership keys. Before any create is accepted,
+   only a `partnership_create` passes (the bootstrap case in Section 5). A second `partnership_create` fails here.
 4. **Chain:** if the author's record with `seq − 1` is present, `prevHash` must match its hash.
    If it is missing, keep the record in a **pending** buffer until the gap is filled. Pending records are not used in calculations.
 5. **Equivocation:** if a different record already exists with the same `author` and `seq`, keep **both**,
@@ -218,8 +230,9 @@ one whose `effectiveFrom <= D`. v1 shows the ratio active today; per-period prof
 
 ### 7.1 Version vector
 
-A device's version vector is a map `author → highest seq held without gaps`. Example:
-`{ "<investorKey>": 12, "<managerKey>": 7 }`.
+A device's version vector is a map `author → highest seq held without gaps`, **for one partnership**. A
+device holding two partnerships keeps one version vector per partnership, never one shared across them.
+Example, for one partnership: `{ "<investorKey>": 12, "<managerKey>": 7 }`.
 
 ### 7.2 Relay API (Laravel)
 
