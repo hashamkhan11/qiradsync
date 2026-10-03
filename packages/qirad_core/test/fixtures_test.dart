@@ -24,7 +24,7 @@ void main() {
       final fixture =
           jsonDecode(await File(fixturePath).readAsString())
               as Map<String, dynamic>;
-      final validator = Validator();
+      final validator = Validator.unpinnedForTesting();
 
       for (final text in (fixture['records'] as List).cast<String>()) {
         expect(

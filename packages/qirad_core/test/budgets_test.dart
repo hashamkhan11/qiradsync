@@ -347,7 +347,7 @@ void main() {
 
         Effectiveness? baseline;
         for (final order in orders) {
-          final validator = Validator();
+          final validator = Validator.unpinnedForTesting();
           await validator.receiveText(canonicalJson(create.toJson()));
           for (final record in order) {
             await validator.receiveText(canonicalJson(record.toJson()));

@@ -25,7 +25,7 @@ void main() {
     String authorOf(String text) =>
         (jsonDecode(text) as Map<String, dynamic>)['author'] as String;
 
-    final validator = Validator();
+    final validator = Validator.unpinnedForTesting();
 
     // The partnership_create must be accepted first, so the parties are known.
     // The response may list the other records in any order.

@@ -191,7 +191,7 @@ void main() {
       final investor = ChainAuthor(await generateEd25519KeyPair());
       final manager = ChainAuthor(await generateEd25519KeyPair());
       const partnershipId = 'partnership-bad';
-      final validator = Validator();
+      final validator = Validator.unpinnedForTesting();
       final create = await investor.next(
         partnership: partnershipId,
         type: 'partnership_create',
@@ -266,7 +266,7 @@ void main() {
         ];
 
         for (final order in orders) {
-          final validator = Validator();
+          final validator = Validator.unpinnedForTesting();
           await validator.receiveText(canonicalJson(create.toJson()));
           // Some orders deliver a record before its chain predecessor. Those are
           // held as pending and released later, so only the final state matters.

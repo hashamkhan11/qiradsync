@@ -10,7 +10,7 @@ void main() {
       () async {
         final investor = ChainAuthor(await generateEd25519KeyPair());
         final manager = ChainAuthor(await generateEd25519KeyPair());
-        final validator = Validator();
+        final validator = Validator.unpinnedForTesting();
         final create = await investor.next(
           partnership: 'partnership-1',
           type: 'partnership_create',
@@ -104,7 +104,7 @@ void main() {
 
         expect(create.seq, 1);
         expect(
-          await Validator().receiveText(canonicalJson(create.toJson())),
+          await Validator.unpinnedForTesting().receiveText(canonicalJson(create.toJson())),
           ReceiveOutcome.accepted,
         );
       },

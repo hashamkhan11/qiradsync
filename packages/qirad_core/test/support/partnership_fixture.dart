@@ -52,7 +52,7 @@ Future<(Validator, ChainAuthor, ChainAuthor, String)> setUpPartnership() async {
   final investor = ChainAuthor(await generateEd25519KeyPair());
   final manager = ChainAuthor(await generateEd25519KeyPair());
   const partnershipId = 'partnership-1';
-  final validator = Validator();
+  final validator = Validator.unpinnedForTesting();
 
   final create = await investor.next(
     partnership: partnershipId,

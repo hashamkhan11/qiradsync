@@ -127,7 +127,10 @@ void main() {
         managerKey: manager.publicKeyBase64Url,
       );
 
-      expect(await Validator().receiveText(forged), ReceiveOutcome.accepted);
+      expect(
+        await Validator.unpinnedForTesting().receiveText(forged),
+        ReceiveOutcome.accepted,
+      );
     },
   );
 }

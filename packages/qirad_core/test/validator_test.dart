@@ -6,7 +6,7 @@ import 'support/partnership_fixture.dart';
 void main() {
   group('step 1 — schema', () {
     test('a record missing required fields is rejected, not stored', () async {
-      final validator = Validator();
+      final validator = Validator.unpinnedForTesting();
       final outcome = await validator.receiveText(canonicalJson({'v': 1, 'id': 'x'}));
 
       expect(outcome, ReceiveOutcome.rejectedSchema);

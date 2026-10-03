@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:meta/meta.dart';
+
 import 'canonical_json.dart';
 import 'ledger.dart';
 import 'record.dart';
@@ -170,10 +172,20 @@ bool _hasExactlyRatioKeys(Object? ratio) {
 /// that computation will read.
 class Validator {
   /// [pinnedInvestorKey] and [pinnedManagerKey] come from the join code
-  /// (spec section 2.1). When set, the first `partnership_create` is accepted
-  /// only if it names these keys. Without pins, any valid create is accepted,
-  /// which only the core's own rule tests use. The app always pins.
-  Validator({this.pinnedInvestorKey, this.pinnedManagerKey});
+  /// (spec section 2.1). The first `partnership_create` is accepted only if it
+  /// names these keys. Both are required: without pins, any valid create
+  /// would be accepted, which is the forged-create attack (spec 2.1).
+  Validator({
+    required String pinnedInvestorKey,
+    required String pinnedManagerKey,
+  }) : this._(pinnedInvestorKey, pinnedManagerKey);
+
+  /// A validator with no pins. Any valid `partnership_create` is accepted.
+  /// Only the core's own rule tests may use this; the app must always pin.
+  @visibleForTesting
+  Validator.unpinnedForTesting() : this._(null, null);
+
+  Validator._(this.pinnedInvestorKey, this.pinnedManagerKey);
 
   final String? pinnedInvestorKey;
   final String? pinnedManagerKey;
