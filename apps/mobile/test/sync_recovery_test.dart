@@ -57,7 +57,10 @@ void main() {
       // investor uploads first and the manager's phone then receives the chain.
       await investorPhone.runner.run('p1');
       await managerPhone.runner.run('p1');
-      expect(await managerPhone.store.receive(approve), ReceiveOutcome.accepted);
+      expect(
+        await managerPhone.store.receive(approve),
+        ReceiveOutcome.accepted,
+      );
       await managerPhone.runner.run('p1');
       await investorPhone.runner.run('p1');
       expect(await investorPhone.store.savedTexts('p1'), hasLength(4));

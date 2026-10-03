@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -298,5 +299,53 @@ void main() {
       expect(waits, isEmpty);
       expect(relay.calls, 1);
     });
+
+    test(
+      'a relay that never answers times out, then the retry completes',
+      () async {
+        relay.seed(await texts.partnershipCreate());
+        relay.hangs = 1;
+        final impatient = RelayClient(
+          baseUrl: 'https://relay.test',
+          httpClient: relay.client,
+          requestTimeout: const Duration(milliseconds: 20),
+        );
+        final result = SyncRunner(
+          store: store,
+          relay: impatient,
+          session: session,
+          delay: (duration) async => waits.add(duration),
+        );
+
+        final outcome = await result.run('p1');
+
+        expect(outcome.complete, isTrue);
+        expect(waits, [const Duration(seconds: 1)]);
+        expect(relay.calls, 2, reason: 'the timed-out attempt, then the retry');
+      },
+    );
+
+    test(
+      'a relay that never answers fails cleanly after five retries',
+      () async {
+        relay.hangs = 100;
+        final impatient = RelayClient(
+          baseUrl: 'https://relay.test',
+          httpClient: relay.client,
+          requestTimeout: const Duration(milliseconds: 20),
+        );
+        final result = SyncRunner(
+          store: store,
+          relay: impatient,
+          session: session,
+          delay: (duration) async => waits.add(duration),
+        );
+
+        await expectLater(result.run('p1'), throwsA(isA<TimeoutException>()));
+        expect(waits, hasLength(5));
+        expect(relay.calls, 6, reason: 'the first attempt and 5 retries');
+        expect(await store.savedTexts('p1'), isEmpty);
+      },
+    );
   });
 }

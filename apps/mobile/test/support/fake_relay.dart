@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -31,6 +32,9 @@ class FakeRelay {
 
   /// The next sync calls answer 503, as a relay that is down for a moment.
   int serverErrors = 0;
+
+  /// The next sync calls never get an answer, as a relay that has hung.
+  int hangs = 0;
 
   /// When true, a sync call whose token is not in [validTokens] gets 401.
   /// Off by default, so tests that do not care about tokens are unchanged.
@@ -108,6 +112,11 @@ class FakeRelay {
   Future<http.Response> _sync(http.Request request) async {
     calls++;
     lastAuthorization = request.headers['Authorization'];
+    if (hangs > 0) {
+      hangs--;
+      // Never completes. Only the phone's timeout can end this call.
+      await Completer<http.Response>().future;
+    }
     if (networkFailures > 0) {
       networkFailures--;
       throw http.ClientException('no network');
