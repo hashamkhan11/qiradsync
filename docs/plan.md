@@ -82,7 +82,10 @@ all tests pass, and its pull request is merged.
 
 - [ ] SQLite tables for records (raw canonical string + indexed fields) and pending buffer
 - [ ] Secure storage for the private key
-- [ ] Sync client per spec §7.3 with retry and backoff
+- [ ] Sync client per spec §7.3: one sync run with compare-and-repair (up to 3 rounds)
+- [ ] Sync retry with exponential backoff when offline
+- [ ] Device registration per spec §7.2 (challenge, signed registration). The token is stored in secure storage. On a 401, re-register once and retry the sync. A second 401 stops with a clear error.
+- [ ] Partnership scoping: queries and version vectors always take a partnership id
 - [ ] Integration test: two simulated devices + local relay, offline edits on both, converge after sync
 
 **Done when:** the two-device test converges with identical balances.

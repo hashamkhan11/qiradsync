@@ -223,3 +223,16 @@ refuses UPDATE and DELETE with triggers, the same rule as the relay.
 **Reason:** The signature covers exact bytes, so the text is the only trusted fact. A separate pending table would
 be a second copy of the same facts, and it could disagree with the validator. Keeping equivocating versions lets
 the flag survive a restart, the same way the relay keeps both versions.
+
+---
+
+## 2026-10-03 — Device registration is its own Phase 6 step; the token lives in secure storage
+
+**Decision:** Device registration (spec 7.2: challenge, then signed registration) is a separate Phase 6 step.
+The sync client receives the bearer token as an input. The token is stored in secure storage, not in SQLite.
+On a `401` from the relay, the app re-registers once and retries the sync. A second `401` stops with a clear
+error instead of looping.
+
+**Reason:** The token is a credential, so it belongs next to the private key in secure storage. Registration
+is its own concept (proof of key possession), and it should be taught and tested on its own. One automatic
+re-registration recovers from an expired token, and the limit stops a broken relay from causing an endless loop.
