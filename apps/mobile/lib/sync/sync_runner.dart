@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:http/http.dart' as http;
 import 'package:qirad_core/qirad_core.dart';
 
 import '../storage/record_store.dart';
@@ -42,6 +45,8 @@ class SyncRunner {
     required this.relay,
     required this.session,
     this.maxRepairRounds = 3,
+    this.maxRetries = 5,
+    this.delay = _wait,
   });
 
   final RecordStore store;
@@ -52,7 +57,51 @@ class SyncRunner {
 
   final int maxRepairRounds;
 
+  /// How many times a failed run is tried again (spec 7.3 step 6). The first
+  /// attempt is not counted, so 5 means up to 6 attempts in total.
+  final int maxRetries;
+
+  /// How the runner waits between retries. Tests replace it so they never
+  /// really wait.
+  final Future<void> Function(Duration) delay;
+
+  static Future<void> _wait(Duration duration) =>
+      Future<void>.delayed(duration);
+
+  /// The wait before retry number [retry] (1 is the first retry): 1 s, 2 s,
+  /// 4 s, and so on, capped at 30 s. There is no random jitter: one phone
+  /// syncs one partnership, so there is no thundering herd to spread out, and
+  /// fixed waits make the tests exact.
+  static Duration backoffDelay(int retry) {
+    const first = Duration(seconds: 1);
+    const cap = Duration(seconds: 30);
+    final doubled = first * (1 << (retry - 1));
+    return doubled > cap ? cap : doubled;
+  }
+
+  /// One sync for [partnership], retried with backoff when the failure may
+  /// go away: a network error, or a relay 5xx. A 403 or 422 gives the same
+  /// answer again, so it is not retried. Neither is [DeviceRejected].
+  ///
+  /// Each retry is a new run with its own repair rounds, separate from this
+  /// count (spec 7.3 step 3).
   Future<SyncResult> run(String partnership) async {
+    for (var retry = 0; ; retry++) {
+      try {
+        return await _runOnce(partnership);
+      } catch (error) {
+        if (!_isTransient(error) || retry == maxRetries) rethrow;
+        await delay(backoffDelay(retry + 1));
+      }
+    }
+  }
+
+  static bool _isTransient(Object error) {
+    if (error is RelayRefused) return error.status >= 500;
+    return error is http.ClientException || error is TimeoutException;
+  }
+
+  Future<SyncResult> _runOnce(String partnership) async {
     var token = await session.token();
     var registeredAgain = false;
 

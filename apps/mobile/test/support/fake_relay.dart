@@ -26,6 +26,12 @@ class FakeRelay {
   /// When set, every sync call is refused with this status.
   int? refuseWith;
 
+  /// The next sync calls fail as if the phone were offline (no response).
+  int networkFailures = 0;
+
+  /// The next sync calls answer 503, as a relay that is down for a moment.
+  int serverErrors = 0;
+
   /// When true, a sync call whose token is not in [validTokens] gets 401.
   /// Off by default, so tests that do not care about tokens are unchanged.
   bool enforceTokens = false;
@@ -96,6 +102,14 @@ class FakeRelay {
   Future<http.Response> _sync(http.Request request) async {
     calls++;
     lastAuthorization = request.headers['Authorization'];
+    if (networkFailures > 0) {
+      networkFailures--;
+      throw http.ClientException('no network');
+    }
+    if (serverErrors > 0) {
+      serverErrors--;
+      return http.Response('', 503);
+    }
     if (refuseWith != null) return http.Response('', refuseWith!);
     if (enforceTokens && !validTokens.contains(_tokenOf(request))) {
       return http.Response('', 401);

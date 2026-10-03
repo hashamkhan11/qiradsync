@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:mobile/storage/record_store.dart';
 import 'package:mobile/storage/token_store.dart';
 import 'package:mobile/sync/device_session.dart';
@@ -24,8 +25,10 @@ void main() {
   late RelayClient client;
   late TokenStore tokens;
   late DeviceSession session;
+  late List<Duration> waits;
 
   setUp(() async {
+    waits = [];
     dir = await Directory.systemTemp.createTemp('qirad_sync_test');
     texts = await SignedTexts.create();
     relay = FakeRelay();
@@ -64,6 +67,8 @@ void main() {
       relay: client,
       session: session,
       maxRepairRounds: maxRepairRounds,
+      // Records the wait instead of sleeping, so tests stay fast and exact.
+      delay: (duration) async => waits.add(duration),
     );
   }
 
@@ -225,5 +230,73 @@ void main() {
     await expectLater(runner().run('p1'), throwsA(isA<DeviceRejected>()));
     expect(relay.registrations, 1, reason: 'registered once, not in a loop');
     expect(relay.calls, 2, reason: 'the saved token, then the new one');
+    expect(waits, isEmpty, reason: 'a rejected device is not retried');
+  });
+
+  group('retry with backoff (spec 7.3 step 6)', () {
+    test('the wait doubles from 1 s and is capped at 30 s', () {
+      expect(SyncRunner.backoffDelay(1), const Duration(seconds: 1));
+      expect(SyncRunner.backoffDelay(2), const Duration(seconds: 2));
+      expect(SyncRunner.backoffDelay(3), const Duration(seconds: 4));
+      expect(SyncRunner.backoffDelay(5), const Duration(seconds: 16));
+      expect(SyncRunner.backoffDelay(6), const Duration(seconds: 30));
+      expect(SyncRunner.backoffDelay(20), const Duration(seconds: 30));
+    });
+
+    test(
+      'a network failure is retried once after 1 s, then completes',
+      () async {
+        relay.seed(await texts.partnershipCreate());
+        relay.networkFailures = 1;
+
+        final result = await runner().run('p1');
+
+        expect(result.complete, isTrue);
+        expect(waits, [const Duration(seconds: 1)]);
+        expect(relay.calls, 2, reason: 'the failed attempt, then the retry');
+      },
+    );
+
+    test('the waits double across several failures: 1, 2, 4 s', () async {
+      relay.seed(await texts.partnershipCreate());
+      relay.networkFailures = 3;
+
+      await runner().run('p1');
+
+      expect(waits, [
+        const Duration(seconds: 1),
+        const Duration(seconds: 2),
+        const Duration(seconds: 4),
+      ]);
+    });
+
+    test('a relay 503 is retried like a network failure', () async {
+      relay.seed(await texts.partnershipCreate());
+      relay.serverErrors = 1;
+
+      final result = await runner().run('p1');
+
+      expect(result.complete, isTrue);
+      expect(waits, [const Duration(seconds: 1)]);
+    });
+
+    test('gives up after 5 retries, with the last error', () async {
+      relay.networkFailures = 100;
+
+      await expectLater(
+        runner().run('p1'),
+        throwsA(isA<http.ClientException>()),
+      );
+      expect(waits, hasLength(5));
+      expect(relay.calls, 6, reason: 'the first attempt and 5 retries');
+    });
+
+    test('a 403 is not retried', () async {
+      relay.refuseWith = 403;
+
+      await expectLater(runner().run('p1'), throwsA(isA<RelayRefused>()));
+      expect(waits, isEmpty);
+      expect(relay.calls, 1);
+    });
   });
 }
