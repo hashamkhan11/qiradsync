@@ -73,6 +73,10 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     if (time is! String) return null;
     if (sig is! String) return null;
 
+    // A partnership is named by its own create record, so the create's
+    // `partnership` must be its own `id` (spec section 3).
+    if (type == 'partnership_create' && partnership != id) return null;
+
     return Record(
       v: 1,
       id: id,
@@ -107,6 +111,11 @@ class Validator {
   final Ledger ledger = Ledger();
 
   Set<String>? _partnershipKeys;
+
+  /// The id of the one partnership this ledger holds, learned from the first
+  /// accepted `partnership_create`. A ledger never holds a second partnership:
+  /// records naming any other partnership are rejected (spec 6.1, step 3).
+  String? _partnershipId;
 
   final Map<String, Map<int, Record>> _pending = {};
   final Map<String, Map<int, Record>> _acceptedBySeq = {};
@@ -159,6 +168,7 @@ class Validator {
       final manager = record.body['manager'];
       if (investor is String && manager is String) {
         _partnershipKeys = {investor, manager};
+        _partnershipId = record.partnership;
       }
     }
 
@@ -169,6 +179,9 @@ class Validator {
     if (_partnershipKeys == null) {
       return record.type == 'partnership_create';
     }
+    // Only one partnership per ledger. A second create (or any record for
+    // another partnership) is rejected here, so it is never stored.
+    if (record.partnership != _partnershipId) return false;
     return _partnershipKeys!.contains(record.author);
   }
 

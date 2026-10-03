@@ -18,14 +18,20 @@ Ratio? activeRatio(
 
   final effective = usable.where(effectiveness.isEffective).toList();
 
-  // Sorting by (author, seq) gives one answer on every device, even if two
-  // partnership_create records are effective. See the open question in the recap.
-  final creates =
-      effective.where((r) => r.type == 'partnership_create').toList()
-        ..sort(_byAuthorThenSeq);
+  // A ledger holds one partnership, so at most one create can be usable
+  // (decision 2026-10-03, one partnership per ledger). Two would mean the
+  // validator is broken, so fail loudly instead of guessing.
+  final creates = effective
+      .where((r) => r.type == 'partnership_create')
+      .toList();
+  if (creates.length > 1) {
+    throw StateError(
+      'ledger holds ${creates.length} partnership_create records',
+    );
+  }
   if (creates.isEmpty) return null;
 
-  var ratio = ratioOf(creates.first);
+  var ratio = ratioOf(creates.single);
 
   // Sorting by (effectiveFrom, author, seq) makes a tie on the same date
   // resolve the same way everywhere. The last matching proposal is the latest.

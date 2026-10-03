@@ -195,6 +195,7 @@ void main() {
       final create = await investor.next(
         partnership: partnershipId,
         type: 'partnership_create',
+        id: partnershipId,
         body: {
           'investor': investor.key,
           'manager': manager.key,

@@ -19,12 +19,15 @@ class ChainAuthor {
     Map<String, dynamic> body = const {},
     String note = '',
     String? refersTo,
+    String? id,
   }) async {
     seq += 1;
     _counter += 1;
     final unsigned = Record(
       v: 1,
-      id: '${key.substring(0, 8)}-rec-$_counter',
+      // A partnership_create's id must equal its `partnership` (spec 3), so
+      // tests pass it explicitly when they need it.
+      id: id ?? '${key.substring(0, 8)}-rec-$_counter',
       partnership: partnership,
       author: key,
       seq: seq,
@@ -54,6 +57,7 @@ Future<(Validator, ChainAuthor, ChainAuthor, String)> setUpPartnership() async {
   final create = await investor.next(
     partnership: partnershipId,
     type: 'partnership_create',
+    id: partnershipId,
     body: {
       'investor': investor.key,
       'manager': manager.key,
