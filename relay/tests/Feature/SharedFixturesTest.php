@@ -7,6 +7,7 @@ use App\Support\CanonicalJson;
 use App\Support\ReceivedRecord;
 use App\Support\RecordSignature;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use PHPUnit\Framework\Attributes\Test;
 use Tests\Support\RecordFactory;
@@ -31,6 +32,8 @@ class SharedFixturesTest extends TestCase
     private const DART_FIXTURE = '../testdata/dart_signed_records.json';
 
     private const RELAY_FIXTURE = '../testdata/relay_equivocation_sync.json';
+
+    private const REGISTRATION_VECTOR = '../testdata/registration_vector.json';
 
     private const RELAY_PARTNERSHIP = 'partnership-relay-fixture';
 
@@ -65,6 +68,31 @@ class SharedFixturesTest extends TestCase
             'already' => [],
             'rejected' => [],
         ]);
+    }
+
+    #[Test]
+    public function the_relay_accepts_a_registration_signed_in_dart(): void
+    {
+        $vector = json_decode(
+            file_get_contents(base_path(self::REGISTRATION_VECTOR)),
+            true,
+            512,
+            JSON_THROW_ON_ERROR,
+        );
+
+        // A real relay issues this nonce from /devices/challenge. The Dart
+        // signature is over this fixed nonce, so the test stores it directly.
+        DB::table('device_challenges')->insert([
+            'public_key' => $vector['publicKey'],
+            'nonce' => $vector['nonce'],
+            'expires_at' => now()->addMinutes(5),
+        ]);
+
+        $this->postJson('/api/v1/devices', [
+            'publicKey' => $vector['publicKey'],
+            'nonce' => $vector['nonce'],
+            'signature' => $vector['signature'],
+        ])->assertCreated()->assertJsonStructure(['token']);
     }
 
     #[Test]

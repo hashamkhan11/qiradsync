@@ -102,7 +102,27 @@ Future<String> buildDartFixture() async {
   return '${const JsonEncoder.withIndent('  ').convert(output)}\n';
 }
 
+const registrationPath = '../../testdata/registration_vector.json';
+
+/// A device registration signed in Dart, for the relay to verify (spec 7.2).
+/// The nonce is fixed here; a real relay issues random ones. The PHP test
+/// stores this nonce itself, then posts the registration.
+Future<String> buildRegistrationVector() async {
+  final device = await testKey('device');
+  final nonce = encodeBase64UrlNoPadding(
+    sha256.convert(utf8.encode('qiradsync test nonce')).bytes,
+  );
+  final output = {
+    'publicKey': device.publicKeyBase64Url,
+    'nonce': nonce,
+    'signature': await signRegistrationChallenge(device, nonce),
+  };
+  return '${const JsonEncoder.withIndent('  ').convert(output)}\n';
+}
+
 Future<void> main() async {
   await File(fixturePath).writeAsString(await buildDartFixture());
   stdout.writeln('wrote $fixturePath');
+  await File(registrationPath).writeAsString(await buildRegistrationVector());
+  stdout.writeln('wrote $registrationPath');
 }
