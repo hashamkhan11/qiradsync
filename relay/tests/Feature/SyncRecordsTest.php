@@ -107,6 +107,18 @@ class SyncRecordsTest extends TestCase
         ]);
     }
 
+    /** A manager approval at a given seq. Two different ids at one seq make an equivocation. */
+    private function managerApprove(int $seq, string $id): string
+    {
+        return $this->signed($this->manager, [
+            'id' => $id,
+            'partnership' => self::PARTNERSHIP,
+            'seq' => $seq,
+            'type' => 'approve',
+            'body' => new \stdClass,
+        ]);
+    }
+
     private function startPartnership(): void
     {
         $this->syncAs($this->investor, [$this->createText()])->assertOk();
@@ -119,7 +131,7 @@ class SyncRecordsTest extends TestCase
 
         $this->syncAs($this->investor, [$text])
             ->assertOk()
-            ->assertJsonPath('stored', [json_decode($text)->id])
+            ->assertJsonPath('accepted', [json_decode($text)->id])
             ->assertJsonPath('rejected', []);
 
         $this->assertSame(1, DB::table('records')->count());
@@ -151,7 +163,7 @@ class SyncRecordsTest extends TestCase
         $this->syncAs($this->investor, [$text])
             ->assertOk()
             ->assertJsonPath('rejected.0.reason', 'not in canonical form')
-            ->assertJsonPath('stored', []);
+            ->assertJsonPath('accepted', []);
 
         $this->assertFalse(DB::table('records')->where('record_id', 'invest-2')->exists());
     }
@@ -171,7 +183,12 @@ class SyncRecordsTest extends TestCase
     #[Test]
     public function the_manager_cannot_start_the_partnership(): void
     {
-        $this->syncAs($this->manager, [$this->createText()])->assertForbidden();
+        $this->syncAs($this->manager, [$this->createText()])
+            ->assertForbidden()
+            ->assertJsonPath(
+                'message',
+                'This device is not allowed to sync this partnership. If you are creating it, upload a valid partnership_create signed by the investor.',
+            );
 
         $this->assertSame(0, DB::table('records')->count());
     }
@@ -191,7 +208,7 @@ class SyncRecordsTest extends TestCase
 
         $this->syncAs($this->manager, [$managerRecord])
             ->assertOk()
-            ->assertJsonPath('stored', ['manager-rec-1']);
+            ->assertJsonPath('accepted', ['manager-rec-1']);
     }
 
     #[Test]
@@ -285,7 +302,7 @@ class SyncRecordsTest extends TestCase
 
         $this->syncAs($this->investor, [$invest])
             ->assertJsonPath('already', ['invest-2'])
-            ->assertJsonPath('stored', []);
+            ->assertJsonPath('accepted', []);
 
         $this->assertSame(2, DB::table('records')->count());
     }
@@ -301,16 +318,57 @@ class SyncRecordsTest extends TestCase
 
         $response = $this->syncAs($this->investor, [$second])
             ->assertOk()
-            ->assertJsonPath('stored', []);
+            ->assertJsonPath('accepted', ['invest-2b']);
 
-        $conflict = $response->json('conflicts.0');
-        $this->assertSame($this->investor[0], $conflict['author']);
-        $this->assertSame(2, $conflict['seq']);
-        $this->assertSame($first, $conflict['stored']);
-        $this->assertSame($second, $conflict['received']);
+        // Both versions are sent back, the stored one first.
+        $this->assertSame([$first, $second], $response->json('conflicts'));
 
         // The relay keeps the first record and never overwrites it.
         $this->assertSame($first, DB::table('records')->where('seq', 2)->value('canonical'));
+        $this->assertSame(1, DB::table('conflicts')->count());
+    }
+
+    #[Test]
+    public function equivocation_is_sent_to_the_other_partner(): void
+    {
+        $this->startPartnership();
+        $first = $this->managerApprove(5, 'approve-5a');
+        $second = $this->managerApprove(5, 'approve-5b');
+
+        $this->syncAs($this->manager, [$first])->assertJsonPath('accepted', ['approve-5a']);
+        $this->syncAs($this->manager, [$second])->assertJsonPath('accepted', ['approve-5b']);
+
+        // The investor's next sync receives both versions, so the investor's phone can flag the manager.
+        $this->syncAs($this->investor, [])
+            ->assertOk()
+            ->assertJsonPath('conflicts', [$first, $second]);
+
+        // Re-sending the same conflicting version is reported as already stored, not stored twice.
+        $this->syncAs($this->manager, [$second])
+            ->assertJsonPath('already', ['approve-5b'])
+            ->assertJsonPath('conflicts', [$first, $second]);
+        $this->assertSame(1, DB::table('conflicts')->count());
+    }
+
+    #[Test]
+    public function a_batch_in_mixed_order_is_processed_with_the_create_first(): void
+    {
+        $create = $this->createText();
+        $response = $this->syncAs($this->investor, [
+            $this->investText(3, 'invest-3'),
+            $this->managerApprove(1, 'approve-1'),
+            $this->investText(2, 'invest-2'),
+            $create,
+        ]);
+
+        // Nothing is rejected: the create is handled first, so the others are judged
+        // against an existing partnership, whatever order they arrived in.
+        $response->assertOk()->assertJsonPath('rejected', []);
+        $this->assertEqualsCanonicalizing(
+            [json_decode($create)->id, 'invest-3', 'approve-1', 'invest-2'],
+            $response->json('accepted'),
+        );
+        $this->assertSame(4, DB::table('records')->count());
     }
 
     #[Test]
