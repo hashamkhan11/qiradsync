@@ -1,4 +1,5 @@
 import 'approvals.dart';
+import 'amounts.dart';
 import 'record.dart';
 
 /// Record types a `reversal` may cancel in v1 (spec section 5). Reversing any
@@ -101,7 +102,7 @@ Effectiveness computeEffective(
   final budgetUsed = <String, int>{};
 
   for (final budget in records.where((r) => r.type == 'budget_proposal')) {
-    final budgetAmount = _amount(budget);
+    final budgetAmount = positiveAmount(budget);
     final grantee = budget.body['grantee'];
     if (blockedIds.contains(budget.id) ||
         budgetAmount == null ||
@@ -145,7 +146,7 @@ Effectiveness computeEffective(
     for (final event in events) {
       final record = event.record;
       if (record.type == 'expense') {
-        final amount = _amount(record);
+        final amount = positiveAmount(record);
         if (amount == null) {
           expenseStatus[record.id] = ExpenseStatus.badAmount;
         } else if (used + amount <= budgetAmount) {
@@ -160,7 +161,7 @@ Effectiveness computeEffective(
         final expense = byId[record.refersTo]!;
         if (expenseStatus[expense.id] == ExpenseStatus.valid &&
             freed.add(expense.id)) {
-          used -= _amount(expense)!;
+          used -= positiveAmount(expense)!;
         }
       }
     }
@@ -213,15 +214,20 @@ bool _isEffective(
   if (record.type == 'expense') {
     return expenseStatus[record.id] == ExpenseStatus.valid;
   }
+  // Type-specific checks (spec 6.3): a record with a bad amount, or a withdraw
+  // of an unknown kind, must never reach the money totals.
+  if (record.type == 'invest' || record.type == 'sale') {
+    return positiveAmount(record) != null;
+  }
+  if (record.type == 'budget_proposal') {
+    return positiveAmount(record) != null && record.body['grantee'] is String;
+  }
+  if (record.type == 'withdraw_request') {
+    final kind = record.body['kind'];
+    return positiveAmount(record) != null &&
+        (kind == 'capital' || kind == 'profit');
+  }
   return true;
-}
-
-/// The amount in `body['amount']`, or `null` if it is not a positive integer.
-/// Money is always an integer in paisa (hard rule 1), so a double is rejected.
-int? _amount(Record record) {
-  final amount = record.body['amount'];
-  if (amount is! int || amount <= 0) return null;
-  return amount;
 }
 
 /// Returns why [reversal] is invalid, or `null` if it is not invalid.

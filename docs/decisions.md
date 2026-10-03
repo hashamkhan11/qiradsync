@@ -96,3 +96,11 @@ of the grantee's `approve` that makes it effective.
 manager writes expenses, and the other partner's reversal needs the manager's approval, so every budget
 event already has a `seq` in the manager's chain. Clock time and arrival order are not allowed (hard
 rules 3 and 5). Forbidding investor reversals was rejected: it removes a valid correction path.
+
+---
+
+## 2026-10-03 — Profit remainder goes to the investor
+
+**Decision:** A profit is split with integer division. The manager gets `result * managerPercent ~/ 100`, and the investor gets the rest, so any remainder in paisa goes to the investor. A loss is carried entirely by the investor, and the manager's share is 0.
+
+**Reason:** Shares must add up to the result exactly, with no paisa lost or created (hard rule 1, integers only). The investor is the party who puts up the capital, so the rounding goes to them. This matches spec section 6.5.
