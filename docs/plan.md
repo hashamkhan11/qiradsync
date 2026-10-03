@@ -55,12 +55,12 @@ all tests pass, and its pull request is merged.
 
 ## Phase 4 — Business rules and calculations
 
-- [ ] Approvals and rejects (first response wins), spec §5
-- [ ] Reversals, spec §6.3
-- [ ] Budgets and over-budget detection, spec §6.4
-- [ ] Money calculations and remainder rule, spec §6.5
-- [ ] Active ratio, spec §6.6
-- [ ] Scenario tests for each rule, plus "same records in any order → same results"
+- [x] Approvals and rejects (first response wins), spec §5
+- [x] Reversals, spec §6.3
+- [x] Budgets and over-budget detection, spec §6.4
+- [x] Money calculations and remainder rule, spec §6.5
+- [x] Active ratio, spec §6.6
+- [x] Scenario tests for each rule, plus "same records in any order → same results"
 
 **Done when:** all spec §8 tests for these rules pass.
 
