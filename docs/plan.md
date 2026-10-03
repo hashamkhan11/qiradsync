@@ -80,14 +80,14 @@ all tests pass, and its pull request is merged.
 
 ## Phase 6 — Mobile storage and sync
 
-- [ ] SQLite tables for records (raw canonical string + indexed fields) and pending buffer
-- [ ] Secure storage for the private key
+- [x] SQLite tables for records (raw canonical string + indexed fields) and pending buffer
+- [x] Secure storage for the private key (a device check of the real Keystore is in Phase 7)
 - [x] Sync client per spec §7.3: one sync run with compare-and-repair (up to 3 repair rounds)
-- [ ] Sync retry with exponential backoff when offline (network retries are counted apart from repair rounds)
-- [ ] Join flow with pinned keys per spec §2.1: join code (partnership id + investor key); the validator rejects any create that does not match the pins. Done before registration.
-- [ ] Device registration per spec §7.2 (challenge, signed registration). The token is stored in secure storage. On a 401, re-register once and retry the sync. A second 401 stops with a clear error.
+- [x] Sync retry with exponential backoff when offline (network retries are counted apart from repair rounds)
+- [x] Join flow with pinned keys per spec §2.1: join code (partnership id + investor key); the validator rejects any create that does not match the pins. Done before registration. (Showing and scanning the QR code is in Phase 7.)
+- [x] Device registration per spec §7.2 (challenge, signed registration). The token is stored in secure storage. On a 401, re-register once and retry the sync. A second 401 stops with a clear error.
 - [x] Partnership scoping: queries and version vectors always take a partnership id
-- [ ] Integration test: two simulated devices + local relay, offline edits on both, converge after sync
+- [x] Integration test: two simulated devices + local relay, offline edits on both, converge after sync
 
 **Done when:** the two-device test converges with identical balances.
 
