@@ -8,7 +8,7 @@ abstract interface class SecretStore {
   Future<void> write(String name, String value);
 }
 
-/// The real store: Android Keystore on phones (spec 2, CLAUDE.md rule 9).
+/// The real store: Android Keystore on phones (docs/spec.md, section 2).
 class PlatformSecretStore implements SecretStore {
   PlatformSecretStore([FlutterSecureStorage? storage])
     : _storage = storage ?? const FlutterSecureStorage();

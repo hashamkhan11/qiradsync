@@ -1,7 +1,7 @@
 import 'key_store.dart';
 
 /// Saves the device's bearer token (spec 7.2). It lives in the same secure
-/// storage as the private key (CLAUDE.md rule 9), never in the record store.
+/// storage as the private key (docs/spec.md, section 2), never in the record store.
 ///
 /// The token is not a secret that proves a partner, but it lets anyone who has
 /// it download the partnership's records, so it is treated as a secret.

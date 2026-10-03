@@ -12,7 +12,7 @@ import 'package:sqflite/sqflite.dart';
 ///
 /// The store never saves the ledger itself: on open, it feeds the saved texts
 /// back through the validators to rebuild the ledgers. The saved text is the
-/// only fact; everything else is calculated again. (CLAUDE.md rule 4.)
+/// only fact; everything else is calculated again (docs/spec.md, section 1).
 ///
 /// A partnership must be registered with [addPartnership] before any of its
 /// records is accepted. Incoming data never creates a partnership, so a
