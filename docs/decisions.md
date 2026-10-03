@@ -162,5 +162,51 @@ and receipt hash in them. Encrypting records end to end is future work and is no
 relay operator (or anyone who gets its database) can still read the ledger. This is accepted for v1. It must be
 stated to the partners and reviewed before any move to a hosted relay that third parties run.
 
-**Note:** The design report named in CLAUDE.md (docs/design-report.md) is not in the repository. This limitation is
-recorded here until that file exists.
+**Note:** The design report is maintained separately by the developer, outside this repository. It is not created
+in the repo. This decision log is the source of truth in the repo.
+
+---
+
+## 2026-10-03 — The manager may sync once the partnership exists
+
+**Decision:** Both keys named in the accepted `partnership_create` may sync once the partnership exists, including
+the manager before approving. Before the create is stored, only the investor's device may sync, and only to upload
+a valid `partnership_create` (spec 7.2, point 2). The relay does not interpret approvals.
+
+**Reason:** The relay stores records and cannot see approvals, so an approval-based rule could not be enforced on
+the relay. Both keys are already fixed by the create, so the membership check is simple and the same on every phone.
+
+---
+
+## 2026-10-03 — Equivocation is kept by the relay and sent to both partners
+
+**Decision:** A version that clashes with a stored record (same `author` and `seq`, different hash) is kept in a
+separate append-only `conflicts` table. The stored record is never overwritten. Every sync response carries every
+version the relay holds at each conflicted position, to both partners. Each phone runs its own equivocation check
+(spec 6.1 step 5).
+
+**Reason:** If a conflict were reported only to the device that uploaded it, the equivocating partner would be the
+only one to see it, and the other partner could never find out. Sending the evidence to both lets each phone flag the
+partner itself, without trusting the relay's judgement.
+
+---
+
+## 2026-10-03 — A batch is processed with the partnership_create first
+
+**Decision:** In one sync request, the relay handles a `partnership_create` before the other records, whatever order
+they were sent in. The other records are then stored in any order. Order by `seq` is the phone's job (spec 6.1).
+
+**Reason:** A phone may send a batch in any order (for example, records that arrive later are sent first). If the relay
+checked records in arrival order, a valid record would be refused just because the create came after it in the batch.
+The result must not depend on the order of the batch.
+
+---
+
+## 2026-10-03 — The first-sync refusal message does not reveal the partnership
+
+**Decision:** A device that may not sync gets `403` with the message "This device is not allowed to sync this
+partnership. If you are creating it, upload a valid partnership_create signed by the investor." The same message is
+used whether or not the partnership exists.
+
+**Reason:** A different message for "does not exist" and "not a party" would tell an outsider which partnership ids
+are in use. One neutral message gives no such information.
