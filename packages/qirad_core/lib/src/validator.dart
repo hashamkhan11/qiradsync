@@ -73,6 +73,10 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     if (time is! String) return null;
     if (sig is! String) return null;
 
+    // A partnership is named by its own create record, so the create's
+    // `partnership` must be its own `id` (spec section 3).
+    if (type == 'partnership_create' && partnership != id) return null;
+
     return Record(
       v: 1,
       id: id,
@@ -108,6 +112,11 @@ class Validator {
 
   Set<String>? _partnershipKeys;
 
+  /// The id of the one partnership this ledger holds, learned from the first
+  /// accepted `partnership_create`. A ledger never holds a second partnership:
+  /// records naming any other partnership are rejected (spec 6.1, step 3).
+  String? _partnershipId;
+
   final Map<String, Map<int, Record>> _pending = {};
   final Map<String, Map<int, Record>> _acceptedBySeq = {};
   final Map<String, Record> _chainHead = {};
@@ -119,8 +128,18 @@ class Validator {
   Iterable<Record> get pendingRecords =>
       _pending.values.expand((bySeq) => bySeq.values);
 
+  /// Stored records that may feed calculations: not chain-invalid, and not
+  /// from an equivocating author's `seq` onward (spec section 6.1 steps 4–5).
+  /// Pending records are never in the ledger, so they are excluded already.
+  Iterable<Record> get usableRecords => ledger.records.where((record) {
+    if (_chainInvalidIds.contains(record.id)) return false;
+    final equivocatingFrom = _equivocatingFromSeq[record.author];
+    return equivocatingFrom == null || record.seq < equivocatingFrom;
+  });
+
   /// `{ author -> lowest seq at which that author was caught equivocating }`.
-  Map<String, int> get equivocatingFromSeq => Map.unmodifiable(_equivocatingFromSeq);
+  Map<String, int> get equivocatingFromSeq =>
+      Map.unmodifiable(_equivocatingFromSeq);
 
   /// Ids of records that reached the front of the chain but had the wrong
   /// `prevHash` — stored as evidence, never advanced the chain.
@@ -149,6 +168,7 @@ class Validator {
       final manager = record.body['manager'];
       if (investor is String && manager is String) {
         _partnershipKeys = {investor, manager};
+        _partnershipId = record.partnership;
       }
     }
 
@@ -159,6 +179,9 @@ class Validator {
     if (_partnershipKeys == null) {
       return record.type == 'partnership_create';
     }
+    // Only one partnership per ledger. A second create (or any record for
+    // another partnership) is rejected here, so it is never stored.
+    if (record.partnership != _partnershipId) return false;
     return _partnershipKeys!.contains(record.author);
   }
 
@@ -199,7 +222,9 @@ class Validator {
     }
 
     final addOutcome = ledger.add(record);
-    if (addOutcome == AddOutcome.duplicateIgnored) return ReceiveOutcome.duplicateIgnored;
+    if (addOutcome == AddOutcome.duplicateIgnored) {
+      return ReceiveOutcome.duplicateIgnored;
+    }
     if (addOutcome == AddOutcome.idConflict) return ReceiveOutcome.idConflict;
 
     _chainHead[author] = record;
@@ -213,8 +238,9 @@ class Validator {
     final seq = incoming.seq;
 
     final currentFlagSeq = _equivocatingFromSeq[author];
-    _equivocatingFromSeq[author] =
-        currentFlagSeq == null ? seq : (seq < currentFlagSeq ? seq : currentFlagSeq);
+    _equivocatingFromSeq[author] = currentFlagSeq == null
+        ? seq
+        : (seq < currentFlagSeq ? seq : currentFlagSeq);
 
     ledger.add(existing);
     ledger.add(incoming);

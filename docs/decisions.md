@@ -67,3 +67,56 @@ flipping an already-relied-upon "valid" expense to "over budget," or an already-
 to "valid." Same monotonicity problem as the earlier "first response wins" (Section 5) and sync
 (Section 7.3) fixes: a decision both partners have already acted on must never be rewritten by
 something that happens later.
+
+---
+
+## 2026-10-03 — Only four record types can be reversed in v1
+
+**Decision:** A `reversal` may only cancel `invest`, `sale`, `expense` or `withdraw_request`. A
+reversal whose target is any other type is **invalid**: it is flagged, shown in the UI, and has no
+effect. Reversing an `approve` or `reject` is therefore invalid too. Other reversals whose target does
+not yet exist (for example, one that arrived before its target) have no effect yet, but are not
+flagged, because they may become valid when the target arrives.
+
+**Reason:** Reversing `partnership_create` would destroy the partnership. Reversing an active
+`ratio_proposal` would flip a decision backward, so a new proposal is used instead. Closing a
+`budget_proposal` early raises a cross-author ordering question (which of the grantee's expenses still
+count), so it is future work. Responses are final under first-response-wins (Section 5), so a partner
+changes their mind by proposing again, not by reversing a response.
+
+---
+
+## 2026-10-03 — Budget events are ordered by the grantee's seq
+
+**Decision:** Each budget event is placed at a `seq` from the grantee's chain. An expense sits at its own
+`seq`. A reversal by the grantee sits at its own `seq`. A reversal by the other partner sits at the `seq`
+of the grantee's `approve` that makes it effective.
+
+**Reason:** `seq` is per author, so the investor's and manager's `seq` values cannot be compared. Only the
+manager writes expenses, and the other partner's reversal needs the manager's approval, so every budget
+event already has a `seq` in the manager's chain. Clock time and arrival order are not allowed (hard
+rules 3 and 5). Forbidding investor reversals was rejected: it removes a valid correction path.
+
+---
+
+## 2026-10-03 — Profit remainder goes to the investor
+
+**Decision:** A profit is split with integer division. The manager gets `result * managerPercent ~/ 100`, and the investor gets the rest, so any remainder in paisa goes to the investor. A loss is carried entirely by the investor, and the manager's share is 0.
+
+**Reason:** Shares must add up to the result exactly, with no paisa lost or created (hard rule 1, integers only). The investor is the party who puts up the capital, so the rounding goes to them. This matches spec section 6.5.
+
+---
+
+## 2026-10-03 — One partnership per ledger
+
+**Decision:** A ledger holds exactly one partnership, named by the `id` of its accepted `partnership_create`. A `partnership_create` is valid only if its `partnership` equals its own `id`. Any record whose `partnership` differs from the ledger's is rejected at membership (spec 6.1, step 3). So a second `partnership_create` is never stored. If the manager rejects a create, the investor makes a new create, which is a new partnership with its own ledger. The rejected one stays as history.
+
+**Reason:** The spec says "the approved `partnership_create`" (singular). Two creates in one ledger would make the active ratio depend on a tie-break, and no partner could say which partnership they were in. Making the id rule a validation rule removes the problem at the source, so the active ratio needs no tie-break.
+
+---
+
+## 2026-10-03 — Chains and version vectors are per partnership
+
+**Decision:** `seq` and `prevHash` belong to a (partnership, author) pair. Each partner's `seq` starts at 1 in each partnership. A device's version vector is kept per partnership.
+
+**Reason:** Once a partnership can be rejected and replaced, the same two keys can start a second partnership. Counting `seq` across partnerships would make the new chain look like it has a gap, or would let records from the old one be replayed into it.
