@@ -40,6 +40,35 @@ class SignedTexts {
     return canonicalJson((await signRecord(unsigned, investor)).toJson());
   }
 
+  /// A create signed by [attacker] that names the attacker as investor and
+  /// this manager as manager. It is valid on its own, so only the pins can
+  /// refuse it (spec 2.1).
+  Future<String> forgedCreate({
+    required Ed25519KeyPair attacker,
+    String partnership = 'p1',
+  }) async {
+    final unsigned = Record(
+      v: 1,
+      id: partnership,
+      partnership: partnership,
+      author: attacker.publicKeyBase64Url,
+      seq: 1,
+      prevHash: '0' * 64,
+      type: 'partnership_create',
+      body: {
+        'investor': attacker.publicKeyBase64Url,
+        'manager': manager.publicKeyBase64Url,
+        'ratio': {'investor': 60, 'manager': 40},
+        'currency': 'PKR',
+      },
+      refersTo: null,
+      note: '',
+      time: '2026-10-03T10:00:00Z',
+      sig: '',
+    );
+    return canonicalJson((await signRecord(unsigned, attacker)).toJson());
+  }
+
   /// An investor record that follows [prevText] in the investor's chain.
   Future<String> invest({
     required String id,
