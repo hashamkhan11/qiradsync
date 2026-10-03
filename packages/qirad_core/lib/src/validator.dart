@@ -76,7 +76,7 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     final time = json['time'];
     final sig = json['sig'];
 
-    if (id is! String || id.isEmpty) return null;
+    if (id is! String || !_uuidV4.hasMatch(id)) return null;
     if (partnership is! String || partnership.isEmpty) return null;
     if (author is! String || author.isEmpty) return null;
     if (seq is! int || seq < 1) return null;
@@ -118,6 +118,13 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     return null;
   }
 }
+
+/// A record id is a lowercase UUID v4 (spec section 3): 8-4-4-4-12 hex digits,
+/// version 4, and variant 8, 9, a or b. A fixed format means every phone and
+/// the relay agree on what an id is, and a random id cannot collide by design.
+final _uuidV4 = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+);
 
 /// The fields of a record, spec section 3. Any other top-level key is invalid.
 const _recordFields = {

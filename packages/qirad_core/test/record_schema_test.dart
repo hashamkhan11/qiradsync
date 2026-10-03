@@ -93,4 +93,53 @@ void main() {
       });
     },
   );
+
+  group('record id must be a lowercase UUID v4 (spec section 3)', () {
+    Future<ReceiveOutcome> receiveWithId(String id) async {
+      final (validator, investor, _, partnershipId) = await setUpPartnership();
+      final record = await investor.next(
+        partnership: partnershipId,
+        type: 'invest',
+        body: {'amount': 5000},
+        id: id,
+      );
+      return validator.receiveText(canonicalJson(record.toJson()));
+    }
+
+    test('a lowercase UUID v4 is accepted', () async {
+      expect(
+        await receiveWithId('3f2a9c1e-7b4d-4e8a-9c2f-1d6b5a4e3f20'),
+        ReceiveOutcome.accepted,
+      );
+    });
+
+    test('an uppercase UUID is refused', () async {
+      expect(
+        await receiveWithId('3F2A9C1E-7B4D-4E8A-9C2F-1D6B5A4E3F20'),
+        ReceiveOutcome.rejectedSchema,
+      );
+    });
+
+    test('a UUID of another version (1) is refused', () async {
+      expect(
+        await receiveWithId('3f2a9c1e-7b4d-1e8a-9c2f-1d6b5a4e3f20'),
+        ReceiveOutcome.rejectedSchema,
+      );
+    });
+
+    test('a UUID with the wrong variant (c) is refused', () async {
+      expect(
+        await receiveWithId('3f2a9c1e-7b4d-4e8a-cc2f-1d6b5a4e3f20'),
+        ReceiveOutcome.rejectedSchema,
+      );
+    });
+
+    test('text that is not a UUID is refused', () async {
+      expect(await receiveWithId('invest-2'), ReceiveOutcome.rejectedSchema);
+      expect(
+        await receiveWithId('3f2a9c1e-7b4d-4e8a-9c2f-1d6b5a4e3f2'),
+        ReceiveOutcome.rejectedSchema,
+      );
+    });
+  });
 }
