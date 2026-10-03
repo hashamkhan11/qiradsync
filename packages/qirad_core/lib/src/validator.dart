@@ -119,6 +119,15 @@ class Validator {
   Iterable<Record> get pendingRecords =>
       _pending.values.expand((bySeq) => bySeq.values);
 
+  /// Stored records that may feed calculations: not chain-invalid, and not
+  /// from an equivocating author's `seq` onward (spec section 6.1 steps 4–5).
+  /// Pending records are never in the ledger, so they are excluded already.
+  Iterable<Record> get usableRecords => ledger.records.where((record) {
+        if (_chainInvalidIds.contains(record.id)) return false;
+        final equivocatingFrom = _equivocatingFromSeq[record.author];
+        return equivocatingFrom == null || record.seq < equivocatingFrom;
+      });
+
   /// `{ author -> lowest seq at which that author was caught equivocating }`.
   Map<String, int> get equivocatingFromSeq => Map.unmodifiable(_equivocatingFromSeq);
 

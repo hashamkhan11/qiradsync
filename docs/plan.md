@@ -55,7 +55,7 @@ all tests pass, and its pull request is merged.
 
 ## Phase 4 — Business rules and calculations
 
-- [ ] Approvals and rejects (reject wins), spec §5
+- [ ] Approvals and rejects (first response wins), spec §5
 - [ ] Reversals, spec §6.3
 - [ ] Budgets and over-budget detection, spec §6.4
 - [ ] Money calculations and remainder rule, spec §6.5
