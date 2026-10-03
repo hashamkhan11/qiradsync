@@ -200,7 +200,7 @@ class SyncRecordsTest extends TestCase
         $this->startPartnership();
 
         $managerRecord = $this->signed($this->manager, [
-            'id' => 'manager-rec-1',
+            'id' => TestIds::of('manager-rec-1'),
             'partnership' => self::PARTNERSHIP,
             'seq' => 1,
             'type' => 'approve',
@@ -209,7 +209,7 @@ class SyncRecordsTest extends TestCase
 
         $this->syncAs($this->manager, [$managerRecord])
             ->assertOk()
-            ->assertJsonPath('accepted', ['manager-rec-1']);
+            ->assertJsonPath('accepted', [TestIds::of('manager-rec-1')]);
     }
 
     #[Test]
@@ -227,7 +227,7 @@ class SyncRecordsTest extends TestCase
 
         // The investor's device is allowed to sync, but the record's author is not a party.
         $outsider = $this->signed($this->stranger, [
-            'id' => 'outsider-1',
+            'id' => TestIds::of('outsider-1'),
             'partnership' => self::PARTNERSHIP,
             'seq' => 1,
             'type' => 'invest',
@@ -244,7 +244,7 @@ class SyncRecordsTest extends TestCase
         $this->startPartnership();
 
         $other = $this->signed($this->investor, [
-            'id' => 'other-1',
+            'id' => TestIds::of('other-1'),
             'partnership' => TestIds::of('some-other-partnership'),
             'seq' => 2,
             'type' => 'invest',
@@ -262,7 +262,7 @@ class SyncRecordsTest extends TestCase
 
         // Canonical text with `"body":[]`: it is valid JSON, but a body must be an object.
         $text = $this->signed($this->investor, [
-            'id' => 'bad-body',
+            'id' => TestIds::of('bad-body'),
             'partnership' => self::PARTNERSHIP,
             'seq' => 2,
             'type' => 'invest',

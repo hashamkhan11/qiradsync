@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Tests\Support\TestIds;
 use Tests\TestCase;
 
 class RecordsStorageTest extends TestCase
@@ -66,7 +67,7 @@ class RecordsStorageTest extends TestCase
         DB::table('records')->insert($this->row());
 
         $this->expectException(QueryException::class);
-        DB::table('records')->insert($this->row(['record_id' => 'another-id']));
+        DB::table('records')->insert($this->row(['record_id' => TestIds::of('another-id')]));
     }
 
     public function test_the_same_record_id_twice_is_refused(): void

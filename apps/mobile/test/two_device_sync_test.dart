@@ -82,8 +82,9 @@ void main() {
         'after offline edits on both phones, the calculations are identical',
         () async {
           // A unique id per run, so a re-run against the same relay works.
-          final partnership =
-              'two-devices-${DateTime.now().microsecondsSinceEpoch}';
+          final partnership = testId(
+            'two-devices-${DateTime.now().microsecondsSinceEpoch}',
+          );
           final investor = await generateEd25519KeyPair();
           final manager = await generateEd25519KeyPair();
           final investorWriter = Writer(investor, partnership);
@@ -141,7 +142,9 @@ void main() {
             ),
           );
           await managerPhone.add(
-            await managerWriter.write(testId('sale-2'), 'sale', {'amount': 50000}),
+            await managerWriter.write(testId('sale-2'), 'sale', {
+              'amount': 50000,
+            }),
           );
           await managerPhone.add(
             await managerWriter.write(testId('budget-3'), 'budget_proposal', {
@@ -150,7 +153,9 @@ void main() {
             }),
           );
           await investorPhone.add(
-            await investorWriter.write(testId('invest-3'), 'invest', {'amount': 20000}),
+            await investorWriter.write(testId('invest-3'), 'invest', {
+              'amount': 20000,
+            }),
           );
 
           // 4. Both sync. Now the investor has the budget and can approve it.
@@ -269,7 +274,8 @@ class Phone {
       'ratio': ratio.toString(),
       'investorShare': shares.investor,
       'managerShare': shares.manager,
-      testId('expense-5'): effectiveness.expenseStatus[testId('expense-5')]!.name,
+      testId('expense-5'):
+          effectiveness.expenseStatus[testId('expense-5')]!.name,
     });
   }
 }
