@@ -2,6 +2,7 @@ import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
 import 'support/partnership_fixture.dart';
+import 'support/test_ids.dart';
 
 Future<Ratio?> _ratioOn(Validator validator, String date) async {
   final effectiveness = computeEffective(
@@ -190,7 +191,7 @@ void main() {
     test('a partnership_create with a bad ratio gives no ratio', () async {
       final investor = ChainAuthor(await generateEd25519KeyPair());
       final manager = ChainAuthor(await generateEd25519KeyPair());
-      const partnershipId = 'partnership-bad';
+      final partnershipId = testId('partnership-bad');
       final validator = Validator.unpinnedForTesting();
       final create = await investor.next(
         partnership: partnershipId,

@@ -15,6 +15,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/fake_relay.dart';
 import 'support/fake_secret_store.dart';
 import 'support/signed_texts.dart';
+import 'support/test_ids.dart';
 
 void main() {
   setUpAll(sqfliteFfiInit);
@@ -51,7 +52,7 @@ void main() {
     );
     // The partnership is registered, as when the user joins it.
     await store.addPartnership(
-      'p1',
+      testId('p1'),
       investorKey: texts.investor.publicKeyBase64Url,
       managerKey: texts.manager.publicKeyBase64Url,
     );
@@ -79,11 +80,11 @@ void main() {
       final create = await texts.partnershipCreate();
       relay.seed(create);
 
-      final result = await runner().run('p1');
+      final result = await runner().run(testId('p1'));
 
       expect(result.complete, isTrue);
-      expect(await store.savedTexts('p1'), [create]);
-      expect(store.versionVector('p1'), {texts.investor.publicKeyBase64Url: 1});
+      expect(await store.savedTexts(testId('p1')), [create]);
+      expect(store.versionVector(testId('p1')), {texts.investor.publicKeyBase64Url: 1});
       expect(relay.lastAuthorization, 'Bearer secret-token');
     },
   );
@@ -93,14 +94,14 @@ void main() {
     () async {
       final create = await texts.partnershipCreate();
       final invest2 = await texts.invest(
-        id: 'invest-2',
+        id: testId('invest-2'),
         seq: 2,
         prevText: create,
       );
       await store.receive(create);
       await store.receive(invest2);
 
-      final result = await runner().run('p1');
+      final result = await runner().run(testId('p1'));
 
       expect(result.complete, isTrue);
       expect(result.repairRounds, 0);
@@ -111,12 +112,12 @@ void main() {
   test('a gap on the relay is refilled by one repair round', () async {
     final create = await texts.partnershipCreate();
     final invest2 = await texts.invest(
-      id: 'invest-2',
+      id: testId('invest-2'),
       seq: 2,
       prevText: create,
     );
     final invest3 = await texts.invest(
-      id: 'invest-3',
+      id: testId('invest-3'),
       seq: 3,
       prevText: invest2,
     );
@@ -125,9 +126,9 @@ void main() {
     await store.receive(invest3);
     // The relay loses invest-2 on the first upload. It keeps seq 1 and 3, so
     // its gap-aware vector says 1, and the phone must upload from seq 2 on.
-    relay.dropOnce.add('invest-2');
+    relay.dropOnce.add(testId('invest-2'));
 
-    final result = await runner().run('p1');
+    final result = await runner().run(testId('p1'));
 
     expect(result.complete, isTrue);
     expect(result.repairRounds, 1);
@@ -139,7 +140,7 @@ void main() {
     () async {
       final create = await texts.partnershipCreate();
       final invest2 = await texts.invest(
-        id: 'invest-2',
+        id: testId('invest-2'),
         seq: 2,
         prevText: create,
       );
@@ -147,7 +148,7 @@ void main() {
       await store.receive(invest2);
       relay.dropAll = true;
 
-      final result = await runner().run('p1');
+      final result = await runner().run(testId('p1'));
 
       expect(result.complete, isFalse);
       expect(result.repairRounds, 3);
@@ -160,16 +161,16 @@ void main() {
     () async {
       final create = await texts.partnershipCreate();
       relay.seed(create);
-      final approveA = await texts.approve(id: 'approve-5a', seq: 5);
-      final approveB = await texts.approve(id: 'approve-5b', seq: 5);
+      final approveA = await texts.approve(id: testId('approve-5a'), seq: 5);
+      final approveB = await texts.approve(id: testId('approve-5b'), seq: 5);
       relay.seed(approveA);
       relay.seed(approveB);
 
-      final result = await runner().run('p1');
+      final result = await runner().run(testId('p1'));
 
       expect(result.complete, isTrue);
-      expect(await store.savedTexts('p1'), containsAll([approveA, approveB]));
-      expect(store.validatorFor('p1').equivocatingFromSeq, {
+      expect(await store.savedTexts(testId('p1')), containsAll([approveA, approveB]));
+      expect(store.validatorFor(testId('p1')).equivocatingFromSeq, {
         texts.manager.publicKeyBase64Url: 5,
       });
     },
@@ -178,7 +179,7 @@ void main() {
   test('a record from the relay with a bad signature is not stored', () async {
     final create = await texts.partnershipCreate();
     final invest2 = await texts.invest(
-      id: 'invest-2',
+      id: testId('invest-2'),
       seq: 2,
       prevText: create,
     );
@@ -188,9 +189,9 @@ void main() {
     relay.seed(create);
     relay.seed(tampered);
 
-    await runner().run('p1');
+    await runner().run(testId('p1'));
 
-    expect(await store.savedTexts('p1'), [create]);
+    expect(await store.savedTexts(testId('p1')), [create]);
   });
 
   test('a refused call throws and stores nothing', () async {
@@ -198,16 +199,16 @@ void main() {
     relay.seed(await texts.partnershipCreate());
 
     await expectLater(
-      runner().run('p1'),
+      runner().run(testId('p1')),
       throwsA(isA<RelayRefused>().having((e) => e.status, 'status', 403)),
     );
-    expect(await store.savedTexts('p1'), isEmpty);
+    expect(await store.savedTexts(testId('p1')), isEmpty);
   });
 
   test('a 403 is not answered by registering again', () async {
     relay.refuseWith = 403;
 
-    await expectLater(runner().run('p1'), throwsA(isA<RelayRefused>()));
+    await expectLater(runner().run(testId('p1')), throwsA(isA<RelayRefused>()));
     expect(relay.registrations, 0);
   });
 
@@ -216,19 +217,19 @@ void main() {
     // The relay only accepts tokens it issued. The saved one is not among them.
     relay.enforceTokens = true;
 
-    final result = await runner().run('p1');
+    final result = await runner().run(testId('p1'));
 
     expect(result.complete, isTrue);
     expect(relay.registrations, 1);
     expect(relay.lastAuthorization, 'Bearer token-1');
     expect(await tokens.load(), 'token-1');
-    expect(await store.savedTexts('p1'), hasLength(1));
+    expect(await store.savedTexts(testId('p1')), hasLength(1));
   });
 
   test('a second 401 in the same run stops with DeviceRejected', () async {
     relay.refuseWith = 401;
 
-    await expectLater(runner().run('p1'), throwsA(isA<DeviceRejected>()));
+    await expectLater(runner().run(testId('p1')), throwsA(isA<DeviceRejected>()));
     expect(relay.registrations, 1, reason: 'registered once, not in a loop');
     expect(relay.calls, 2, reason: 'the saved token, then the new one');
     expect(waits, isEmpty, reason: 'a rejected device is not retried');
@@ -250,7 +251,7 @@ void main() {
         relay.seed(await texts.partnershipCreate());
         relay.networkFailures = 1;
 
-        final result = await runner().run('p1');
+        final result = await runner().run(testId('p1'));
 
         expect(result.complete, isTrue);
         expect(waits, [const Duration(seconds: 1)]);
@@ -262,7 +263,7 @@ void main() {
       relay.seed(await texts.partnershipCreate());
       relay.networkFailures = 3;
 
-      await runner().run('p1');
+      await runner().run(testId('p1'));
 
       expect(waits, [
         const Duration(seconds: 1),
@@ -275,7 +276,7 @@ void main() {
       relay.seed(await texts.partnershipCreate());
       relay.serverErrors = 1;
 
-      final result = await runner().run('p1');
+      final result = await runner().run(testId('p1'));
 
       expect(result.complete, isTrue);
       expect(waits, [const Duration(seconds: 1)]);
@@ -285,7 +286,7 @@ void main() {
       relay.networkFailures = 100;
 
       await expectLater(
-        runner().run('p1'),
+        runner().run(testId('p1')),
         throwsA(isA<http.ClientException>()),
       );
       expect(waits, hasLength(5));
@@ -295,7 +296,7 @@ void main() {
     test('a 403 is not retried', () async {
       relay.refuseWith = 403;
 
-      await expectLater(runner().run('p1'), throwsA(isA<RelayRefused>()));
+      await expectLater(runner().run(testId('p1')), throwsA(isA<RelayRefused>()));
       expect(waits, isEmpty);
       expect(relay.calls, 1);
     });
@@ -317,7 +318,7 @@ void main() {
           delay: (duration) async => waits.add(duration),
         );
 
-        final outcome = await result.run('p1');
+        final outcome = await result.run(testId('p1'));
 
         expect(outcome.complete, isTrue);
         expect(waits, [const Duration(seconds: 1)]);
@@ -341,10 +342,10 @@ void main() {
           delay: (duration) async => waits.add(duration),
         );
 
-        await expectLater(result.run('p1'), throwsA(isA<TimeoutException>()));
+        await expectLater(result.run(testId('p1')), throwsA(isA<TimeoutException>()));
         expect(waits, hasLength(5));
         expect(relay.calls, 6, reason: 'the first attempt and 5 retries');
-        expect(await store.savedTexts('p1'), isEmpty);
+        expect(await store.savedTexts(testId('p1')), isEmpty);
       },
     );
   });

@@ -6,6 +6,7 @@ import 'package:mobile/storage/record_store.dart';
 import 'package:path/path.dart' as p;
 import 'package:qirad_core/qirad_core.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'support/test_ids.dart';
 
 void main() {
   setUpAll(sqfliteFfiInit);
@@ -31,7 +32,8 @@ void main() {
 
   /// The partnership_create text, with a non-ASCII note. The partnership id
   /// is also the id of the create record, as in the app.
-  Future<String> createText({String partnership = 'p1'}) async {
+  Future<String> createText({String? partnership}) async {
+    partnership ??= testId('p1');
     final unsigned = Record(
       v: 1,
       id: partnership,
@@ -59,8 +61,9 @@ void main() {
     required String id,
     required int seq,
     required String prevText,
-    String partnership = 'p1',
+    String? partnership,
   }) async {
+    partnership ??= testId('p1');
     final unsigned = Record(
       v: 1,
       id: id,
@@ -82,8 +85,9 @@ void main() {
   Future<String> approveText({
     required String id,
     required int seq,
-    String partnership = 'p1',
+    String? partnership,
   }) async {
+    partnership ??= testId('p1');
     final unsigned = Record(
       v: 1,
       id: id,
@@ -93,7 +97,7 @@ void main() {
       prevHash: '0' * 64,
       type: 'approve',
       body: const {},
-      refersTo: 'invest-2',
+      refersTo: testId('invest-2'),
       note: '',
       time: '2026-10-03T10:00:00Z',
       sig: '',
@@ -104,21 +108,21 @@ void main() {
   test('an accepted record is saved with its exact text', () async {
     final store = await openStore();
     await store.addPartnership(
-      'p1',
+      testId('p1'),
       investorKey: investor.publicKeyBase64Url,
       managerKey: manager.publicKeyBase64Url,
     );
     final text = await createText();
 
     expect(await store.receive(text), ReceiveOutcome.accepted);
-    expect(await store.savedTexts('p1'), [text]);
+    expect(await store.savedTexts(testId('p1')), [text]);
     await store.close();
   });
 
   test('a repeated text is saved once', () async {
     final store = await openStore();
     await store.addPartnership(
-      'p1',
+      testId('p1'),
       investorKey: investor.publicKeyBase64Url,
       managerKey: manager.publicKeyBase64Url,
     );
@@ -126,14 +130,14 @@ void main() {
 
     await store.receive(text);
     expect(await store.receive(text), ReceiveOutcome.duplicateIgnored);
-    expect(await store.savedTexts('p1'), hasLength(1));
+    expect(await store.savedTexts(testId('p1')), hasLength(1));
     await store.close();
   });
 
   test('a rejected text is never saved', () async {
     final store = await openStore();
     await store.addPartnership(
-      'p1',
+      testId('p1'),
       investorKey: investor.publicKeyBase64Url,
       managerKey: manager.publicKeyBase64Url,
     );
@@ -145,29 +149,29 @@ void main() {
       await store.receive(notCanonical),
       ReceiveOutcome.rejectedNotCanonical,
     );
-    expect(await store.savedTexts('p1'), isEmpty);
+    expect(await store.savedTexts(testId('p1')), isEmpty);
     await store.close();
   });
 
   test('after reopening, the ledger is rebuilt from the saved texts', () async {
     final store = await openStore();
     await store.addPartnership(
-      'p1',
+      testId('p1'),
       investorKey: investor.publicKeyBase64Url,
       managerKey: manager.publicKeyBase64Url,
     );
     final create = await createText();
-    final invest = await investText(id: 'invest-2', seq: 2, prevText: create);
+    final invest = await investText(id: testId('invest-2'), seq: 2, prevText: create);
     await store.receive(create);
     await store.receive(invest);
     await store.close();
 
     final reopened = await openStore();
-    expect(reopened.validatorFor('p1').ledger.records.map((r) => r.id), [
-      'p1',
-      'invest-2',
+    expect(reopened.validatorFor(testId('p1')).ledger.records.map((r) => r.id), [
+      testId('p1'),
+      testId('invest-2'),
     ]);
-    expect(reopened.versionVector('p1'), {investor.publicKeyBase64Url: 2});
+    expect(reopened.versionVector(testId('p1')), {investor.publicKeyBase64Url: 2});
     await reopened.close();
   });
 
@@ -176,18 +180,18 @@ void main() {
     () async {
       final store = await openStore();
       await store.addPartnership(
-        'p1',
+        testId('p1'),
         investorKey: investor.publicKeyBase64Url,
         managerKey: manager.publicKeyBase64Url,
       );
       final create = await createText();
       final invest2 = await investText(
-        id: 'invest-2',
+        id: testId('invest-2'),
         seq: 2,
         prevText: create,
       );
       final invest3 = await investText(
-        id: 'invest-3',
+        id: testId('invest-3'),
         seq: 3,
         prevText: invest2,
       );
@@ -198,14 +202,14 @@ void main() {
 
       // The pending record survives a restart, and arrives when seq 2 does.
       final reopened = await openStore();
-      expect(reopened.validatorFor('p1').pendingRecords.map((r) => r.id), [
-        'invest-3',
+      expect(reopened.validatorFor(testId('p1')).pendingRecords.map((r) => r.id), [
+        testId('invest-3'),
       ]);
       expect(await reopened.receive(invest2), ReceiveOutcome.accepted);
-      expect(reopened.validatorFor('p1').ledger.records.map((r) => r.id), [
-        'p1',
-        'invest-2',
-        'invest-3',
+      expect(reopened.validatorFor(testId('p1')).ledger.records.map((r) => r.id), [
+        testId('p1'),
+        testId('invest-2'),
+        testId('invest-3'),
       ]);
       await reopened.close();
     },
@@ -216,24 +220,24 @@ void main() {
     () async {
       final store = await openStore();
       await store.addPartnership(
-        'p1',
+        testId('p1'),
         investorKey: investor.publicKeyBase64Url,
         managerKey: manager.publicKeyBase64Url,
       );
       final create = await createText();
       await store.receive(create);
-      final approveA = await approveText(id: 'approve-5a', seq: 5);
-      final approveB = await approveText(id: 'approve-5b', seq: 5);
+      final approveA = await approveText(id: testId('approve-5a'), seq: 5);
+      final approveB = await approveText(id: testId('approve-5b'), seq: 5);
       await store.receive(approveA);
       expect(await store.receive(approveB), ReceiveOutcome.equivocating);
       await store.close();
 
       final reopened = await openStore();
       expect(
-        await reopened.savedTexts('p1'),
+        await reopened.savedTexts(testId('p1')),
         containsAll([approveA, approveB]),
       );
-      expect(reopened.validatorFor('p1').equivocatingFromSeq, {
+      expect(reopened.validatorFor(testId('p1')).equivocatingFromSeq, {
         manager.publicKeyBase64Url: 5,
       });
       await reopened.close();
@@ -245,21 +249,21 @@ void main() {
     () async {
       final store = await openStore();
       await store.addPartnership(
-        'p1',
+        testId('p1'),
         investorKey: investor.publicKeyBase64Url,
         managerKey: manager.publicKeyBase64Url,
       );
-      final stranger = await createText(partnership: 'p9');
+      final stranger = await createText(partnership: testId('p9'));
 
       expect(await store.receive(stranger), ReceiveOutcome.rejectedMembership);
-      expect(store.partnerships, ['p1']);
-      expect(() => store.savedTexts('p9'), throwsStateError);
+      expect(store.partnerships, [testId('p1')]);
+      expect(() => store.savedTexts(testId('p9')), throwsStateError);
       await store.close();
 
       // Nothing was written for p9, even after a restart.
       final reopened = await openStore();
-      expect(reopened.partnerships, ['p1']);
-      expect(await reopened.savedTexts('p1'), isEmpty);
+      expect(reopened.partnerships, [testId('p1')]);
+      expect(await reopened.savedTexts(testId('p1')), isEmpty);
       await reopened.close();
     },
   );
@@ -267,19 +271,19 @@ void main() {
   test('registering a partnership survives a restart', () async {
     final store = await openStore();
     await store.addPartnership(
-      'p1',
+      testId('p1'),
       investorKey: investor.publicKeyBase64Url,
       managerKey: manager.publicKeyBase64Url,
     );
     await store.addPartnership(
-      'p1',
+      testId('p1'),
       investorKey: investor.publicKeyBase64Url,
       managerKey: manager.publicKeyBase64Url,
     ); // Calling it again changes nothing.
     await store.close();
 
     final reopened = await openStore();
-    expect(reopened.partnerships, ['p1']);
+    expect(reopened.partnerships, [testId('p1')]);
     await reopened.close();
   });
 
@@ -288,46 +292,46 @@ void main() {
     () async {
       final store = await openStore();
       await store.addPartnership(
-        'p1',
+        testId('p1'),
         investorKey: investor.publicKeyBase64Url,
         managerKey: manager.publicKeyBase64Url,
       );
       await store.addPartnership(
-        'p2',
+        testId('p2'),
         investorKey: investor.publicKeyBase64Url,
         managerKey: manager.publicKeyBase64Url,
       );
 
       final create1 = await createText();
       final invest1 = await investText(
-        id: 'invest-1-2',
+        id: testId('invest-1-2'),
         seq: 2,
         prevText: create1,
       );
-      final create2 = await createText(partnership: 'p2');
+      final create2 = await createText(partnership: testId('p2'));
       // Seq 2 in p2 is valid on its own chain, even though p1 also has seq 2.
       final invest2 = await investText(
-        id: 'invest-2-2',
+        id: testId('invest-2-2'),
         seq: 2,
         prevText: create2,
-        partnership: 'p2',
+        partnership: testId('p2'),
       );
 
       for (final text in [create1, invest1, create2, invest2]) {
         expect(await store.receive(text), ReceiveOutcome.accepted);
       }
 
-      expect(await store.savedTexts('p1'), [create1, invest1]);
-      expect(await store.savedTexts('p2'), [create2, invest2]);
-      expect(store.versionVector('p1'), {investor.publicKeyBase64Url: 2});
-      expect(store.versionVector('p2'), {investor.publicKeyBase64Url: 2});
-      expect(store.validatorFor('p1').ledger.records.map((r) => r.id), [
-        'p1',
-        'invest-1-2',
+      expect(await store.savedTexts(testId('p1')), [create1, invest1]);
+      expect(await store.savedTexts(testId('p2')), [create2, invest2]);
+      expect(store.versionVector(testId('p1')), {investor.publicKeyBase64Url: 2});
+      expect(store.versionVector(testId('p2')), {investor.publicKeyBase64Url: 2});
+      expect(store.validatorFor(testId('p1')).ledger.records.map((r) => r.id), [
+        testId('p1'),
+        testId('invest-1-2'),
       ]);
-      expect(store.validatorFor('p2').ledger.records.map((r) => r.id), [
-        'p2',
-        'invest-2-2',
+      expect(store.validatorFor(testId('p2')).ledger.records.map((r) => r.id), [
+        testId('p2'),
+        testId('invest-2-2'),
       ]);
       await store.close();
     },
@@ -338,18 +342,18 @@ void main() {
     () async {
       final store = await openStore();
       await store.addPartnership(
-        'p1',
+        testId('p1'),
         investorKey: investor.publicKeyBase64Url,
         managerKey: manager.publicKeyBase64Url,
       );
       final create = await createText();
       final invest2 = await investText(
-        id: 'invest-2',
+        id: testId('invest-2'),
         seq: 2,
         prevText: create,
       );
       final invest3 = await investText(
-        id: 'invest-3',
+        id: testId('invest-3'),
         seq: 3,
         prevText: invest2,
       );
@@ -359,7 +363,7 @@ void main() {
 
       expect(
         await store.savedTextsFrom(
-          'p1',
+          testId('p1'),
           author: investor.publicKeyBase64Url,
           fromSeq: 2,
         ),
@@ -367,7 +371,7 @@ void main() {
       );
       expect(
         await store.savedTextsFrom(
-          'p1',
+          testId('p1'),
           author: manager.publicKeyBase64Url,
           fromSeq: 1,
         ),
@@ -382,7 +386,7 @@ void main() {
     () async {
       final store = await openStore();
       await store.addPartnership(
-        'p1',
+        testId('p1'),
         investorKey: investor.publicKeyBase64Url,
         managerKey: manager.publicKeyBase64Url,
       );
@@ -391,8 +395,8 @@ void main() {
       final attacker = await generateEd25519KeyPair();
       final forgedUnsigned = Record(
         v: 1,
-        id: 'p1',
-        partnership: 'p1',
+        id: testId('p1'),
+        partnership: testId('p1'),
         author: attacker.publicKeyBase64Url,
         seq: 1,
         prevHash: '0' * 64,
@@ -413,11 +417,11 @@ void main() {
       );
 
       expect(await store.receive(forged), ReceiveOutcome.rejectedMembership);
-      expect(await store.savedTexts('p1'), isEmpty);
+      expect(await store.savedTexts(testId('p1')), isEmpty);
 
       final real = await createText();
       expect(await store.receive(real), ReceiveOutcome.accepted);
-      expect(await store.savedTexts('p1'), [real]);
+      expect(await store.savedTexts(testId('p1')), [real]);
       await store.close();
     },
   );
@@ -427,7 +431,7 @@ void main() {
     () async {
       final store = await openStore();
       await store.addPartnership(
-        'p1',
+        testId('p1'),
         investorKey: investor.publicKeyBase64Url,
         managerKey: manager.publicKeyBase64Url,
       );
@@ -438,8 +442,8 @@ void main() {
       final otherManager = await generateEd25519KeyPair();
       final wrongManagerUnsigned = Record(
         v: 1,
-        id: 'p1',
-        partnership: 'p1',
+        id: testId('p1'),
+        partnership: testId('p1'),
         author: investor.publicKeyBase64Url,
         seq: 1,
         prevHash: '0' * 64,
@@ -463,7 +467,7 @@ void main() {
         await reopened.receive(wrongManager),
         ReceiveOutcome.rejectedMembership,
       );
-      expect(await reopened.savedTexts('p1'), isEmpty);
+      expect(await reopened.savedTexts(testId('p1')), isEmpty);
       await reopened.close();
     },
   );
@@ -471,7 +475,7 @@ void main() {
   test('registering again with other keys throws', () async {
     final store = await openStore();
     await store.addPartnership(
-      'p1',
+      testId('p1'),
       investorKey: investor.publicKeyBase64Url,
       managerKey: manager.publicKeyBase64Url,
     );
@@ -479,7 +483,7 @@ void main() {
 
     await expectLater(
       store.addPartnership(
-        'p1',
+        testId('p1'),
         investorKey: stranger.publicKeyBase64Url,
         managerKey: manager.publicKeyBase64Url,
       ),
@@ -491,7 +495,7 @@ void main() {
   test('the database refuses UPDATE and DELETE', () async {
     final store = await openStore();
     await store.addPartnership(
-      'p1',
+      testId('p1'),
       investorKey: investor.publicKeyBase64Url,
       managerKey: manager.publicKeyBase64Url,
     );

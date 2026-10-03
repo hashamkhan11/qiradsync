@@ -9,6 +9,7 @@ import 'package:qirad_core/qirad_core.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/signed_texts.dart';
+import 'support/test_ids.dart';
 
 /// The base64url alphabet, in order (RFC 4648 section 5).
 const _alphabet =
@@ -50,10 +51,10 @@ void main() {
   group('JoinCode', () {
     test('encodes, then parses back to the same partnership and key', () {
       final parsed = JoinCode.parse(
-        JoinCode(partnership: 'p1', investorKey: investorKey).encode(),
+        JoinCode(partnership: testId('p1'), investorKey: investorKey).encode(),
       );
 
-      expect(parsed.partnership, 'p1');
+      expect(parsed.partnership, testId('p1'));
       expect(parsed.investorKey, investorKey);
     });
 
@@ -69,7 +70,7 @@ void main() {
 
     test('refuses another version', () {
       expect(
-        () => JoinCode.parse(_rawCode('p1', investorKey, version: 2)),
+        () => JoinCode.parse(_rawCode(testId('p1'), investorKey, version: 2)),
         throwsFormatException,
       );
     });
@@ -83,11 +84,11 @@ void main() {
 
     test('refuses a key that is too short or too long', () {
       expect(
-        () => JoinCode.parse(_rawCode('p1', investorKey.substring(0, 42))),
+        () => JoinCode.parse(_rawCode(testId('p1'), investorKey.substring(0, 42))),
         throwsFormatException,
       );
       expect(
-        () => JoinCode.parse(_rawCode('p1', '${investorKey}A')),
+        () => JoinCode.parse(_rawCode(testId('p1'), '${investorKey}A')),
         throwsFormatException,
       );
     });
@@ -102,7 +103,7 @@ void main() {
       expect(otherSpelling, isNot(investorKey));
 
       expect(
-        () => JoinCode.parse(_rawCode('p1', otherSpelling)),
+        () => JoinCode.parse(_rawCode(testId('p1'), otherSpelling)),
         throwsFormatException,
       );
     });
@@ -111,12 +112,12 @@ void main() {
   group('joinPartnership', () {
     test('pins the investor from the code and this phone as manager', () async {
       final code = JoinCode.parse(
-        JoinCode(partnership: 'p1', investorKey: investorKey).encode(),
+        JoinCode(partnership: testId('p1'), investorKey: investorKey).encode(),
       );
 
       await joinPartnership(code: code, store: store, ownKeys: texts.manager);
 
-      final validator = store.validatorFor('p1');
+      final validator = store.validatorFor(testId('p1'));
       expect(validator.pinnedInvestorKey, investorKey);
       expect(validator.pinnedManagerKey, texts.manager.publicKeyBase64Url);
     });
@@ -125,7 +126,7 @@ void main() {
       'a forged create arriving first is refused, then the real one is accepted',
       () async {
         await joinPartnership(
-          code: JoinCode(partnership: 'p1', investorKey: investorKey),
+          code: JoinCode(partnership: testId('p1'), investorKey: investorKey),
           store: store,
           ownKeys: texts.manager,
         );
@@ -135,14 +136,14 @@ void main() {
 
         expect(await store.receive(forged), ReceiveOutcome.rejectedMembership);
         expect(await store.receive(real), ReceiveOutcome.accepted);
-        expect(await store.savedTexts('p1'), [real]);
+        expect(await store.savedTexts(testId('p1')), [real]);
       },
     );
 
     test('a phone holding the investor key cannot join as manager', () async {
       await expectLater(
         joinPartnership(
-          code: JoinCode(partnership: 'p1', investorKey: investorKey),
+          code: JoinCode(partnership: testId('p1'), investorKey: investorKey),
           store: store,
           ownKeys: texts.investor,
         ),
@@ -152,12 +153,12 @@ void main() {
     });
 
     test('joining twice with the same code changes nothing', () async {
-      final code = JoinCode(partnership: 'p1', investorKey: investorKey);
+      final code = JoinCode(partnership: testId('p1'), investorKey: investorKey);
 
       await joinPartnership(code: code, store: store, ownKeys: texts.manager);
       await joinPartnership(code: code, store: store, ownKeys: texts.manager);
 
-      expect(store.partnerships, ['p1']);
+      expect(store.partnerships, [testId('p1')]);
     });
   });
 }

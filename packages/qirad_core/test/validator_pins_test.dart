@@ -1,5 +1,6 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
+import 'support/test_ids.dart';
 
 void main() {
   late Ed25519KeyPair investor;
@@ -18,12 +19,13 @@ void main() {
     required Ed25519KeyPair author,
     required String investorKey,
     required String managerKey,
-    String id = 'p1',
+    String? id,
   }) async {
+    final partnership = id ?? testId('p1');
     final unsigned = Record(
       v: 1,
-      id: id,
-      partnership: id,
+      id: partnership,
+      partnership: partnership,
       author: author.publicKeyBase64Url,
       seq: 1,
       prevHash: '0' * 64,

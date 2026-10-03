@@ -15,6 +15,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/fake_relay.dart';
 import 'support/fake_secret_store.dart';
+import 'support/test_ids.dart';
 
 /// Two phones, one investor and one manager, edit offline and sync through a
 /// relay. Both must end with the same records and the same calculations.
@@ -107,7 +108,7 @@ void main() {
             }),
           );
           await investorPhone.add(
-            await investorWriter.write('invest-2', 'invest', {
+            await investorWriter.write(testId('invest-2'), 'invest', {
               'amount': 150000,
             }),
           );
@@ -133,23 +134,23 @@ void main() {
           //    Neither phone waits for the other.
           await managerPhone.add(
             await managerWriter.write(
-              'approve-1',
+              testId('approve-1'),
               'approve',
               const {},
               refersTo: partnership,
             ),
           );
           await managerPhone.add(
-            await managerWriter.write('sale-2', 'sale', {'amount': 50000}),
+            await managerWriter.write(testId('sale-2'), 'sale', {'amount': 50000}),
           );
           await managerPhone.add(
-            await managerWriter.write('budget-3', 'budget_proposal', {
+            await managerWriter.write(testId('budget-3'), 'budget_proposal', {
               'grantee': manager.publicKeyBase64Url,
               'amount': 30000,
             }),
           );
           await investorPhone.add(
-            await investorWriter.write('invest-3', 'invest', {'amount': 20000}),
+            await investorWriter.write(testId('invest-3'), 'invest', {'amount': 20000}),
           );
 
           // 4. Both sync. Now the investor has the budget and can approve it.
@@ -157,10 +158,10 @@ void main() {
           await investorPhone.syncComplete(partnership);
           await investorPhone.add(
             await investorWriter.write(
-              'approve-4',
+              testId('approve-4'),
               'approve',
               const {},
-              refersTo: 'budget-3',
+              refersTo: testId('budget-3'),
             ),
           );
           await investorPhone.syncComplete(partnership);
@@ -168,10 +169,10 @@ void main() {
           // 5. The manager gets the approval, then spends from the budget.
           await managerPhone.syncComplete(partnership);
           await managerPhone.add(
-            await managerWriter.write('expense-5', 'expense', {
+            await managerWriter.write(testId('expense-5'), 'expense', {
               'amount': 10000,
               'receiptHash': null,
-            }, refersTo: 'budget-3'),
+            }, refersTo: testId('budget-3')),
           );
           await managerPhone.syncComplete(partnership);
           await investorPhone.syncComplete(partnership);
@@ -195,11 +196,11 @@ void main() {
             'cashBalance': 210000,
             'result': 40000,
             'profitPaid': 0,
-            'budgetLeft': {'budget-3': 20000},
+            'budgetLeft': {testId('budget-3'): 20000},
             'ratio': 'investor 60 : manager 40',
             'investorShare': 24000,
             'managerShare': 16000,
-            'expense-5': 'valid',
+            testId('expense-5'): 'valid',
           });
 
           await investorPhone.store.close();
@@ -268,7 +269,7 @@ class Phone {
       'ratio': ratio.toString(),
       'investorShare': shares.investor,
       'managerShare': shares.manager,
-      'expense-5': effectiveness.expenseStatus['expense-5']!.name,
+      testId('expense-5'): effectiveness.expenseStatus[testId('expense-5')]!.name,
     });
   }
 }

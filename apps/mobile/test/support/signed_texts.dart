@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:qirad_core/qirad_core.dart';
+import 'test_ids.dart';
 
 /// Builds signed record texts for tests, with fresh keys each time.
 class SignedTexts {
@@ -17,7 +18,8 @@ class SignedTexts {
   final Ed25519KeyPair manager;
 
   /// The partnership_create. Its id is the partnership id.
-  Future<String> partnershipCreate({String partnership = 'p1'}) async {
+  Future<String> partnershipCreate({String? partnership}) async {
+    partnership ??= testId('p1');
     final unsigned = Record(
       v: 1,
       id: partnership,
@@ -45,8 +47,9 @@ class SignedTexts {
   /// refuse it (spec 2.1).
   Future<String> forgedCreate({
     required Ed25519KeyPair attacker,
-    String partnership = 'p1',
+    String? partnership,
   }) async {
+    partnership ??= testId('p1');
     final unsigned = Record(
       v: 1,
       id: partnership,
@@ -74,8 +77,9 @@ class SignedTexts {
     required String id,
     required int seq,
     required String prevText,
-    String partnership = 'p1',
+    String? partnership,
   }) async {
+    partnership ??= testId('p1');
     final unsigned = Record(
       v: 1,
       id: id,
@@ -97,8 +101,9 @@ class SignedTexts {
   Future<String> approve({
     required String id,
     required int seq,
-    String partnership = 'p1',
+    String? partnership,
   }) async {
+    partnership ??= testId('p1');
     final unsigned = Record(
       v: 1,
       id: id,
@@ -108,7 +113,7 @@ class SignedTexts {
       prevHash: '0' * 64,
       type: 'approve',
       body: const {},
-      refersTo: 'invest-2',
+      refersTo: testId('invest-2'),
       note: '',
       time: '2026-10-03T10:00:00Z',
       sig: '',

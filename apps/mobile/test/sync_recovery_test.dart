@@ -13,6 +13,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/fake_relay.dart';
 import 'support/fake_secret_store.dart';
 import 'support/signed_texts.dart';
+import 'support/test_ids.dart';
 
 void main() {
   setUpAll(sqfliteFfiInit);
@@ -39,45 +40,45 @@ void main() {
       // The investor writes three records; the manager writes one.
       final create = await texts.partnershipCreate();
       final invest2 = await texts.invest(
-        id: 'invest-2',
+        id: testId('invest-2'),
         seq: 2,
         prevText: create,
       );
       final invest3 = await texts.invest(
-        id: 'invest-3',
+        id: testId('invest-3'),
         seq: 3,
         prevText: invest2,
       );
-      final approve = await texts.approve(id: 'approve-1', seq: 1);
+      final approve = await texts.approve(id: testId('approve-1'), seq: 1);
       await investorPhone.store.receive(create);
       await investorPhone.store.receive(invest2);
       await investorPhone.store.receive(invest3);
 
       // The manager can only write once it has the partnership_create, so the
       // investor uploads first and the manager's phone then receives the chain.
-      await investorPhone.runner.run('p1');
-      await managerPhone.runner.run('p1');
+      await investorPhone.runner.run(testId('p1'));
+      await managerPhone.runner.run(testId('p1'));
       expect(
         await managerPhone.store.receive(approve),
         ReceiveOutcome.accepted,
       );
-      await managerPhone.runner.run('p1');
-      await investorPhone.runner.run('p1');
-      expect(await investorPhone.store.savedTexts('p1'), hasLength(4));
-      expect(await managerPhone.store.savedTexts('p1'), hasLength(4));
+      await managerPhone.runner.run(testId('p1'));
+      await investorPhone.runner.run(testId('p1'));
+      expect(await investorPhone.store.savedTexts(testId('p1')), hasLength(4));
+      expect(await managerPhone.store.savedTexts(testId('p1')), hasLength(4));
       expect(relay.storedCount, 4);
 
       // The relay loses everything. Then the investor's phone syncs.
       relay.wipe();
       expect(relay.storedCount, 0);
-      final fromInvestor = await investorPhone.runner.run('p1');
+      final fromInvestor = await investorPhone.runner.run(testId('p1'));
 
       expect(fromInvestor.complete, isTrue);
       expect(relay.storedCount, 4, reason: 'every record is back on the relay');
 
       // The same must hold when the manager's phone syncs after a second loss.
       relay.wipe();
-      final fromManager = await managerPhone.runner.run('p1');
+      final fromManager = await managerPhone.runner.run(testId('p1'));
 
       expect(fromManager.complete, isTrue);
       expect(relay.storedCount, 4, reason: 'every record is back on the relay');
@@ -111,7 +112,7 @@ Future<_Phone> _openPhone(
     path: p.join(dir.path, '$name.db'),
   );
   await store.addPartnership(
-    'p1',
+    testId('p1'),
     investorKey: texts.investor.publicKeyBase64Url,
     managerKey: texts.manager.publicKeyBase64Url,
   );
