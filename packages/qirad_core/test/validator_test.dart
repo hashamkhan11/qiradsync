@@ -17,7 +17,7 @@ void main() {
   group('step 2 — signature', () {
     test('a field tampered with after signing is rejected', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final record = await investor.next(partnership: partnershipId, type: 'note');
+      final record = await investor.next(partnership: partnershipId, type: 'invest');
       final tampered = record.copyWith(note: 'tampered after signing');
 
       expect(await validator.receive(tampered.toJson()), ReceiveOutcome.rejectedSignature);
@@ -34,7 +34,7 @@ void main() {
     test('a record from a key outside the partnership is rejected', () async {
       final (validator, _, _, partnershipId) = await setUpPartnership();
       final outsider = ChainAuthor(await generateEd25519KeyPair());
-      final rogue = await outsider.next(partnership: partnershipId, type: 'note');
+      final rogue = await outsider.next(partnership: partnershipId, type: 'invest');
 
       expect(await validator.receive(rogue.toJson()), ReceiveOutcome.rejectedMembership);
     });
@@ -43,10 +43,10 @@ void main() {
   group('step 4 — hash chain', () {
     test('wrong prevHash is detected and flagged, not accepted', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final good = await investor.next(partnership: partnershipId, type: 'note');
+      final good = await investor.next(partnership: partnershipId, type: 'invest');
 
       investor.prevHash = 'f' * 64; // corrupt the chain before signing the next one
-      final broken = await investor.next(partnership: partnershipId, type: 'note');
+      final broken = await investor.next(partnership: partnershipId, type: 'invest');
 
       expect(await validator.receive(good.toJson()), ReceiveOutcome.accepted);
       expect(await validator.receive(broken.toJson()), ReceiveOutcome.chainInvalid);
@@ -55,9 +55,9 @@ void main() {
 
     test('a gap is buffered, then released as a cascade once filled', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final r2 = await investor.next(partnership: partnershipId, type: 'note');
-      final r3 = await investor.next(partnership: partnershipId, type: 'note');
-      final r4 = await investor.next(partnership: partnershipId, type: 'note');
+      final r2 = await investor.next(partnership: partnershipId, type: 'invest');
+      final r3 = await investor.next(partnership: partnershipId, type: 'invest');
+      final r4 = await investor.next(partnership: partnershipId, type: 'invest');
 
       expect(await validator.receive(r4.toJson()), ReceiveOutcome.pending);
       expect(await validator.receive(r3.toJson()), ReceiveOutcome.pending);
@@ -76,15 +76,15 @@ void main() {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
       final honest = await investor.next(
         partnership: partnershipId,
-        type: 'note',
-        body: {'n': 1},
+        type: 'invest',
+        body: {'amount': 1},
       );
 
       investor.seq -= 1; // same author tries to reuse seq 2 for a different record
       final forged = await investor.next(
         partnership: partnershipId,
-        type: 'note',
-        body: {'n': 2},
+        type: 'invest',
+        body: {'amount': 2},
       );
 
       expect(await validator.receive(honest.toJson()), ReceiveOutcome.accepted);
@@ -101,7 +101,7 @@ void main() {
   group('step 6 — duplicate', () {
     test('re-receiving the same record is harmless', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final record = await investor.next(partnership: partnershipId, type: 'note');
+      final record = await investor.next(partnership: partnershipId, type: 'invest');
 
       expect(await validator.receive(record.toJson()), ReceiveOutcome.accepted);
       expect(await validator.receive(record.toJson()), ReceiveOutcome.duplicateIgnored);

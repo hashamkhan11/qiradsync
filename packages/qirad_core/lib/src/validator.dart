@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'canonical_json.dart';
 import 'ledger.dart';
 import 'record.dart';
 import 'record_hash.dart';
@@ -6,8 +9,14 @@ import 'signing.dart';
 /// What happened when a raw incoming record was run through [Validator.receive],
 /// spec section 6.1.
 enum ReceiveOutcome {
-  /// Step 1 failed: a required field is missing or the wrong type. Not stored.
+  /// Step 1 failed: a required field is missing or the wrong type, a key is
+  /// unknown, or the record type is not one of spec section 5's. Not stored.
   rejectedSchema,
+
+  /// Step 1 failed: the text is valid JSON but not in canonical form (extra
+  /// whitespace, wrong key order, duplicate keys, `[]` for `{}`, and so on).
+  /// Not stored. Checked on the text, because duplicate keys vanish once parsed.
+  rejectedNotCanonical,
 
   /// Step 2 failed: `sig` does not verify against `author`. Not stored.
   rejectedSignature,
@@ -47,6 +56,10 @@ enum ReceiveOutcome {
 /// logic exists (Phase 4), not here.
 Record? parseRecordSchema(Map<String, dynamic> json) {
   try {
+    // Unknown top-level keys are refused, so nothing can ride along unsigned
+    // in a way one device keeps and another drops.
+    if (json.keys.any((key) => !_recordFields.contains(key))) return null;
+
     if (json['v'] != 1) return null;
 
     final id = json['id'];
@@ -77,6 +90,14 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     // `partnership` must be its own `id` (spec section 3).
     if (type == 'partnership_create' && partnership != id) return null;
 
+    // The body keys are fixed per type (spec section 5). A type not in the
+    // table has no allowed keys, so it is refused outright.
+    final allowedBodyKeys = _bodyFields[type];
+    if (allowedBodyKeys == null) return null;
+    if (body.keys.any((key) => !allowedBodyKeys.contains(key))) return null;
+    final ratio = body['ratio'];
+    if (ratio != null && !_hasExactlyRatioKeys(ratio)) return null;
+
     return Record(
       v: 1,
       id: id,
@@ -94,6 +115,46 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
   } catch (_) {
     return null;
   }
+}
+
+/// The fields of a record, spec section 3. Any other top-level key is invalid.
+const _recordFields = {
+  'v',
+  'id',
+  'partnership',
+  'author',
+  'seq',
+  'prevHash',
+  'type',
+  'body',
+  'refersTo',
+  'note',
+  'time',
+  'sig',
+};
+
+/// The keys a record type's `body` may have, spec section 5. Empty for the
+/// types that carry no data (`reversal`, `approve`, `reject`).
+const _bodyFields = <String, Set<String>>{
+  'partnership_create': {'investor', 'manager', 'ratio', 'currency'},
+  'invest': {'amount'},
+  'sale': {'amount'},
+  'budget_proposal': {'grantee', 'amount'},
+  'expense': {'amount', 'receiptHash'},
+  'withdraw_request': {'amount', 'kind'},
+  'ratio_proposal': {'ratio', 'effectiveFrom'},
+  'reversal': <String>{},
+  'approve': <String>{},
+  'reject': <String>{},
+};
+
+/// A `ratio` is exactly `{investor, manager}` (spec section 5). Its values
+/// are checked later, in ratioOf, where a bad sum just means "no ratio".
+bool _hasExactlyRatioKeys(Object? ratio) {
+  return ratio is Map &&
+      ratio.length == 2 &&
+      ratio.containsKey('investor') &&
+      ratio.containsKey('manager');
 }
 
 /// Runs raw incoming records through spec section 6.1's full pipeline:
@@ -151,6 +212,36 @@ class Validator {
   Set<String>? get partnershipKeys =>
       _partnershipKeys == null ? null : Set.unmodifiable(_partnershipKeys!);
 
+  /// Receives a record as the exact text that arrived over the network.
+  ///
+  /// The text must already be canonical: parse it, encode it again, and
+  /// accept only if the bytes match. This refuses extra whitespace, wrong key
+  /// order, duplicate keys (`jsonDecode` silently keeps the last one), and
+  /// `[]` where `{}` belongs. Every device then stores the same bytes, so the
+  /// hash and signature mean the same thing everywhere (spec 6.1, step 1).
+  Future<ReceiveOutcome> receiveText(String text) async {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(text);
+    } on FormatException {
+      return ReceiveOutcome.rejectedSchema;
+    }
+    if (decoded is! Map<String, dynamic>) return ReceiveOutcome.rejectedSchema;
+
+    final String reencoded;
+    try {
+      reencoded = canonicalJson(decoded);
+    } on ArgumentError {
+      // For example a float such as 1.5, which canonical JSON never allows.
+      return ReceiveOutcome.rejectedNotCanonical;
+    }
+    if (reencoded != text) return ReceiveOutcome.rejectedNotCanonical;
+
+    return receive(decoded);
+  }
+
+  /// Receives a record that is already parsed. Use [receiveText] for anything
+  /// read from the network, because a parsed map has lost its original bytes.
   Future<ReceiveOutcome> receive(Map<String, dynamic> json) async {
     final record = parseRecordSchema(json);
     if (record == null) return ReceiveOutcome.rejectedSchema;
