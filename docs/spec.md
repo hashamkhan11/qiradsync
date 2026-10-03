@@ -41,6 +41,19 @@ Key exchange (in the app):
 investor key, and `body.manager` equals the pinned manager key. Any other create is rejected and not stored,
 even if it arrives first. The real create is still accepted after a forged one was refused.
 
+**Safety code.** The pin stops a forged create on the phone that holds it. It does not stop a swapped join code
+on the manager's phone before the pin is set. To catch that, both partners compare a safety code:
+
+1. Build the text `qiradsync-safety-v1:` + investor key + `:` + manager key, in UTF-8. Both keys are the
+   canonical base64url text. The order is always investor first, then manager, on both phones.
+2. Take SHA-256 of that text. Read its first 16 bytes as one big-endian unsigned integer, and take it
+   modulo 10^24.
+3. Write the result as 24 digits with leading zeros, in 6 groups of 4 separated by spaces.
+
+The partners compare the code in person or on a voice call before the partnership is confirmed. A swapped key in
+either direction gives a different code. The code stays visible in the partnership settings so it can be checked
+again later. The screens are Phase 7; the function is in `qirad_core` (`safetyCode`).
+
 ---
 
 ## 3. Record format

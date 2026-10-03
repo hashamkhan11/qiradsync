@@ -268,3 +268,19 @@ protects the phone.
 
 **Also decided:** "3 attempts" in spec 7.3 means 3 repair rounds per sync run. Network retries (step 6) start a new
 run with their own 3 repair rounds, and the two counts are kept separate.
+
+---
+
+## 2026-10-03 — Partners compare a safety code before a join is confirmed
+
+**Decision:** Both phones compute the same safety code from both keys, in a fixed order (investor, then manager).
+The partners compare it in person or on a call before the partnership is confirmed. The code stays visible in the
+partnership settings. The exact computation is in spec section 2.1 (SHA-256 of a domain-separated text, first 16
+bytes mod 10^24, shown as 6 groups of 4 digits). The pure function is in `qirad_core`; the screens come in Phase 7.
+
+**Reason:** The join code is not signed, so a swapped code on the manager's phone would pin the wrong investor. The
+pin would then refuse the real create. A safety code made from both keys is different for any swap, in either
+direction, and the partners can check it without trusting the relay.
+
+**Why 24 digits:** A short code (for example 6 digits) could be matched by searching for a key with the same code.
+About 80 bits makes that search infeasible.
