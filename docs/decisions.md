@@ -40,6 +40,10 @@ immediately, in another `sync` call, up to 3 attempts before falling back to nor
 Added a required test: wipe the relay's database, then sync — the relay must end up holding every
 record that exists on either phone.
 
+**Test:** `after the relay loses its data, the next sync from either phone refills it`
+(`apps/mobile/test/sync_recovery_test.dart`). Correction (2026-10-03): this test did not exist when this
+entry was first written. It was added in commit 09ab8d6, after an audit found the claim false.
+
 **Reason:** The old rule ("upload records above the relay's *last known* vector") is a stale-cache
 bug: if the relay loses data (e.g. a database restore), the client's memory of what the relay has
 doesn't shrink to match, so the client never re-uploads the records the relay lost — they're gone
@@ -57,9 +61,10 @@ reversals in `seq` order, keeping one running `used` total. An expense's valid/o
 decided once, from `used` as it stood at that expense's own `seq`, and never changes again. A
 reversal of a valid expense frees its amount from `used`, but only for expenses that come **after**
 the reversal's `seq` — it cannot reach back and change an earlier expense's already-decided status.
-Added the required test: budget 10,000, expenses 4,000/3,000/5,000/2,000 then a reversal of the
+Required test: budget 10,000, expenses 4,000/3,000/5,000/2,000 then a reversal of the
 second expense — the third expense (flagged over-budget before the reversal) must stay flagged
 afterward, even though the reversal frees enough room that it would have fit.
+(`packages/qirad_core/test/budgets_test.dart`: "the grantee's own reversal frees budget only from its seq onward".)
 
 **Reason:** The old rule recalculated `used(B)` fresh every time, counting only currently
 non-reversed expenses. That made a later reversal retroactively change an earlier expense's status —
