@@ -169,6 +169,15 @@ bool _hasExactlyRatioKeys(Object? ratio) {
 /// correctly; [equivocatingFromSeq] and [chainInvalidIds] are the markers
 /// that computation will read.
 class Validator {
+  /// [pinnedInvestorKey] and [pinnedManagerKey] come from the join code
+  /// (spec section 2.1). When set, the first `partnership_create` is accepted
+  /// only if it names these keys. Without pins, any valid create is accepted,
+  /// which only the core's own rule tests use. The app always pins.
+  Validator({this.pinnedInvestorKey, this.pinnedManagerKey});
+
+  final String? pinnedInvestorKey;
+  final String? pinnedManagerKey;
+
   final Ledger ledger = Ledger();
 
   Set<String>? _partnershipKeys;
@@ -269,12 +278,27 @@ class Validator {
 
   bool _passesMembership(Record record) {
     if (_partnershipKeys == null) {
-      return record.type == 'partnership_create';
+      return record.type == 'partnership_create' && _matchesPins(record);
     }
     // Only one partnership per ledger. A second create (or any record for
     // another partnership) is rejected here, so it is never stored.
     if (record.partnership != _partnershipId) return false;
     return _partnershipKeys!.contains(record.author);
+  }
+
+  /// A create must name the pinned keys, and be signed by the pinned
+  /// investor. This stops a forged create from being accepted first. The
+  /// relay can send any signed record, so the signature alone proves only
+  /// that its author made it, not that it is the real partnership.
+  bool _matchesPins(Record record) {
+    final investor = pinnedInvestorKey;
+    if (investor != null) {
+      if (record.author != investor) return false;
+      if (record.body['investor'] != investor) return false;
+    }
+    final manager = pinnedManagerKey;
+    if (manager != null && record.body['manager'] != manager) return false;
+    return true;
   }
 
   ReceiveOutcome _acceptIntoChain(Record record) {
