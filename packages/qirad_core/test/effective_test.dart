@@ -111,16 +111,30 @@ void main() {
     otherPartnerSetup() async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
+      // The expense only counts under an approved budget (spec section 6.4).
+      final budget = await investor.next(
+        partnership: partnershipId,
+        type: 'budget_proposal',
+        body: {'grantee': manager.key, 'amount': 10000},
+      );
+      final budgetApprove = await manager.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: budget.id,
+      );
       final expense = await manager.next(
         partnership: partnershipId,
         type: 'expense',
         body: {'amount': 4000, 'receiptHash': null},
+        refersTo: budget.id,
       );
       final reversal = await investor.next(
         partnership: partnershipId,
         type: 'reversal',
         refersTo: expense.id,
       );
+      await validator.receive(budget.toJson());
+      await validator.receive(budgetApprove.toJson());
       await validator.receive(expense.toJson());
       await validator.receive(reversal.toJson());
       return (validator, expense, reversal, manager, partnershipId);

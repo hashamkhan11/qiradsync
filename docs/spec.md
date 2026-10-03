@@ -170,6 +170,15 @@ for each record R targeting B, in seq order:
         # nothing to free: the expense was never counted towards `used`
 ```
 
+**Position of each event.** `seq` is per author, so records from the two partners cannot be ordered
+against each other. Every budget event is therefore placed at a `seq` from the **grantee's** chain
+(the manager, who is the only author of expenses):
+- an `expense` sits at its own `seq`;
+- a reversal by the grantee sits at its own `seq`;
+- a reversal by the other partner sits at the `seq` of the grantee's `approve` that makes it effective.
+
+Since the other partner's reversal needs the grantee's approval (Section 5), this position is always known.
+
 An expense's status depends only on `used` as it stood at that expense's own `seq` — a fact fixed
 the moment the expense was evaluated. A later reversal can only change `used` **from its own `seq`
 onward**, for expenses still to come; it can never reach back and flip an earlier expense's status.

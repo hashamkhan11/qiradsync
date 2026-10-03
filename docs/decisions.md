@@ -83,3 +83,16 @@ flagged, because they may become valid when the target arrives.
 `budget_proposal` early raises a cross-author ordering question (which of the grantee's expenses still
 count), so it is future work. Responses are final under first-response-wins (Section 5), so a partner
 changes their mind by proposing again, not by reversing a response.
+
+---
+
+## 2026-10-03 — Budget events are ordered by the grantee's seq
+
+**Decision:** Each budget event is placed at a `seq` from the grantee's chain. An expense sits at its own
+`seq`. A reversal by the grantee sits at its own `seq`. A reversal by the other partner sits at the `seq`
+of the grantee's `approve` that makes it effective.
+
+**Reason:** `seq` is per author, so the investor's and manager's `seq` values cannot be compared. Only the
+manager writes expenses, and the other partner's reversal needs the manager's approval, so every budget
+event already has a `seq` in the manager's chain. Clock time and arrival order are not allowed (hard
+rules 3 and 5). Forbidding investor reversals was rejected: it removes a valid correction path.
