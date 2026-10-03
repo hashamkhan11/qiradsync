@@ -1,0 +1,2 @@
+# Fixture bytes must match exactly on every machine. Git must not convert line endings here.
+testdata/** -text
