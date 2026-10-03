@@ -7,7 +7,7 @@ void main() {
   group('step 1 — schema', () {
     test('a record missing required fields is rejected, not stored', () async {
       final validator = Validator();
-      final outcome = await validator.receive({'v': 1, 'id': 'x'});
+      final outcome = await validator.receiveText(canonicalJson({'v': 1, 'id': 'x'}));
 
       expect(outcome, ReceiveOutcome.rejectedSchema);
       expect(validator.ledger.records, isEmpty);
@@ -17,10 +17,10 @@ void main() {
   group('step 2 — signature', () {
     test('a field tampered with after signing is rejected', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final record = await investor.next(partnership: partnershipId, type: 'note');
+      final record = await investor.next(partnership: partnershipId, type: 'invest');
       final tampered = record.copyWith(note: 'tampered after signing');
 
-      expect(await validator.receive(tampered.toJson()), ReceiveOutcome.rejectedSignature);
+      expect(await validator.receiveText(canonicalJson(tampered.toJson())), ReceiveOutcome.rejectedSignature);
     });
   });
 
@@ -34,34 +34,34 @@ void main() {
     test('a record from a key outside the partnership is rejected', () async {
       final (validator, _, _, partnershipId) = await setUpPartnership();
       final outsider = ChainAuthor(await generateEd25519KeyPair());
-      final rogue = await outsider.next(partnership: partnershipId, type: 'note');
+      final rogue = await outsider.next(partnership: partnershipId, type: 'invest');
 
-      expect(await validator.receive(rogue.toJson()), ReceiveOutcome.rejectedMembership);
+      expect(await validator.receiveText(canonicalJson(rogue.toJson())), ReceiveOutcome.rejectedMembership);
     });
   });
 
   group('step 4 — hash chain', () {
     test('wrong prevHash is detected and flagged, not accepted', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final good = await investor.next(partnership: partnershipId, type: 'note');
+      final good = await investor.next(partnership: partnershipId, type: 'invest');
 
       investor.prevHash = 'f' * 64; // corrupt the chain before signing the next one
-      final broken = await investor.next(partnership: partnershipId, type: 'note');
+      final broken = await investor.next(partnership: partnershipId, type: 'invest');
 
-      expect(await validator.receive(good.toJson()), ReceiveOutcome.accepted);
-      expect(await validator.receive(broken.toJson()), ReceiveOutcome.chainInvalid);
+      expect(await validator.receiveText(canonicalJson(good.toJson())), ReceiveOutcome.accepted);
+      expect(await validator.receiveText(canonicalJson(broken.toJson())), ReceiveOutcome.chainInvalid);
       expect(validator.chainInvalidIds, contains(broken.id));
     });
 
     test('a gap is buffered, then released as a cascade once filled', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final r2 = await investor.next(partnership: partnershipId, type: 'note');
-      final r3 = await investor.next(partnership: partnershipId, type: 'note');
-      final r4 = await investor.next(partnership: partnershipId, type: 'note');
+      final r2 = await investor.next(partnership: partnershipId, type: 'invest');
+      final r3 = await investor.next(partnership: partnershipId, type: 'invest');
+      final r4 = await investor.next(partnership: partnershipId, type: 'invest');
 
-      expect(await validator.receive(r4.toJson()), ReceiveOutcome.pending);
-      expect(await validator.receive(r3.toJson()), ReceiveOutcome.pending);
-      expect(await validator.receive(r2.toJson()), ReceiveOutcome.accepted);
+      expect(await validator.receiveText(canonicalJson(r4.toJson())), ReceiveOutcome.pending);
+      expect(await validator.receiveText(canonicalJson(r3.toJson())), ReceiveOutcome.pending);
+      expect(await validator.receiveText(canonicalJson(r2.toJson())), ReceiveOutcome.accepted);
 
       expect(validator.pendingRecords, isEmpty);
       expect(
@@ -76,19 +76,19 @@ void main() {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
       final honest = await investor.next(
         partnership: partnershipId,
-        type: 'note',
-        body: {'n': 1},
+        type: 'invest',
+        body: {'amount': 1},
       );
 
       investor.seq -= 1; // same author tries to reuse seq 2 for a different record
       final forged = await investor.next(
         partnership: partnershipId,
-        type: 'note',
-        body: {'n': 2},
+        type: 'invest',
+        body: {'amount': 2},
       );
 
-      expect(await validator.receive(honest.toJson()), ReceiveOutcome.accepted);
-      expect(await validator.receive(forged.toJson()), ReceiveOutcome.equivocating);
+      expect(await validator.receiveText(canonicalJson(honest.toJson())), ReceiveOutcome.accepted);
+      expect(await validator.receiveText(canonicalJson(forged.toJson())), ReceiveOutcome.equivocating);
 
       expect(validator.equivocatingFromSeq[investor.key], 2);
       expect(
@@ -101,10 +101,10 @@ void main() {
   group('step 6 — duplicate', () {
     test('re-receiving the same record is harmless', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final record = await investor.next(partnership: partnershipId, type: 'note');
+      final record = await investor.next(partnership: partnershipId, type: 'invest');
 
-      expect(await validator.receive(record.toJson()), ReceiveOutcome.accepted);
-      expect(await validator.receive(record.toJson()), ReceiveOutcome.duplicateIgnored);
+      expect(await validator.receiveText(canonicalJson(record.toJson())), ReceiveOutcome.accepted);
+      expect(await validator.receiveText(canonicalJson(record.toJson())), ReceiveOutcome.duplicateIgnored);
     });
   });
 }

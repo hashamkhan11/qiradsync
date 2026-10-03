@@ -66,7 +66,17 @@ To sign or hash a record, encode it as canonical JSON:
 - Strings in UTF-8 with standard JSON escaping; integers in plain decimal; no floats anywhere.
 - `null` written as `null`.
 
+"Unicode code point" means the number of the character itself (U+0041 for `A`, U+1F600 for an emoji).
+Sorting by UTF-16 code units gives a different order for characters above U+FFFF, so do not use it.
+In v1 all keys are ASCII, so the two orders agree today; the rule is still stated exactly.
+
 `canonical(x)` below means the UTF-8 bytes of this encoding.
+
+**Canonical form on receive.** A record received as text is accepted only if the text is already
+canonical: parse it, encode it again with this section's rules, and the result must equal the received
+text byte for byte. This refuses extra whitespace, keys in the wrong order, duplicate keys (a parser
+keeps only one, so two parsers could disagree) and `[]` where `{}` belongs. Every device stores the same
+bytes, so every hash and signature means the same thing everywhere.
 
 ### 4.2 Signature
 
@@ -130,8 +140,11 @@ Notes:
 
 ### 6.1 Receiving a record (per record, in this order)
 
-1. **Schema:** all fields present with correct types; `v == 1`; amounts are positive integers. For a
-   `partnership_create`, `partnership` equals its own `id`.
+1. **Schema:** the text is in canonical form (Section 4.1, byte for byte). All fields present with correct
+   types; `v == 1`; amounts are positive integers. For a `partnership_create`, `partnership` equals its own
+   `id`. No key other than the fields in Section 3 at the top level, and no key in `body` other than the
+   ones Section 5 lists for that `type`; a `ratio` object has exactly `investor` and `manager`. A `type`
+   not in Section 5 is invalid.
 2. **Signature:** `sig` verifies against `author` over `canonical(unsigned)`.
 3. **Membership:** `partnership` equals this ledger's partnership id (the `id` of its accepted
    `partnership_create`), and `author` is one of the two partnership keys. Before any create is accepted,
@@ -239,8 +252,21 @@ Example, for one partnership: `{ "<investorKey>": 12, "<managerKey>": 7 }`.
 All endpoints are JSON over HTTPS, prefix `/api/v1`. Records travel as the **exact canonical JSON
 string** the author produced; the relay stores that string unchanged.
 
-**`POST /devices`** — register a device.
-Request: `{ "publicKey": string }` → Response: `{ "token": string }` (Sanctum token).
+**Device registration** takes two steps. A public key is public, so a key alone proves nothing: without a
+proof of possession, anyone could register as a partner's device and download the whole ledger.
+
+1. **`POST /devices/challenge`** — request a nonce.
+   Request: `{ "publicKey": string }` → Response `201`: `{ "nonce": string, "expiresAt": string }`.
+   The nonce is 32 random bytes in base64url without padding (43 characters). It is single use, expires
+   5 minutes after it is issued, and is stored on the relay for that key.
+2. **`POST /devices`** — register the key with proof.
+   Request: `{ "publicKey": string, "nonce": string, "signature": string }`
+   → Response `201`: `{ "token": string }` (Sanctum token). Otherwise `422`.
+   The signature is Ed25519 over the UTF-8 bytes of `"qiradsync-register-v1:" + nonce` (the prefix is the
+   domain separator, so a registration signature can never be a record signature, Section 4.2).
+   The relay deletes the nonce as soon as it is presented, whether the registration succeeds or fails.
+   A nonce that is unknown, expired, issued for another key, or already used is refused, as is a
+   signature over the bare nonce without the prefix.
 
 **`POST /partnerships/{partnershipId}/sync`** — exchange records (auth: bearer token).
 
@@ -251,13 +277,24 @@ Request:
 
 Relay behaviour:
 
-1. For each uploaded record: check it parses, its `partnership` matches the URL, and its signature is valid.
-   Store it if no record exists with the same `(author, seq)`.
-   If one exists with a **different** hash, do not overwrite: return it in `conflicts` (evidence of equivocation).
-2. Only devices whose public key is a party in that partnership's `partnership_create` may sync
-   (exception: the manager key named in it may sync before approving).
+1. For each uploaded record, in canonical form (Section 6.1 step 1): check its `partnership` matches the URL
+   and its signature is valid. A `partnership_create` in the batch is handled first, then the other records
+   in any order. The relay does not check `seq` order; each phone does (Section 6.1).
+   - If no record exists with the same `(author, seq)`, store it in `records`.
+   - If the same record (same hash) is already stored, report it in `already`. Nothing is stored twice.
+   - If a record exists with the same `(author, seq)` but a **different** hash, do not overwrite it. Store the
+     new version in `conflicts` (a separate table, append-only). Report it in `conflicts` as well.
+2. Only devices whose public key is one of the two keys named in the partnership's accepted `partnership_create`
+   may sync. Before a `partnership_create` is stored, only the investor's device may sync, and only to upload a
+   valid `partnership_create` signed by the investor. Once it exists, both keys may sync, including the manager
+   before approving. The relay does not interpret approvals.
 3. Return every stored record of this partnership with `seq` greater than the client's vector for its author,
    ordered by `(author, seq)`, plus the relay's own vector.
+4. **Equivocation goes to both partners.** The `conflicts` list in every response holds, for each `(author, seq)`
+   that has a conflict, **every** version the relay holds at that position: the stored record and each conflicting
+   version. It is returned to every member of the partnership, on every sync, not only to the device that
+   uploaded the conflict. Each phone runs its own equivocation check (Section 6.1 step 5). A partner who
+   equivocates therefore cannot hide it from the other partner.
 
 The relay's vector in the response is **always computed live** from what it currently holds, using
 the same gap-aware rule as Section 7.1 (highest `seq` held *without gaps*, per author) — never cached.
@@ -266,8 +303,19 @@ records reports a lower vector, it never reports a stale or remembered one.
 
 Response:
 ```json
-{ "accepted": ["<id>"], "conflicts": ["<canonical record json>"], "records": ["<canonical record json>"], "vector": { "<key>": 14 } }
+{
+  "accepted": ["<id>"],
+  "already": ["<id>"],
+  "rejected": [{ "index": 0, "reason": "<short reason>" }],
+  "conflicts": ["<canonical record json>"],
+  "records": ["<canonical record json>"],
+  "vector": { "<key>": 14 }
+}
 ```
+
+`accepted` lists the ids stored by this request. `already` lists ids that were sent again unchanged. `rejected`
+lists records refused by the checks above, with the position in the request. The reasons are for debugging only,
+never for decisions. A device that is not allowed to sync gets `403` with a fixed message.
 
 The relay never edits, deletes, merges or interprets record content beyond the checks above.
 

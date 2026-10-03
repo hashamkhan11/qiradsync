@@ -1,0 +1,9 @@
+{
+  "canonical": "{\"author\":\"HETby1HXnQxFIdOkNDsm5rpP5zBocKRE13N14guuKCM\",\"body\":{\"amount\":150000},\"id\":\"HETby1HX-rec-1\",\"note\":\"سرمایہ کاری کی پہلی قسط\",\"partnership\":\"partnership-vector\",\"prevHash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"refersTo\":null,\"seq\":1,\"sig\":\"m2H7avNxUZVzVHBzx8dQX6FMR54uQr2A7iY2rQasoYvUcw2NTknpdzUkB0nP7Nz10qcLDloxEBNyMPMvxzWyDQ\",\"time\":\"2026-10-02T10:00:00Z\",\"type\":\"invest\",\"v\":1}",
+  "hash": "c2b0045e29b68829e58efc54b770d9d0ce034a2e89a8ed1bf6231b7809a345b9",
+  "partnership": "partnership-vector",
+  "author": "HETby1HXnQxFIdOkNDsm5rpP5zBocKRE13N14guuKCM",
+  "seq": 1,
+  "id": "HETby1HX-rec-1",
+  "publicKey": "HETby1HXnQxFIdOkNDsm5rpP5zBocKRE13N14guuKCM"
+}

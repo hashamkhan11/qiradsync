@@ -68,11 +68,11 @@ all tests pass, and its pull request is merged.
 
 ## Phase 5 — Relay server
 
-- [ ] Migrations: `devices`, `records` (stores raw canonical string, `partnership`, `author`, `seq`, `hash`, `id`), unique index on `(partnership, author, seq)`
-- [ ] No UPDATE or DELETE on `records` anywhere
-- [ ] `POST /api/v1/devices` and `POST /api/v1/partnerships/{id}/sync` exactly per spec §7.2
-- [ ] Ed25519 signature check in PHP (`sodium_crypto_sign_verify_detached`), using the same canonical string
-- [ ] Feature tests: stores exact strings, rejects bad signature, returns only missing records, reports conflicts, blocks non-members
+- [x] Migrations: `devices`, `records` (stores raw canonical string, `partnership`, `author`, `seq`, `hash`, `id`), unique index on `(partnership, author, seq)`
+- [x] No UPDATE or DELETE on `records` anywhere
+- [x] `POST /api/v1/devices` and `POST /api/v1/partnerships/{id}/sync` exactly per spec §7.2
+- [x] Ed25519 signature check in PHP (`sodium_crypto_sign_verify_detached`), using the same canonical string
+- [x] Feature tests: stores exact strings, rejects bad signature, returns only missing records, reports conflicts, blocks non-members
 
 **Done when:** a record signed in Dart verifies in PHP (shared test vector) and all feature tests pass.
 

@@ -17,12 +17,17 @@ void main() {
         'body': {'note': 'x', 'amount': 500, 'budgetId': 'b1'},
       });
 
-      expect(result, '{"body":{"amount":500,"budgetId":"b1","note":"x"},"type":"expense"}');
+      expect(
+        result,
+        '{"body":{"amount":500,"budgetId":"b1","note":"x"},"type":"expense"}',
+      );
     });
 
     test('writes no whitespace anywhere', () {
       final result = canonicalJson({
-        'a': {'b': [1, 2, 3]},
+        'a': {
+          'b': [1, 2, 3],
+        },
       });
 
       expect(result, isNot(contains(' ')));
@@ -46,12 +51,22 @@ void main() {
         'refersTo': null,
       };
 
-      final decoded = jsonDecode(canonicalJson(original)) as Map<String, dynamic>;
+      final decoded =
+          jsonDecode(canonicalJson(original)) as Map<String, dynamic>;
 
       expect(decoded['seq'], 3);
       expect(decoded['note'], 'quoted "text" and a \\ backslash');
       expect(decoded['refersTo'], isNull);
       expect(decoded['body'], {'z': 1, 'a': 2});
+    });
+
+    test('sorts by code point, not UTF-16 units, above U+FFFF', () {
+      // U+FF5E is 0xFF5E in UTF-16. U+1F600 is a surrogate pair starting 0xD83D,
+      // which is smaller. By code point, U+1F600 is larger, so U+FF5E comes first.
+      final result = canonicalJson({'\u{1F600}': 2, '～': 1});
+
+      final expectedBytes = utf8.encode('{"～":1,"\u{1F600}":2}');
+      expect(utf8.encode(result), expectedBytes);
     });
   });
 }

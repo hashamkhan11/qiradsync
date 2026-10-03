@@ -1,0 +1,20 @@
+{
+    "partnership": "partnership-relay-fixture",
+    "response": {
+        "accepted": [],
+        "already": [],
+        "rejected": [],
+        "conflicts": [
+            "{\"author\":\"o2xx98fb3SvDYGsk1GBq8xjZmD6kMlM4xTj7Ba0mpgU\",\"body\":{},\"id\":\"approve-5a\",\"note\":\"\",\"partnership\":\"partnership-relay-fixture\",\"prevHash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"refersTo\":\"invest-2\",\"seq\":5,\"sig\":\"OQyMFmILiJhVq5k7WFVYc1LCpjvYdS3dnTF3_5XWUZp_stYBPIhFzZVXTrAt_adkkW03eBz6k-RZP0rxOfY_CQ\",\"time\":\"2026-10-03T10:00:00Z\",\"type\":\"approve\",\"v\":1}",
+            "{\"author\":\"o2xx98fb3SvDYGsk1GBq8xjZmD6kMlM4xTj7Ba0mpgU\",\"body\":{},\"id\":\"approve-5b\",\"note\":\"\",\"partnership\":\"partnership-relay-fixture\",\"prevHash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"refersTo\":\"invest-2\",\"seq\":5,\"sig\":\"CFwW8Trh7_eWdxpZOPAK8tO-M26Q2w8-eBYSDnrpTOWifb9Ge6vwNZkA0j3cjWJkIfDDHSF6rWbgMkbFbMEWBQ\",\"time\":\"2026-10-03T10:00:00Z\",\"type\":\"approve\",\"v\":1}"
+        ],
+        "records": [
+            "{\"author\":\"VmSPAhKyuAy4gr_6kPOSyVQUW4bojvHOSDKEv_K0SWU\",\"body\":{\"currency\":\"PKR\",\"investor\":\"VmSPAhKyuAy4gr_6kPOSyVQUW4bojvHOSDKEv_K0SWU\",\"manager\":\"o2xx98fb3SvDYGsk1GBq8xjZmD6kMlM4xTj7Ba0mpgU\",\"ratio\":{\"investor\":60,\"manager\":40}},\"id\":\"partnership-relay-fixture\",\"note\":\"\",\"partnership\":\"partnership-relay-fixture\",\"prevHash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"refersTo\":null,\"seq\":1,\"sig\":\"dj0ixYoIXFhfa6pNURMA8IWF7tLrO-L1F-qopdBoZxVMav-p7T2q46JUiNNsxo-PC-l0fByhNb7SPAIDYU5SBA\",\"time\":\"2026-10-03T10:00:00Z\",\"type\":\"partnership_create\",\"v\":1}",
+            "{\"author\":\"VmSPAhKyuAy4gr_6kPOSyVQUW4bojvHOSDKEv_K0SWU\",\"body\":{\"amount\":150000},\"id\":\"invest-2\",\"note\":\"\",\"partnership\":\"partnership-relay-fixture\",\"prevHash\":\"a9b4694e24694a647d7e712475f8a6e9f9fdb12715e53f891e1bda03258eabde\",\"refersTo\":null,\"seq\":2,\"sig\":\"VUY-ittzJdNq9CCbO3vS9Z5RbXnIgo7zcX6KSH3kvP6QPIxsTw4Vu-Ojl-noQMky4vJHbJaN2SU0uC3rNZgSCw\",\"time\":\"2026-10-03T10:00:00Z\",\"type\":\"invest\",\"v\":1}",
+            "{\"author\":\"o2xx98fb3SvDYGsk1GBq8xjZmD6kMlM4xTj7Ba0mpgU\",\"body\":{},\"id\":\"approve-5a\",\"note\":\"\",\"partnership\":\"partnership-relay-fixture\",\"prevHash\":\"0000000000000000000000000000000000000000000000000000000000000000\",\"refersTo\":\"invest-2\",\"seq\":5,\"sig\":\"OQyMFmILiJhVq5k7WFVYc1LCpjvYdS3dnTF3_5XWUZp_stYBPIhFzZVXTrAt_adkkW03eBz6k-RZP0rxOfY_CQ\",\"time\":\"2026-10-03T10:00:00Z\",\"type\":\"approve\",\"v\":1}"
+        ],
+        "vector": {
+            "VmSPAhKyuAy4gr_6kPOSyVQUW4bojvHOSDKEv_K0SWU": 2
+        }
+    }
+}

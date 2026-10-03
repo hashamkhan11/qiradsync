@@ -16,7 +16,7 @@ Future<MoneySummary> _money(Validator validator) async {
 Future<void> _receiveInOrder(Validator validator, List<Record> records) async {
   for (final record in records) {
     expect(
-      await validator.receive(record.toJson()),
+      await validator.receiveText(canonicalJson(record.toJson())),
       ReceiveOutcome.accepted,
       reason: record.id,
     );
@@ -389,9 +389,9 @@ void main() {
         MoneySummary? baseline;
         for (final order in orders) {
           final validator = Validator();
-          await validator.receive(create.toJson());
+          await validator.receiveText(canonicalJson(create.toJson()));
           for (final record in order) {
-            await validator.receive(record.toJson());
+            await validator.receiveText(canonicalJson(record.toJson()));
           }
           final money = await _money(validator);
 

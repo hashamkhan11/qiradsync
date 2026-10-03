@@ -16,6 +16,27 @@ String canonicalJson(Object? value) {
   return buffer.toString();
 }
 
+/// Compares two strings by Unicode code point, the order spec section 4.1 asks for.
+///
+/// `String.compareTo` compares UTF-16 code units, which is a different order
+/// for characters above U+FFFF: an emoji (U+1F600) would sort before U+FF5E
+/// even though its code point is larger. Every device and the relay must
+/// agree on the order, so we compare code points directly.
+int _compareCodePoints(String a, String b) {
+  final first = a.runes.iterator;
+  final second = b.runes.iterator;
+  while (true) {
+    final hasFirst = first.moveNext();
+    final hasSecond = second.moveNext();
+    if (!hasFirst || !hasSecond) {
+      // The shorter string (one that ran out first) sorts before the longer one.
+      return (hasFirst ? 1 : 0) - (hasSecond ? 1 : 0);
+    }
+    final order = first.current.compareTo(second.current);
+    if (order != 0) return order;
+  }
+}
+
 void _writeCanonical(Object? value, StringBuffer buffer) {
   if (value == null) {
     buffer.write('null');
@@ -31,7 +52,8 @@ void _writeCanonical(Object? value, StringBuffer buffer) {
       'numbers must be integers.',
     );
   } else if (value is Map) {
-    final keys = value.keys.map((k) => k as String).toList()..sort();
+    final keys = value.keys.map((k) => k as String).toList()
+      ..sort(_compareCodePoints);
     buffer.write('{');
     for (var i = 0; i < keys.length; i++) {
       if (i > 0) buffer.write(',');
