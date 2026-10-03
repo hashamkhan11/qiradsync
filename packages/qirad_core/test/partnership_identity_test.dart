@@ -24,7 +24,7 @@ void main() {
         );
 
         expect(
-          await validator.receive(create.toJson()),
+          await validator.receiveText(canonicalJson(create.toJson())),
           ReceiveOutcome.rejectedSchema,
         );
         expect(validator.partnershipKeys, isNull);
@@ -46,7 +46,7 @@ void main() {
       );
 
       expect(
-        await validator.receive(second.toJson()),
+        await validator.receiveText(canonicalJson(second.toJson())),
         ReceiveOutcome.rejectedMembership,
       );
       expect(
@@ -66,7 +66,7 @@ void main() {
         );
 
         expect(
-          await validator.receive(stray.toJson()),
+          await validator.receiveText(canonicalJson(stray.toJson())),
           ReceiveOutcome.rejectedMembership,
         );
       },
@@ -80,7 +80,7 @@ void main() {
         body: {'amount': 100},
       );
 
-      expect(await validator.receive(invest.toJson()), ReceiveOutcome.accepted);
+      expect(await validator.receiveText(canonicalJson(invest.toJson())), ReceiveOutcome.accepted);
     });
 
     test(
@@ -104,7 +104,7 @@ void main() {
 
         expect(create.seq, 1);
         expect(
-          await Validator().receive(create.toJson()),
+          await Validator().receiveText(canonicalJson(create.toJson())),
           ReceiveOutcome.accepted,
         );
       },

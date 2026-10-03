@@ -18,7 +18,7 @@ Future<Ratio?> _ratioOn(Validator validator, String date) async {
 Future<void> _receiveInOrder(Validator validator, List<Record> records) async {
   for (final record in records) {
     expect(
-      await validator.receive(record.toJson()),
+      await validator.receiveText(canonicalJson(record.toJson())),
       ReceiveOutcome.accepted,
       reason: record.id,
     );
@@ -267,11 +267,11 @@ void main() {
 
         for (final order in orders) {
           final validator = Validator();
-          await validator.receive(create.toJson());
+          await validator.receiveText(canonicalJson(create.toJson()));
           // Some orders deliver a record before its chain predecessor. Those are
           // held as pending and released later, so only the final state matters.
           for (final record in order) {
-            await validator.receive(record.toJson());
+            await validator.receiveText(canonicalJson(record.toJson()));
           }
 
           expect(

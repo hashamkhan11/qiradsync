@@ -32,7 +32,7 @@ Future<(Record, ChainAuthor)> _targetOfType(
           'effectiveFrom': '2026-11-01',
         },
       );
-      await validator.receive(proposal.toJson());
+      await validator.receiveText(canonicalJson(proposal.toJson()));
       return (proposal, investor);
     case 'budget_proposal':
       final budget = await investor.next(
@@ -40,7 +40,7 @@ Future<(Record, ChainAuthor)> _targetOfType(
         type: type,
         body: {'grantee': manager.key, 'amount': 10000},
       );
-      await validator.receive(budget.toJson());
+      await validator.receiveText(canonicalJson(budget.toJson()));
       return (budget, investor);
     case 'approve':
     case 'reject':
@@ -54,8 +54,8 @@ Future<(Record, ChainAuthor)> _targetOfType(
         type: type,
         refersTo: budget.id,
       );
-      await validator.receive(budget.toJson());
-      await validator.receive(response.toJson());
+      await validator.receiveText(canonicalJson(budget.toJson()));
+      await validator.receiveText(canonicalJson(response.toJson()));
       return (response, manager);
     case 'reversal':
       final expense = await manager.next(
@@ -68,8 +68,8 @@ Future<(Record, ChainAuthor)> _targetOfType(
         type: 'reversal',
         refersTo: expense.id,
       );
-      await validator.receive(expense.toJson());
-      await validator.receive(reversal.toJson());
+      await validator.receiveText(canonicalJson(expense.toJson()));
+      await validator.receiveText(canonicalJson(reversal.toJson()));
       return (reversal, investor);
   }
   throw ArgumentError('no setup for $type');
@@ -91,8 +91,8 @@ void main() {
           type: 'reversal',
           refersTo: expense.id,
         );
-        await validator.receive(expense.toJson());
-        await validator.receive(reversal.toJson());
+        await validator.receiveText(canonicalJson(expense.toJson()));
+        await validator.receiveText(canonicalJson(reversal.toJson()));
 
         final effective = await _effective(validator);
 
@@ -133,10 +133,10 @@ void main() {
         type: 'reversal',
         refersTo: expense.id,
       );
-      await validator.receive(budget.toJson());
-      await validator.receive(budgetApprove.toJson());
-      await validator.receive(expense.toJson());
-      await validator.receive(reversal.toJson());
+      await validator.receiveText(canonicalJson(budget.toJson()));
+      await validator.receiveText(canonicalJson(budgetApprove.toJson()));
+      await validator.receiveText(canonicalJson(expense.toJson()));
+      await validator.receiveText(canonicalJson(reversal.toJson()));
       return (validator, expense, reversal, manager, partnershipId);
     }
 
@@ -163,7 +163,7 @@ void main() {
           type: 'approve',
           refersTo: reversal.id,
         );
-        await validator.receive(approve.toJson());
+        await validator.receiveText(canonicalJson(approve.toJson()));
 
         final effective = await _effective(validator);
 
@@ -183,7 +183,7 @@ void main() {
           type: 'reject',
           refersTo: reversal.id,
         );
-        await validator.receive(reject.toJson());
+        await validator.receiveText(canonicalJson(reject.toJson()));
 
         final effective = await _effective(validator);
 
@@ -219,7 +219,7 @@ void main() {
           refersTo: target.id,
         );
         expect(
-          await validator.receive(reversal.toJson()),
+          await validator.receiveText(canonicalJson(reversal.toJson())),
           ReceiveOutcome.accepted,
         );
 
@@ -255,8 +255,8 @@ void main() {
           type: 'reversal',
           refersTo: target.id,
         );
-        await validator.receive(target.toJson());
-        await validator.receive(reversal.toJson());
+        await validator.receiveText(canonicalJson(target.toJson()));
+        await validator.receiveText(canonicalJson(reversal.toJson()));
 
         final effective = await _effective(validator);
 
@@ -293,11 +293,11 @@ void main() {
           (r) => r.type == 'partnership_create',
         );
         final validator = Validator();
-        await validator.receive(create.toJson());
+        await validator.receiveText(canonicalJson(create.toJson()));
 
         // The reversal is accepted first; its target is still missing.
         expect(
-          await validator.receive(reversal.toJson()),
+          await validator.receiveText(canonicalJson(reversal.toJson())),
           ReceiveOutcome.accepted,
         );
         var effective = await _effective(validator);
@@ -305,8 +305,8 @@ void main() {
         expect(effective.isEffective(reversal), isFalse);
 
         // The target arrives, then the approve. The reversal now takes effect.
-        await validator.receive(expense.toJson());
-        await validator.receive(approve.toJson());
+        await validator.receiveText(canonicalJson(expense.toJson()));
+        await validator.receiveText(canonicalJson(approve.toJson()));
         effective = await _effective(validator);
         expect(effective.invalidReversals, isEmpty);
         expect(effective.cancelledIds, {expense.id});
@@ -346,9 +346,9 @@ void main() {
         Effectiveness? baseline;
         for (final order in orders) {
           final validator = Validator();
-          await validator.receive(create.toJson());
+          await validator.receiveText(canonicalJson(create.toJson()));
           for (final record in order) {
-            await validator.receive(record.toJson());
+            await validator.receiveText(canonicalJson(record.toJson()));
           }
           final effective = await _effective(validator);
 

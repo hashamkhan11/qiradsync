@@ -25,8 +25,8 @@ void main() {
         type: 'approve',
         refersTo: proposal.id,
       );
-      expect(await validator.receive(proposal.toJson()), ReceiveOutcome.accepted);
-      expect(await validator.receive(approve.toJson()), ReceiveOutcome.accepted);
+      expect(await validator.receiveText(canonicalJson(proposal.toJson())), ReceiveOutcome.accepted);
+      expect(await validator.receiveText(canonicalJson(approve.toJson())), ReceiveOutcome.accepted);
 
       final decision = _decisionFor(_decide(validator), proposal);
 
@@ -46,8 +46,8 @@ void main() {
         type: 'reject',
         refersTo: proposal.id,
       );
-      await validator.receive(proposal.toJson());
-      await validator.receive(reject.toJson());
+      await validator.receiveText(canonicalJson(proposal.toJson()));
+      await validator.receiveText(canonicalJson(reject.toJson()));
 
       final decision = _decisionFor(_decide(validator), proposal);
 
@@ -61,7 +61,7 @@ void main() {
         type: 'budget_proposal',
         body: {'grantee': manager.key, 'amount': 10000},
       );
-      await validator.receive(proposal.toJson());
+      await validator.receiveText(canonicalJson(proposal.toJson()));
 
       final decision = _decisionFor(_decide(validator), proposal);
 
@@ -86,9 +86,9 @@ void main() {
         type: 'reject',
         refersTo: proposal.id,
       );
-      await validator.receive(proposal.toJson());
-      await validator.receive(approve.toJson());
-      await validator.receive(lateReject.toJson());
+      await validator.receiveText(canonicalJson(proposal.toJson()));
+      await validator.receiveText(canonicalJson(approve.toJson()));
+      await validator.receiveText(canonicalJson(lateReject.toJson()));
 
       final decision = _decisionFor(_decide(validator), proposal);
 
@@ -113,11 +113,11 @@ void main() {
         type: 'reject',
         refersTo: proposal.id,
       );
-      await validator.receive(proposal.toJson());
+      await validator.receiveText(canonicalJson(proposal.toJson()));
 
       // The later response (seq 2) arrives first, so it waits in the pending buffer.
-      expect(await validator.receive(reject.toJson()), ReceiveOutcome.pending);
-      expect(await validator.receive(approve.toJson()), ReceiveOutcome.accepted);
+      expect(await validator.receiveText(canonicalJson(reject.toJson())), ReceiveOutcome.pending);
+      expect(await validator.receiveText(canonicalJson(approve.toJson())), ReceiveOutcome.accepted);
 
       final decision = _decisionFor(_decide(validator), proposal);
 
@@ -140,8 +140,8 @@ void main() {
         type: 'approve',
         refersTo: proposal.id,
       );
-      await validator.receive(proposal.toJson());
-      await validator.receive(selfApprove.toJson());
+      await validator.receiveText(canonicalJson(proposal.toJson()));
+      await validator.receiveText(canonicalJson(selfApprove.toJson()));
 
       final decision = _decisionFor(_decide(validator), proposal);
 
@@ -167,9 +167,9 @@ void main() {
         type: 'reject',
         refersTo: proposal.id,
       );
-      await validator.receive(proposal.toJson());
-      await validator.receive(approve.toJson());
-      expect(await validator.receive(forgedReject.toJson()), ReceiveOutcome.equivocating);
+      await validator.receiveText(canonicalJson(proposal.toJson()));
+      await validator.receiveText(canonicalJson(approve.toJson()));
+      expect(await validator.receiveText(canonicalJson(forgedReject.toJson())), ReceiveOutcome.equivocating);
 
       final decision = _decisionFor(_decide(validator), proposal);
 

@@ -6,7 +6,7 @@ import 'record.dart';
 import 'record_hash.dart';
 import 'signing.dart';
 
-/// What happened when a raw incoming record was run through [Validator.receive],
+/// What happened when a raw incoming record was run through [Validator.receiveText],
 /// spec section 6.1.
 enum ReceiveOutcome {
   /// Step 1 failed: a required field is missing or the wrong type, a key is
@@ -237,12 +237,13 @@ class Validator {
     }
     if (reencoded != text) return ReceiveOutcome.rejectedNotCanonical;
 
-    return receive(decoded);
+    return _receiveParsed(decoded);
   }
 
-  /// Receives a record that is already parsed. Use [receiveText] for anything
-  /// read from the network, because a parsed map has lost its original bytes.
-  Future<ReceiveOutcome> receive(Map<String, dynamic> json) async {
+  /// The steps after the canonical-form check. Private on purpose: the only
+  /// way in is [receiveText], so no path can skip the byte check. A record
+  /// the app builds itself goes through `canonicalJson(record.toJson())` first.
+  Future<ReceiveOutcome> _receiveParsed(Map<String, dynamic> json) async {
     final record = parseRecordSchema(json);
     if (record == null) return ReceiveOutcome.rejectedSchema;
 

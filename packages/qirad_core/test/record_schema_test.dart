@@ -19,7 +19,7 @@ void main() {
         final withExtra = record.toJson()..['extra'] = 'not in the spec';
 
         expect(
-          await validator.receive(withExtra),
+          await validator.receiveText(canonicalJson(withExtra)),
           ReceiveOutcome.rejectedSchema,
         );
       });
@@ -36,7 +36,7 @@ void main() {
           );
 
           expect(
-            await validator.receive(record.toJson()),
+            await validator.receiveText(canonicalJson(record.toJson())),
             ReceiveOutcome.rejectedSchema,
           );
         },
@@ -51,7 +51,7 @@ void main() {
         );
 
         expect(
-          await validator.receive(record.toJson()),
+          await validator.receiveText(canonicalJson(record.toJson())),
           ReceiveOutcome.rejectedSchema,
         );
       });
@@ -69,7 +69,7 @@ void main() {
         );
 
         expect(
-          await validator.receive(proposal.toJson()),
+          await validator.receiveText(canonicalJson(proposal.toJson())),
           ReceiveOutcome.rejectedSchema,
         );
       });
@@ -87,7 +87,7 @@ void main() {
         // shape. The record is stored as evidence, and the rules in Phase 4 make
         // it have no effect.
         expect(
-          await validator.receive(expense.toJson()),
+          await validator.receiveText(canonicalJson(expense.toJson())),
           ReceiveOutcome.accepted,
         );
       });

@@ -43,7 +43,7 @@ Future<Record> _expense(
 Future<void> _receiveInOrder(Validator validator, List<Record> records) async {
   for (final record in records) {
     expect(
-      await validator.receive(record.toJson()),
+      await validator.receiveText(canonicalJson(record.toJson())),
       ReceiveOutcome.accepted,
       reason: record.id,
     );
@@ -348,9 +348,9 @@ void main() {
         Effectiveness? baseline;
         for (final order in orders) {
           final validator = Validator();
-          await validator.receive(create.toJson());
+          await validator.receiveText(canonicalJson(create.toJson()));
           for (final record in order) {
-            await validator.receive(record.toJson());
+            await validator.receiveText(canonicalJson(record.toJson()));
           }
           final effective = await _effective(validator);
 

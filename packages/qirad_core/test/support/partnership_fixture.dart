@@ -65,7 +65,7 @@ Future<(Validator, ChainAuthor, ChainAuthor, String)> setUpPartnership() async {
       'currency': 'PKR',
     },
   );
-  expect(await validator.receive(create.toJson()), ReceiveOutcome.accepted);
+  expect(await validator.receiveText(canonicalJson(create.toJson())), ReceiveOutcome.accepted);
 
   return (validator, investor, manager, partnershipId);
 }
