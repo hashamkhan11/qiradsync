@@ -1,7 +1,20 @@
 import 'package:qirad_core/qirad_core.dart';
 
 import '../storage/record_store.dart';
+import 'device_session.dart';
 import 'relay_client.dart';
+
+/// The relay refused this device twice in one run: once with the saved token,
+/// and again after registering a new one. The app must stop and show this.
+/// It must not loop, because the relay has rejected the device on purpose
+/// or the key is not registered there (spec 7.2).
+class DeviceRejected implements Exception {
+  const DeviceRejected();
+
+  @override
+  String toString() =>
+      'the relay refused this device, even after registering it again';
+}
 
 /// The result of one sync run.
 class SyncResult {
@@ -27,24 +40,42 @@ class SyncRunner {
   SyncRunner({
     required this.store,
     required this.relay,
-    required this.token,
+    required this.session,
     this.maxRepairRounds = 3,
   });
 
   final RecordStore store;
   final RelayClient relay;
 
-  /// The device's bearer token. Registration (spec 7.2) gives it to us.
-  final String token;
+  /// Gives the bearer token, and registers again if the relay refuses it.
+  final DeviceSession session;
 
   final int maxRepairRounds;
 
   Future<SyncResult> run(String partnership) async {
+    var token = await session.token();
+    var registeredAgain = false;
+
+    // Sends one batch with the current token. On a 401 the relay no longer
+    // accepts the token. The phone registers once more and resends the same
+    // batch. A second 401 in this run stops it with [DeviceRejected].
+    Future<SyncReply> send(List<String> records) async {
+      try {
+        return await _call(partnership, token, records);
+      } on RelayRefused catch (refused) {
+        if (refused.status != 401) rethrow;
+        if (registeredAgain) throw const DeviceRejected();
+        registeredAgain = true;
+        token = await session.register();
+        return send(records);
+      }
+    }
+
     // Step 1: every saved text is a candidate. The relay skips duplicates
     // and reports them as `already`. This is simple and always correct; a
     // smaller candidate list would be only a bandwidth shortcut (spec 7.3).
     final candidates = await store.savedTexts(partnership);
-    var reply = await _call(partnership, candidates);
+    var reply = await send(candidates);
     await _receive(partnership, reply);
 
     for (var round = 0; ; round++) {
@@ -64,12 +95,16 @@ class SyncRunner {
       // Repair: upload from the first missing seq of each author onward.
       // The relay refills any gap it has, because it stores what it is sent.
       final uploads = await _textsFrom(partnership, missing);
-      reply = await _call(partnership, uploads);
+      reply = await send(uploads);
       await _receive(partnership, reply);
     }
   }
 
-  Future<SyncReply> _call(String partnership, List<String> records) {
+  Future<SyncReply> _call(
+    String partnership,
+    String token,
+    List<String> records,
+  ) {
     return relay.sync(
       partnership: partnership,
       token: token,

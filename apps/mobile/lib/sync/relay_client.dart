@@ -42,6 +42,47 @@ class RelayClient {
   /// Injected so tests can replace the network with a fake.
   final http.Client httpClient;
 
+  /// `POST /api/v1/devices/challenge` (spec 7.2, step 1). Returns the nonce
+  /// the relay issued for this key. The nonce is single use.
+  Future<String> requestChallenge({required String publicKey}) async {
+    final response = await httpClient.post(
+      Uri.parse('$baseUrl/api/v1/devices/challenge'),
+      headers: _jsonHeaders,
+      body: jsonEncode({'publicKey': publicKey}),
+    );
+    if (response.statusCode != 201) throw RelayRefused(response.statusCode);
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return json['nonce'] as String;
+  }
+
+  /// `POST /api/v1/devices` (spec 7.2, step 2). The signature proves this
+  /// phone holds the key. Returns the bearer token for later syncs.
+  Future<String> register({
+    required String publicKey,
+    required String nonce,
+    required String signature,
+  }) async {
+    final response = await httpClient.post(
+      Uri.parse('$baseUrl/api/v1/devices'),
+      headers: _jsonHeaders,
+      body: jsonEncode({
+        'publicKey': publicKey,
+        'nonce': nonce,
+        'signature': signature,
+      }),
+    );
+    if (response.statusCode != 201) throw RelayRefused(response.statusCode);
+
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    return json['token'] as String;
+  }
+
+  static const _jsonHeaders = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  };
+
   /// One call to `POST /api/v1/partnerships/{id}/sync`.
   ///
   /// [records] are sent as their exact texts. JSON encodes a string without

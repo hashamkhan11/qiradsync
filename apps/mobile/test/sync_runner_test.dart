@@ -2,12 +2,16 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/storage/record_store.dart';
+import 'package:mobile/storage/token_store.dart';
+import 'package:mobile/sync/device_session.dart';
 import 'package:mobile/sync/relay_client.dart';
 import 'package:mobile/sync/sync_runner.dart';
 import 'package:path/path.dart' as p;
+import 'package:qirad_core/qirad_core.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/fake_relay.dart';
+import 'support/fake_secret_store.dart';
 import 'support/signed_texts.dart';
 
 void main() {
@@ -17,11 +21,26 @@ void main() {
   late SignedTexts texts;
   late FakeRelay relay;
   late RecordStore store;
+  late RelayClient client;
+  late TokenStore tokens;
+  late DeviceSession session;
 
   setUp(() async {
     dir = await Directory.systemTemp.createTemp('qirad_sync_test');
     texts = await SignedTexts.create();
     relay = FakeRelay();
+    client = RelayClient(
+      baseUrl: 'https://relay.test',
+      httpClient: relay.client,
+    );
+    // The phone already registered: its token is saved, as after a restart.
+    tokens = TokenStore(FakeSecretStore());
+    await tokens.save('secret-token');
+    session = DeviceSession(
+      keys: await generateEd25519KeyPair(),
+      relay: client,
+      tokens: tokens,
+    );
     store = await RecordStore.open(
       factory: databaseFactoryFfi,
       path: p.join(dir.path, 'records.db'),
@@ -42,11 +61,8 @@ void main() {
   SyncRunner runner({int maxRepairRounds = 3}) {
     return SyncRunner(
       store: store,
-      relay: RelayClient(
-        baseUrl: 'https://relay.test',
-        httpClient: relay.client,
-      ),
-      token: 'secret-token',
+      relay: client,
+      session: session,
       maxRepairRounds: maxRepairRounds,
     );
   }
@@ -180,5 +196,34 @@ void main() {
       throwsA(isA<RelayRefused>().having((e) => e.status, 'status', 403)),
     );
     expect(await store.savedTexts('p1'), isEmpty);
+  });
+
+  test('a 403 is not answered by registering again', () async {
+    relay.refuseWith = 403;
+
+    await expectLater(runner().run('p1'), throwsA(isA<RelayRefused>()));
+    expect(relay.registrations, 0);
+  });
+
+  test('a 401 registers once more and retries, so the sync completes', () async {
+    relay.seed(await texts.partnershipCreate());
+    // The relay only accepts tokens it issued. The saved one is not among them.
+    relay.enforceTokens = true;
+
+    final result = await runner().run('p1');
+
+    expect(result.complete, isTrue);
+    expect(relay.registrations, 1);
+    expect(relay.lastAuthorization, 'Bearer token-1');
+    expect(await tokens.load(), 'token-1');
+    expect(await store.savedTexts('p1'), hasLength(1));
+  });
+
+  test('a second 401 in the same run stops with DeviceRejected', () async {
+    relay.refuseWith = 401;
+
+    await expectLater(runner().run('p1'), throwsA(isA<DeviceRejected>()));
+    expect(relay.registrations, 1, reason: 'registered once, not in a loop');
+    expect(relay.calls, 2, reason: 'the saved token, then the new one');
   });
 }
