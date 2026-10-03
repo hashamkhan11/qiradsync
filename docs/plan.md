@@ -119,4 +119,4 @@ all tests pass, and its pull request is merged.
 
 ## Before the first release
 
-- [ ] Database schema migration path: versioned upgrades for the phone's SQLite file (the schema is version 1 with no upgrade step yet)
+- [ ] Database schema migration path: versioned upgrades for the phone's SQLite file (the schema is version 1, with no upgrade step yet)
