@@ -121,7 +121,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             keyboardType: TextInputType.number,
             decoration: const InputDecoration(
               labelText: 'Investor share (%)',
-              helperText: 'The manager gets the rest.',
+              helperText: 'From 1 to 99. The manager gets the rest.',
               border: OutlineInputBorder(),
             ),
           ),

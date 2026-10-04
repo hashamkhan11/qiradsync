@@ -29,8 +29,9 @@ Future<String> createPartnership({
       'this is your own key; the manager must use another phone',
     );
   }
-  // Percentages must add to 100 (spec 3). The manager's share is the rest.
-  RangeError.checkValueInInterval(investorPercent, 0, 100, 'investorPercent');
+  // Both partners share in the profit, so each share is 1 to 99 (spec 5).
+  // The manager's share is the rest, which keeps the sum at 100.
+  RangeError.checkValueInInterval(investorPercent, 1, 99, 'investorPercent');
 
   final id = const Uuid().v4();
 

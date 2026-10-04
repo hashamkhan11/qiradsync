@@ -126,8 +126,8 @@ void main() {
     expect(store.partnerships, isEmpty);
   });
 
-  test('a ratio outside 0 to 100 percent is refused', () async {
-    for (final percent in [-1, 101]) {
+  test('a share of 0 or 100 is refused, and nothing is saved', () async {
+    for (final percent in [0, 100]) {
       await expectLater(
         createPartnership(
           investorKeys: investor,
@@ -140,6 +140,38 @@ void main() {
     }
 
     expect(store.partnerships, isEmpty);
+  });
+
+  test('a share of 1 or 99 is allowed, as the smallest and largest', () async {
+    for (final percent in [1, 99]) {
+      final id = await createPartnership(
+        investorKeys: investor,
+        managerKey: manager.publicKeyBase64Url,
+        investorPercent: percent,
+        store: store,
+      );
+      final saved =
+          jsonDecode((await store.savedTexts(id)).single)
+              as Map<String, dynamic>;
+      expect((saved['body'] as Map)['ratio'], {
+        'investor': percent,
+        'manager': 100 - percent,
+      });
+    }
+  });
+
+  test('a share outside 0 to 100 is refused too', () async {
+    for (final percent in [-1, 101]) {
+      await expectLater(
+        createPartnership(
+          investorKeys: investor,
+          managerKey: manager.publicKeyBase64Url,
+          investorPercent: percent,
+          store: store,
+        ),
+        throwsRangeError,
+      );
+    }
   });
 
   group('a create is saved all together or not at all', () {
