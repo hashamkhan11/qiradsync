@@ -33,11 +33,6 @@ Future<String> createPartnership({
   RangeError.checkValueInInterval(investorPercent, 0, 100, 'investorPercent');
 
   final id = const Uuid().v4();
-  await store.addPartnership(
-    id,
-    investorKey: investorKey,
-    managerKey: managerKey,
-  );
 
   final unsigned = Record(
     v: 1,
@@ -60,7 +55,13 @@ Future<String> createPartnership({
     sig: '',
   );
   final signed = await signRecord(unsigned, investorKeys);
-  final outcome = await store.receive(canonicalJson(signed.toJson()));
+  // Pins and create are saved together, or not at all (see startPartnership).
+  final outcome = await store.startPartnership(
+    id: id,
+    investorKey: investorKey,
+    managerKey: managerKey,
+    createText: canonicalJson(signed.toJson()),
+  );
   if (outcome != ReceiveOutcome.accepted) {
     throw StateError('the new partnership was refused: $outcome');
   }

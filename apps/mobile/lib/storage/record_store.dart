@@ -97,6 +97,46 @@ class RecordStore {
     );
   }
 
+  /// Starts a partnership: pins its keys and saves its `partnership_create`,
+  /// in one database transaction (spec 2.1).
+  ///
+  /// The create is checked by a validator that holds the new pins, so it must
+  /// pass the same checks as any record. If it is refused, the throw rolls the
+  /// transaction back: no partnership row, no pins and no record are left.
+  /// The phone only registers the partnership in memory after the commit.
+  Future<ReceiveOutcome> startPartnership({
+    required String id,
+    required String investorKey,
+    required String managerKey,
+    required String createText,
+  }) async {
+    if (id.isEmpty) throw ArgumentError.value(id, 'id', 'must not be empty');
+    if (_validators.containsKey(id)) {
+      throw StateError('partnership $id is already registered');
+    }
+
+    final candidate = Validator(
+      pinnedInvestorKey: investorKey,
+      pinnedManagerKey: managerKey,
+    );
+    try {
+      await _db.transaction((txn) async {
+        await txn.insert('partnerships', {
+          'id': id,
+          'investor_key': investorKey,
+          'manager_key': managerKey,
+        });
+        final outcome = await candidate.receiveText(createText);
+        if (!_isKept(outcome)) throw _CreateRefused(outcome);
+        await _insertWith(txn, createText, id);
+      });
+    } on _CreateRefused catch (refused) {
+      return refused.outcome;
+    }
+    _validators[id] = candidate;
+    return ReceiveOutcome.accepted;
+  }
+
   /// The live validator (and so the ledger) for a registered partnership.
   Validator validatorFor(String partnership) {
     final validator = _validators[partnership];
@@ -196,9 +236,17 @@ class RecordStore {
     }
   }
 
-  Future<void> _insert(String text, String partnership) async {
+  Future<void> _insert(String text, String partnership) =>
+      _insertWith(_db, text, partnership);
+
+  /// Stores one text on [executor], which is the database or a transaction.
+  static Future<void> _insertWith(
+    DatabaseExecutor executor,
+    String text,
+    String partnership,
+  ) async {
     final json = jsonDecode(text) as Map<String, dynamic>;
-    await _db.insert('records', {
+    await executor.insert('records', {
       // Same hash as the relay (SHA-256 of the exact text). UNIQUE, so a
       // repeated text is stored once.
       'hash': recordHash(json),
@@ -245,4 +293,12 @@ class RecordStore {
       BEGIN SELECT RAISE(ABORT, 'records are append-only'); END
     ''');
   }
+}
+
+/// Thrown inside a transaction to roll it back when a create is refused.
+/// Private, so it never leaves this file.
+class _CreateRefused implements Exception {
+  const _CreateRefused(this.outcome);
+
+  final ReceiveOutcome outcome;
 }

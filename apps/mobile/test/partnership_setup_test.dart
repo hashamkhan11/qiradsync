@@ -141,4 +141,74 @@ void main() {
 
     expect(store.partnerships, isEmpty);
   });
+
+  group('a create is saved all together or not at all', () {
+    /// A create signed by someone who is not the pinned investor.
+    Future<String> forgedCreate(String id) async {
+      final attacker = await generateEd25519KeyPair();
+      final unsigned = Record(
+        v: 1,
+        id: id,
+        partnership: id,
+        author: attacker.publicKeyBase64Url,
+        seq: 1,
+        prevHash: '0' * 64,
+        type: 'partnership_create',
+        body: {
+          'investor': attacker.publicKeyBase64Url,
+          'manager': manager.publicKeyBase64Url,
+          'ratio': {'investor': 60, 'manager': 40},
+          'currency': 'PKR',
+        },
+        refersTo: null,
+        note: '',
+        time: '2026-10-04T10:00:00Z',
+        sig: '',
+      );
+      return canonicalJson((await signRecord(unsigned, attacker)).toJson());
+    }
+
+    test(
+      'a refused create leaves no partnership, no pins and no record',
+      () async {
+        const id = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+        final outcome = await store.startPartnership(
+          id: id,
+          investorKey: investor.publicKeyBase64Url,
+          managerKey: manager.publicKeyBase64Url,
+          createText: await forgedCreate(id),
+        );
+
+        expect(outcome, isNot(ReceiveOutcome.accepted));
+        expect(store.partnerships, isEmpty);
+        await store.close();
+
+        // Reopen the file, so the test reads what is on disk, not memory.
+        store = await RecordStore.open(
+          factory: databaseFactoryFfi,
+          path: p.join(dir.path, 'records.db'),
+        );
+        expect(store.partnerships, isEmpty);
+      },
+    );
+
+    test('after a refused create, the same id can still be started', () async {
+      const id = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+      await store.startPartnership(
+        id: id,
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+        createText: await forgedCreate(id),
+      );
+
+      final id2 = await createPartnership(
+        investorKeys: investor,
+        managerKey: manager.publicKeyBase64Url,
+        investorPercent: 60,
+        store: store,
+      );
+
+      expect(store.partnerships, [id2]);
+    });
+  });
 }
