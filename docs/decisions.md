@@ -302,3 +302,27 @@ direction, and the partners can check it without trusting the relay.
 
 **Why 24 digits:** A short code (for example 6 digits) could be matched by searching for a key with the same code.
 About 80 bits makes that search infeasible.
+
+---
+
+## 2026-10-04 — A partnership's pins and create are saved in one transaction
+
+**Decision:** The investor's phone checks the `partnership_create` on a candidate validator that holds the new pins,
+and saves the pins and the create together in one database transaction. A refused create rolls the transaction back.
+The phone registers the partnership in memory only after the commit.
+
+**Reason:** Pins saved before the create was checked could stay behind after a refusal, with no create to explain
+them. An all-or-nothing save means a refused start leaves no partnership, no pins and no record. The tests reopen
+the database to check what is on disk.
+
+---
+
+## 2026-10-04 — Each partner's share is 1 to 99 percent
+
+**Decision:** A `ratio` in `partnership_create` or `ratio_proposal` must have each share as a whole number from 1 to 99.
+The validator refuses 0 and 100 in its schema step (spec section 5). The app refuses them when the investor types them.
+
+**Reason:** A Mudaraba is a profit-sharing partnership, so both parties must share in the profit. A 0 percent share
+would be unpaid work or a loan, not a Mudaraba. The rule is in the validator, not only in the app, so a create from
+another app is refused the same way.
+
