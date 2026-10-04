@@ -5,6 +5,7 @@ import 'package:qirad_core/qirad_core.dart';
 import '../join/join_code.dart';
 import '../storage/record_store.dart';
 import 'partnership_setup.dart';
+import 'safety_code_dialog.dart';
 
 /// The first screen on a new phone. The partner either starts a partnership
 /// (investor) or joins one (manager). Keys and codes are shared as text for
@@ -47,41 +48,81 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _create() async {
     setState(() => _error = null);
+    final investorKey = widget.keys.publicKeyBase64Url;
+    final managerKey = _managerKey.text.trim();
+    final percent = int.tryParse(_investorPercent.text.trim()) ?? -1;
     try {
-      final id = await createPartnership(
-        investorKeys: widget.keys,
-        managerKey: _managerKey.text.trim(),
-        investorPercent: int.tryParse(_investorPercent.text.trim()) ?? -1,
-        store: widget.store,
+      // Check the input before a safety code is shown for it.
+      checkNewPartnership(
+        investorKey: investorKey,
+        managerKey: managerKey,
+        investorPercent: percent,
       );
-      setState(() {
-        _createdPartnership = id;
-        _createdCode = JoinCode(
-          partnership: id,
-          investorKey: widget.keys.publicKeyBase64Url,
-        ).encode();
-      });
     } on ArgumentError catch (e) {
       // RangeError is a kind of ArgumentError, so one catch covers both.
       setState(() => _error = e.message.toString());
+      return;
     }
+
+    // The pins are saved only after the partners confirm the code (spec 2.1).
+    final confirmed = await confirmSafetyCode(
+      context,
+      investorKey: investorKey,
+      managerKey: managerKey,
+    );
+    if (!confirmed || !mounted) return;
+
+    final id = await createPartnership(
+      investorKeys: widget.keys,
+      managerKey: managerKey,
+      investorPercent: percent,
+      store: widget.store,
+    );
+    if (!mounted) return;
+    setState(() {
+      _createdPartnership = id;
+      _createdCode = JoinCode(
+        partnership: id,
+        investorKey: investorKey,
+      ).encode();
+    });
   }
 
   Future<void> _join() async {
     setState(() => _error = null);
+    final JoinCode code;
     try {
-      final code = JoinCode.parse(_joinCode.text.trim());
+      code = JoinCode.parse(_joinCode.text.trim());
+    } on FormatException catch (e) {
+      setState(() => _error = e.message);
+      return;
+    }
+    if (code.investorKey == widget.keys.publicKeyBase64Url) {
+      setState(() => _error = 'this is your own key; use the investor phone');
+      return;
+    }
+
+    // Both phones show the same code, computed from the same two keys.
+    final confirmed = await confirmSafetyCode(
+      context,
+      investorKey: code.investorKey,
+      managerKey: widget.keys.publicKeyBase64Url,
+    );
+    if (!confirmed || !mounted) return;
+
+    try {
       await joinPartnership(
         code: code,
         store: widget.store,
         ownKeys: widget.keys,
       );
-      widget.onReady(code.partnership);
-    } on FormatException catch (e) {
+    } on StateError catch (e) {
+      // The id is already pinned with other keys on this phone.
       setState(() => _error = e.message);
-    } on ArgumentError catch (e) {
-      setState(() => _error = e.message.toString());
+      return;
     }
+    if (!mounted) return;
+    widget.onReady(code.partnership);
   }
 
   @override

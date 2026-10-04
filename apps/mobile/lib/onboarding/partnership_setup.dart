@@ -16,22 +16,11 @@ Future<String> createPartnership({
   required RecordStore store,
 }) async {
   final investorKey = investorKeys.publicKeyBase64Url;
-
-  // A key typed by hand must be the one the manager shows. A wrong spelling
-  // would pin a key that never signs, so the partnership would stall.
-  if (!isCanonicalPublicKey(managerKey)) {
-    throw ArgumentError.value(managerKey, 'managerKey', 'not a valid key');
-  }
-  if (managerKey == investorKey) {
-    throw ArgumentError.value(
-      managerKey,
-      'managerKey',
-      'this is your own key; the manager must use another phone',
-    );
-  }
-  // Both partners share in the profit, so each share is 1 to 99 (spec 5).
-  // The manager's share is the rest, which keeps the sum at 100.
-  RangeError.checkValueInInterval(investorPercent, 1, 99, 'investorPercent');
+  checkNewPartnership(
+    investorKey: investorKey,
+    managerKey: managerKey,
+    investorPercent: investorPercent,
+  );
 
   final id = const Uuid().v4();
 
@@ -67,4 +56,28 @@ Future<String> createPartnership({
     throw StateError('the new partnership was refused: $outcome');
   }
   return id;
+}
+
+/// Refuses bad input for a new partnership, before anything is shown or saved.
+/// The screen calls it before the safety code, so a bad key never gets a code.
+void checkNewPartnership({
+  required String investorKey,
+  required String managerKey,
+  required int investorPercent,
+}) {
+  // A key typed by hand must be the one the manager shows. A wrong spelling
+  // would pin a key that never signs, so the partnership would stall.
+  if (!isCanonicalPublicKey(managerKey)) {
+    throw ArgumentError.value(managerKey, 'managerKey', 'not a valid key');
+  }
+  if (managerKey == investorKey) {
+    throw ArgumentError.value(
+      managerKey,
+      'managerKey',
+      'this is your own key; the manager must use another phone',
+    );
+  }
+  // Both partners share in the profit, so each share is 1 to 99 (spec 5).
+  // The manager's share is the rest, which keeps the sum at 100.
+  RangeError.checkValueInInterval(investorPercent, 1, 99, 'investorPercent');
 }

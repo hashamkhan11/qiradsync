@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/join/join_code.dart';
 import 'package:mobile/onboarding/onboarding_screen.dart';
 import 'package:mobile/storage/record_store.dart';
 import 'package:path/path.dart' as p;
@@ -75,5 +76,74 @@ void main() {
 
     expect(find.text('not a join code'), findsOneWidget);
     expect(store.partnerships, isEmpty);
+  });
+
+  testWidgets('cancelling the code on create saves nothing', (tester) async {
+    final managerKey = (await tester.runAsync(
+      () => generateEd25519KeyPair(),
+    ))!.publicKeyBase64Url;
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, "Manager's key"),
+      managerKey,
+    );
+    await tester.ensureVisible(find.text('Create partnership'));
+    await tester.tap(find.text('Create partnership'));
+    await tester.pumpAndSettle();
+    expect(find.text('Check the safety code'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(store.partnerships, isEmpty);
+    expect(find.text('Send this join code to your partner:'), findsNothing);
+  });
+
+  testWidgets('cancelling the code on join saves nothing', (tester) async {
+    final investor = (await tester.runAsync(() => generateEd25519KeyPair()))!;
+    final code = JoinCode(
+      partnership: 'some-partnership',
+      investorKey: investor.publicKeyBase64Url,
+    ).encode();
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Join code from the investor'),
+      code,
+    );
+    await tester.ensureVisible(find.text('Join partnership'));
+    await tester.tap(find.text('Join partnership'));
+    await tester.pumpAndSettle();
+    expect(find.text('Check the safety code'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(store.partnerships, isEmpty);
+  });
+
+  testWidgets('a join code made from this phone key is refused', (
+    tester,
+  ) async {
+    final code = JoinCode(
+      partnership: 'some-partnership',
+      investorKey: keys.publicKeyBase64Url,
+    ).encode();
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Join code from the investor'),
+      code,
+    );
+    await tester.ensureVisible(find.text('Join partnership'));
+    await tester.tap(find.text('Join partnership'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Check the safety code'), findsNothing);
+    expect(
+      find.text('this is your own key; use the investor phone'),
+      findsOneWidget,
+    );
   });
 }
