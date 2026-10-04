@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pretty_qr_code/pretty_qr_code.dart';
 import 'package:qirad_core/qirad_core.dart';
 
 import '../join/join_code.dart';
 import '../storage/record_store.dart';
 import 'partnership_setup.dart';
 import 'safety_code_dialog.dart';
+import 'scan_join_code_screen.dart';
 
 /// The first screen on a new phone. The partner either starts a partnership
 /// (investor) or joins one (manager). Keys and codes are shared as text for
@@ -175,6 +177,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             const SizedBox(height: 12),
             const Text('Send this join code to your partner:'),
             const SizedBox(height: 8),
+            Center(
+              // The QR code is a picture of the same text as the join code below,
+              // so a phone camera can read it instead of typing.
+              child: SizedBox(
+                width: 220,
+                height: 220,
+                child: PrettyQrView.data(data: _createdCode!),
+              ),
+            ),
+            const SizedBox(height: 8),
             SelectableText(_createdCode!),
             TextButton.icon(
               onPressed: () => _copy(_createdCode!),
@@ -200,6 +212,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ),
           ),
           const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _scan,
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('Scan join code'),
+          ),
+          const SizedBox(height: 8),
           FilledButton(onPressed: _join, child: const Text('Join partnership')),
           if (_error != null) ...[
             const SizedBox(height: 16),
@@ -208,6 +226,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ],
       ),
     );
+  }
+
+  /// Opens the camera only now, after the user tapped "Scan". A scanned code
+  /// goes through the same join path as a pasted one, so the safety code is
+  /// still shown before anything is saved.
+  Future<void> _scan() async {
+    final text = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const ScanJoinCodeScreen()),
+    );
+    if (text == null || !mounted) return;
+    _joinCode.text = text;
+    await _join();
   }
 
   void _copy(String text) {

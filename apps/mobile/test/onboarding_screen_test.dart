@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/join/join_code.dart';
 import 'package:mobile/onboarding/onboarding_screen.dart';
 import 'package:mobile/storage/record_store.dart';
+import 'package:pretty_qr_code/pretty_qr_code.dart';
 import 'package:path/path.dart' as p;
 import 'package:qirad_core/qirad_core.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -145,5 +146,35 @@ void main() {
       find.text('this is your own key; use the investor phone'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('after the code is confirmed, the join code is shown as a QR', (
+    tester,
+  ) async {
+    final managerKey = (await tester.runAsync(
+      () => generateEd25519KeyPair(),
+    ))!.publicKeyBase64Url;
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, "Manager's key"),
+      managerKey,
+    );
+    await tester.ensureVisible(find.text('Create partnership'));
+    await tester.tap(find.text('Create partnership'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Codes match'));
+    await tester.pump();
+    // The save talks to SQLite, which needs real time, not the fake clock.
+    for (var i = 0; i < 20 && store.partnerships.isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+
+    expect(store.partnerships, hasLength(1));
+    expect(find.byType(PrettyQrView), findsOneWidget);
   });
 }
