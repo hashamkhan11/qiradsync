@@ -94,6 +94,31 @@ void main() {
     },
   );
 
+  group('each ratio share is 1 to 99 (spec section 5)', () {
+    Future<ReceiveOutcome> proposeRatio(int investor, int manager) async {
+      final (validator, author, _, partnershipId) = await setUpPartnership();
+      final proposal = await author.next(
+        partnership: partnershipId,
+        type: 'ratio_proposal',
+        body: {
+          'ratio': {'investor': investor, 'manager': manager},
+          'effectiveFrom': '2026-11-01',
+        },
+      );
+      return validator.receiveText(canonicalJson(proposal.toJson()));
+    }
+
+    test('0 and 100 are refused, as a share for either partner', () async {
+      expect(await proposeRatio(0, 100), ReceiveOutcome.rejectedSchema);
+      expect(await proposeRatio(100, 0), ReceiveOutcome.rejectedSchema);
+    });
+
+    test('1 and 99 are the smallest and largest allowed shares', () async {
+      expect(await proposeRatio(1, 99), isNot(ReceiveOutcome.rejectedSchema));
+      expect(await proposeRatio(99, 1), isNot(ReceiveOutcome.rejectedSchema));
+    });
+  });
+
   group('record id must be a lowercase UUID v4 (spec section 3)', () {
     Future<ReceiveOutcome> receiveWithId(String id) async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();

@@ -148,13 +148,13 @@ author's responses in the same `seq` order regardless of network arrival order.
 
 | Type | Allowed author | `body` | `refersTo` | Effect |
 | --- | --- | --- | --- | --- |
-| `partnership_create` | investor | `{ "investor": key, "manager": key, "ratio": {"investor": int, "manager": int}, "currency": "PKR" }` | null | Proposes the partnership. Ratio values are percentages summing to 100. **Needs approval** (by manager). |
+| `partnership_create` | investor | `{ "investor": key, "manager": key, "ratio": {"investor": int, "manager": int}, "currency": "PKR" }` | null | Proposes the partnership. Ratio values are whole percentages summing to 100, and each is 1 to 99 (a 0 or 100 share is refused: both partners share in the profit). **Needs approval** (by manager). |
 | `invest` | investor | `{ "amount": int }` | null | Adds capital. |
 | `sale` | manager | `{ "amount": int }` | null | Adds income. |
 | `budget_proposal` | either | `{ "grantee": key, "amount": int }` | null | Proposes a spending limit for the grantee. **Needs approval.** |
 | `expense` | manager | `{ "amount": int, "receiptHash": string or null }` | `id` of an approved `budget_proposal` whose grantee is the author | Removes money, drawn from that budget (Section 6.4). |
 | `withdraw_request` | either | `{ "amount": int, "kind": "capital" or "profit" }` | null | Money taken out of the fund. **Needs approval.** |
-| `ratio_proposal` | either | `{ "ratio": {"investor": int, "manager": int}, "effectiveFrom": "YYYY-MM-DD" }` | null | Proposes a new ratio. **Needs approval.** |
+| `ratio_proposal` | either | `{ "ratio": {"investor": int, "manager": int}, "effectiveFrom": "YYYY-MM-DD" }` | null | Proposes a new ratio, with the same 1 to 99 rule for each share. **Needs approval.** |
 | `reversal` | either | `{}` | `id` of the record to cancel | Cancels a record (Section 6.3). Only `invest`, `sale`, `expense` and `withdraw_request` can be reversed. Reversing the other partner's record **needs approval**. |
 | `approve` | either | `{}` | `id` of a record that needs approval | Approves it. Must not be authored by the target's author. |
 | `reject` | either | `{}` | same as `approve` | Rejects it. |

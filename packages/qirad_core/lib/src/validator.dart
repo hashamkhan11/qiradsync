@@ -98,7 +98,7 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     if (allowedBodyKeys == null) return null;
     if (body.keys.any((key) => !allowedBodyKeys.contains(key))) return null;
     final ratio = body['ratio'];
-    if (ratio != null && !_hasExactlyRatioKeys(ratio)) return null;
+    if (ratio != null && !_isValidRatio(ratio)) return null;
 
     return Record(
       v: 1,
@@ -157,14 +157,18 @@ const _bodyFields = <String, Set<String>>{
   'reject': <String>{},
 };
 
-/// A `ratio` is exactly `{investor, manager}` (spec section 5). Its values
-/// are checked later, in ratioOf, where a bad sum just means "no ratio".
-bool _hasExactlyRatioKeys(Object? ratio) {
+/// A `ratio` is exactly `{investor, manager}`, and each share is a whole
+/// number from 1 to 99 (spec section 5). A 0 or 100 share would mean one
+/// partner shares in no profit, which is not a Mudaraba. The sum is checked
+/// later, in ratioOf, where a bad sum just means "no ratio".
+bool _isValidRatio(Object? ratio) {
   return ratio is Map &&
       ratio.length == 2 &&
-      ratio.containsKey('investor') &&
-      ratio.containsKey('manager');
+      _isShare(ratio['investor']) &&
+      _isShare(ratio['manager']);
 }
+
+bool _isShare(Object? value) => value is int && value >= 1 && value <= 99;
 
 /// Runs raw incoming records through spec section 6.1's full pipeline:
 /// schema, signature, membership, hash-chain (with a pending buffer for
