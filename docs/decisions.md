@@ -406,7 +406,7 @@ later cut could move backward. Empty settlements only add noise. Storing a total
 
 ## 2026-10-05 — Ratio changes take effect at the next settlement
 
-**Status:** Decided, with one reading to confirm. Built in a later step.
+**Status:** Decided and confirmed by the developer on 2026-10-05. Built in a later step.
 
 **Decision:** Period 1 uses the create ratio. Period k uses the last effective `ratio_proposal` approved inside the cut
 of period k−1. If there is none, it uses the previous period's ratio. The open period uses the same rule with the last
@@ -415,9 +415,7 @@ cut. A change approved inside a period applies to the next period, not to the cu
 **Consequence:** Until a settlement is effective, an approved change does not apply to any result. The dashboard shows
 the old ratio and a note that a change is waiting for settlement.
 
-**To confirm with the developer:** The phrase "a ratio change applies only to periods after the next effective
-settlement" was read as above. A change approved after cut_(k−1) but before settlement k applies from period k+1.
-
+**Confirmed:** A change approved during period k applies from period k+1. Before the first effective settlement, an approved change applies to nothing, and the dashboard shows the old ratio with a note.
 ---
 
 ## 2026-10-05 — Losses are carried forward before any profit is shared
@@ -432,23 +430,34 @@ back. The app shows them as provisional.
 
 ---
 
-## 2026-10-05 — Corrections after settlement are prior-period adjustments
+## 2026-10-05 — Corrections after settlement: one rule, recalculate one period and book the difference later
 
-**Status:** Decided, with one open point.
+**Status:** Decided. Built in a later step.
 
-**Decision:** A reversal of a record in an earlier period is allowed. Its effect is booked in the period where the
-reversal and its approval first fall inside a cut together. The adjustment is split at the ratio of the period that
-contains the reversed record. It is shown as a separate line, "correction from an earlier period". A settled period
-never changes.
+**Decision:** A reversal of a record in an earlier period recalculates only the period that contains the reversed
+record, as if the reversal had been there. The difference is booked in the period where the reversal becomes effective.
+The difference has two parts:
 
-**Open point:** Does an adjustment enter the deficit account? Example: a sale in a loss period is reversed later. The
-manager got no share in that period, so splitting the reversal at that period's ratio would give a negative manager
-share for money never paid. Options:
+- **Share change:** the change in the period's distributable amount, split at that period's ratio. It cannot make a
+  share negative beyond what that period gave, because the new distributable amount is never below zero.
+- **Deficit change:** the change in the period's carried deficit, added to the current carried deficit.
 
-1. The adjustment goes into the deficit account. Only the profit part is split. (Recommended.)
-2. The adjustment is split directly at the old ratio, as decided above. This can give a negative share.
+Later settled periods are never recalculated. The adjustment is shown as a separate line, "correction from an earlier
+period".
 
-**Status of the open point:** Open. Decide before the settlement step that handles adjustments.
+**Reason:** One rule covers every case, and no special case is needed for a loss period. Recalculating the whole ledger
+would change settled periods, which breaks monotonicity.
+
+**Limitation:** If an adjustment removes profit a partner already withdrew, the excess is shown as an amount owed back.
+The app does not collect it.
+
+**Tests that must exist:**
+
+1. Profit period with a small correction: only that period's shares change.
+2. Loss period: the deficit grows, and the manager's share stays zero.
+3. Profit period that becomes a loss: its shares go to zero and a deficit appears.
+
+---
 
 ---
 

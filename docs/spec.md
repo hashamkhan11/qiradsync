@@ -336,11 +336,23 @@ the records inside cut_k and not inside cut_(k−1). The open period is the reco
   periods can differ by up to one paisa per period from one split of the whole result. This is deterministic and
   accepted.
 
-**Prior-period adjustments.** A `reversal` of a record in an earlier period is allowed. Its effect is booked in the
-period where the reversal and its approval first fall inside a cut together. The adjustment is split at the ratio
-of the period that contains the reversed record. It is shown as a separate line, "correction from an earlier
-period". A settled period never changes. **Open:** whether an adjustment enters the deficit account. See
-`docs/decisions.md`, 2026-10-05.
+**Prior-period adjustments.** A `reversal` of a record in an earlier period is allowed. One general rule covers
+every case:
+
+1. The adjustment recalculates **only the period that contains the reversed record**, as if the reversal had been
+   there.
+2. The difference is booked in the period where the reversal **becomes effective**: the first cut that contains
+   both the reversal and its approval. That is the current period or a later one.
+3. The difference has two parts:
+   - **Share change:** the change in the period's distributable amount, split at that period's ratio. The new
+     distributable amount is never below zero, so the reduction can never be larger than what the period gave a
+     partner.
+   - **Deficit change:** the change in the period's carried deficit, added to the current carried deficit.
+4. Later settled periods are **never recalculated** (monotonic).
+5. If a partner already withdrew profit that the adjustment removes, the excess is shown as an amount owed back. The
+   app does not collect it.
+
+The adjustment appears as a separate line, "correction from an earlier period". A settled period never changes.
 
 **Limitations (v1), documented:**
 
@@ -348,6 +360,7 @@ period". A settled period never changes. **Open:** whether an adjustment enters 
   approve or reject one.
 - Losses are carried forward only. Provisional profit distributions made before a later loss are not clawed back.
   This is future work.
+- If an adjustment removes profit a partner already withdrew, the excess is shown as an amount owed back. Collecting it is outside the app.
 - Profit withdrawals are not capped by settled shares. The approval screen shows the ratio-change warning and each
   partner's settled share for reference.
 
