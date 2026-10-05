@@ -252,7 +252,9 @@ bool _isInPeriod(Record r, Map<String, int> from, Map<String, int> to) {
 /// The split of one partner's profit withdrawals, spec 6.7 "Withdrawn ahead of
 /// settled profit and owed back". All three numbers come from closed periods.
 class WithdrawalSplit {
-  /// Effective profit withdrawals inside the last effective cut.
+  /// Effective profit withdrawals inside the last closed cut. Only the owed
+  /// back and ahead split uses this. The dashboard total is
+  /// [totalProfitWithdrawn], which has no closed-period limit.
   final int withdrawn;
 
   /// Withdrawn ahead of settled profit: neutral, not a debt.
@@ -329,6 +331,40 @@ Map<String, WithdrawalSplit> withdrawalSplits(
     );
   }
   return result;
+}
+
+/// Each partner's total effective profit withdrawals on the whole ledger, keyed
+/// by partner key (decision Q1, spec 6.7).
+///
+/// This has no closed-period limit, so the dashboard can show it from the first
+/// withdrawal, before any settlement. It is not compared with settled profit
+/// until a settlement exists. The owed back and ahead split is separate, from
+/// [withdrawalSplits]. Nothing here is stored (hard rule 4).
+Map<String, int> totalProfitWithdrawn(
+  Iterable<Record> usable, {
+  required Set<String> partnershipKeys,
+}) {
+  final records = usable.toList();
+  final parties = partiesOf(records);
+  if (parties == null) return const {};
+
+  final effectiveness = computeEffective(
+    records,
+    partnershipKeys: partnershipKeys,
+  );
+  final totals = <String, int>{parties.investor: 0, parties.manager: 0};
+  for (final r in records) {
+    if (r.type == 'withdraw_request' &&
+        r.body['kind'] == 'profit' &&
+        effectiveness.isEffective(r)) {
+      totals.update(
+        r.author,
+        (sum) => sum + (r.body['amount'] as int),
+        ifAbsent: () => r.body['amount'] as int,
+      );
+    }
+  }
+  return totals;
 }
 
 int _shareOf(ProfitShares shares, String partner, Parties parties) =>
