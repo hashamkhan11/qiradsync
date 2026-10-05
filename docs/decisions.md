@@ -579,3 +579,23 @@ malicious manager, not an honesty assumption. The investor always has a way out:
 
 **Consequence:** An approve of a settlement can never be inside that settlement's own cut, because its seq is above
 the cut's investor value. Closure still checks approves like any other reference.
+
+## 2026-10-05 — Profit withdrawals belong to their author; owed back vs withdrawn ahead
+
+**Status:** Decided. To be built in step 4d.
+
+**Decision:** A profit withdrawal is paid to the partner who records it (its author). Each partner's excess is split
+into two labels that always add up to the excess:
+- **Withdrawn ahead of settled profit:** the part of the excess that already existed before any correction. It
+  comes from withdrawals made before settlement. It is neutral, not a debt.
+- **Owed back:** the part of the excess caused by a correction that reduced an already-settled share (spec 6.7,
+  point 5). This is the only case shown as money owed. The app does not collect it.
+
+**Reason:** The spec does not tie a withdrawal to a partner, so the author is the simplest rule and needs no change
+to the record format. Two labels are needed because a withdrawal made before settlement is normal. Calling it a debt
+would mislead people.
+
+**Consequence:** The split is computed, not stored (hard rule 4). With `W` = the partner's effective profit
+withdrawals, `own` = their profit shares from each period's own result, and `settled` = their profit shares with
+corrections applied: `excessBefore = max(0, W − own)`, `excessNow = max(0, W − settled)`, `owedBack =
+max(0, excessNow − excessBefore)`, `aheadOfSettled = excessNow − owedBack`.

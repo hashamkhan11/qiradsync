@@ -393,9 +393,26 @@ every case:
    - **Deficit change:** the change in the period's carried deficit, added to the current carried deficit.
 4. Later settled periods are **never recalculated** (monotonic).
 5. If a partner already withdrew profit that the adjustment removes, the excess is shown as an amount owed back. The
-   app does not collect it.
+   app does not collect it. The exact split is in "Withdrawn ahead of settled profit and owed back" below.
 
 The adjustment appears as a separate line, "correction from an earlier period". A settled period never changes.
+
+**Withdrawn ahead of settled profit and owed back.** A profit withdrawal is paid to its author, the partner who
+records it. For each partner X, with `W` = X's effective profit withdrawals, `own` = X's profit shares from each
+period's own result (no corrections), and `settled` = X's profit shares with corrections applied:
+
+- `excessBefore = max(0, W − own)`
+- `excessNow = max(0, W − settled)`
+- **Owed back** = `max(0, excessNow − excessBefore)`. Only a correction that reduced a settled share can cause it.
+  This is the only amount shown as money owed. The app does not collect it.
+- **Withdrawn ahead of settled profit** = `excessNow − owed back`. This comes from withdrawals made before
+  settlement. It is neutral, not a debt, and is shown with its own label.
+
+Both labels add up to `excessNow`. Nothing is stored: both are calculated from the records (hard rule 4).
+
+Example: investor withdraws 500 profit. Their own shares are 360, so 140 was withdrawn ahead of settled profit. A
+correction then takes 100 from their settled share, so their settled shares are 260. `excessNow` = 240, `owed back`
+= 240 − 140 = 100, and `ahead` = 140.
 
 **A settled period is a pure function of its cut.** The view of a period (its result and its budget statuses) is
 calculated only from the records inside its cut. Those records are a fixed set, so the view never changes, and no
@@ -412,7 +429,8 @@ difference in the period where it becomes effective:
   approve or reject one.
 - Losses are carried forward only. Provisional profit distributions made before a later loss are not clawed back.
   This is future work.
-- If an adjustment removes profit a partner already withdrew, the excess is shown as an amount owed back. Collecting it is outside the app.
+- If an adjustment removes profit a partner already withdrew, the excess is shown as an amount owed back (see
+  "Withdrawn ahead of settled profit and owed back" above). Collecting it is outside the app.
 - Profit withdrawals are not capped by settled shares. The approval screen shows the ratio-change warning and each
   partner's settled share for reference.
 
