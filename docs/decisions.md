@@ -391,6 +391,29 @@ responses in order.
 
 ---
 
+## 2026-10-05 — First valid response wins; invalid responses never count
+
+**Status:** Decided by the developer on 2026-10-05. Built in step 4a.
+
+**Decision:** The first response rule (spec 5) picks the lowest-seq response among the valid ones. An invalid
+response (such as an early answer to S_2) is kept as evidence and never counts. A later valid answer to S_2 decides
+it.
+
+**Reason:** Without this, one early mistake would lock S_2 for ever. The validity of a response depends only on
+records that are already fixed: the investor's chain below that response, and the manager's settlement chain
+below the proposal, which has no gaps. So a response never changes from valid to invalid, or back, and the result
+is the same in any arrival order.
+
+**Malformed and investor-authored settlements:** neither takes part in the ordering rule. Only well-formed manager
+proposals do (spec 6.7).
+
+**Tests that exist:** `packages/qirad_core/test/settlement_test.dart`. An early invalid answer to S_2, then answers to
+S_1 and S_2: the S_2 decision is the later valid answer. Replaying the same records in other orders gives the same
+result. An investor-authored settlement does not block the investor's answers. A malformed settlement does not block
+the next proposal.
+
+---
+
 ## 2026-10-05 — Settlement: the cut is closed, dominating and not empty
 
 **Status:** Decided. Built in a later step.

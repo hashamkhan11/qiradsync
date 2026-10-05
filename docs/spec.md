@@ -135,11 +135,16 @@ Records marked **needs approval** only take effect when the **other partner**'s 
 **active** (first response is `approve`) or from **pending** to **dead** (first response is `reject`),
 and never moves back.
 
-**First response rule:** for a given target record, look at the other partner's `approve`/`reject`
-records whose `refersTo` is that target, and take the one with the **lowest `seq`** (the earliest one
-the author ever made — not the one that happened to arrive first over the network). Only that first
-response counts. Any later `approve`/`reject` from the same author to the same target is stored as
-evidence but is **ignored** in all calculations, and the UI shows it as "ignored: later response."
+**First valid response rule:** for a given target record, look at the other partner's `approve`/`reject`
+records whose `refersTo` is that target. Drop every one that is **invalid** (only settlement answers can be
+invalid, see §6.7 ordering rule). From the rest, take the one with the **lowest `seq`** (the earliest one
+the author ever made — not the one that happened to arrive first over the network). Only that response
+counts. An invalid response is stored as evidence, flagged, and never counts as a response, so a later
+valid response can still decide. Any later `approve`/`reject` from the same author to the same target is
+stored as evidence but is **ignored** in all calculations, and the UI shows it as "ignored: later response."
+Validity depends only on records that are already fixed: the author's own chain below that response, and the
+manager's settlement chain below the proposal, which has no gaps. So a response never becomes valid or invalid
+later, and the decision stays monotonic.
 To change their mind, a partner must create a new proposal, not a new response.
 
 This is deterministic on every device: by spec §6.1 step 4, an author's record at `seq = n` cannot be
@@ -313,8 +318,19 @@ at a lower investor `seq` than this response. Otherwise the response is invalid 
 this once it holds the investor's chain up to that `seq`, because chains have no gaps (Section 7.1). A response
 that arrives before its predecessors is pending, not invalid.
 
-*Consequence:* at most one settlement waits for the investor's answer at a time. The investor cannot approve S_2
-before S_1.
+An invalid response is never counted as a response (see the first valid response rule, §5). A later valid
+response to S_k still decides it.
+
+**Malformed settlements.** A settlement that fails the cut rules (including one with a `refersTo`) is not a
+proposal. It takes no part in the ordering rule, so it cannot block the investor's answers to later
+settlements.
+
+**Investor-authored settlements.** A settlement written by the investor is not a proposal and is never
+effective. It takes no part in the ordering rule, so it cannot block the investor's answers to the manager's
+settlements.
+
+*Consequence:* the investor cannot approve S_2 before S_1 in a way that counts. An early answer to S_2 is kept
+as invalid evidence. A new answer to S_2, made after S_1, is valid.
 
 **Effective.** A settlement is effective when it is valid under the cut rules and approved under the ordering
 rule. If it fails rule 4 against the previous effective settlement, it is invalid and flagged.
@@ -487,7 +503,7 @@ either partner's phone notices the gap and refills it, with no manual restore st
 - **Signature:** a record with any field changed after signing is rejected.
 - **Chain:** gaps are buffered; a wrong `prevHash` is detected.
 - **Equivocation:** two records with same `(author, seq)` and different content flag the author.
-- **Approvals:** needs-approval records have no effect until approved; **first response wins**:
+- **Approvals:** needs-approval records have no effect until approved; **first valid response wins** (invalid responses never count):
   approve (seq 5) then reject (seq 9) from the same author → stays **approved**; reject (seq 5) then
   approve (seq 9) → stays **dead**; a late-arriving second response never changes an already-active
   (or already-dead) decision.
