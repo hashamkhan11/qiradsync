@@ -158,6 +158,12 @@ void main() {
         );
         await _receive(validator, [approveS2Again]);
 
+        // The early answer is invalid, so it never counts. The decision is the
+        // later valid answer, not the early one.
+        expect(
+          _decisionFor(validator, s2).firstResponse?.id,
+          approveS2Again.id,
+        );
         final after = _effective(validator);
         expect(after.isEffective(s2), isTrue);
         expect(
@@ -168,54 +174,141 @@ void main() {
       },
     );
 
-    test('the same records give the same result in any arrival order', () async {
-      final (validator, investor, manager, partnershipId) =
-          await setUpPartnership();
-      final s1 = await manager.next(
-        partnership: partnershipId,
-        type: settlementType,
-        body: {
-          'cut': {investor.key: 0, manager.key: 0},
-        },
-      );
-      final s2 = await manager.next(
-        partnership: partnershipId,
-        type: settlementType,
-        body: {
-          'cut': {investor.key: 0, manager.key: 0},
-        },
-      );
-      final approveS2Early = await investor.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: s2.id,
-      );
-      final approveS1 = await investor.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: s1.id,
-      );
-      final approveS2Again = await investor.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: s2.id,
-      );
-      final all = [s1, s2, approveS2Early, approveS1, approveS2Again];
-      await _receive(validator, all);
-      final inOrder = _effective(validator);
+    test(
+      'the same records give the same result in any arrival order',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 0, manager.key: 0},
+          },
+        );
+        final s2 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 0, manager.key: 0},
+          },
+        );
+        final approveS2Early = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s2.id,
+        );
+        final approveS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s1.id,
+        );
+        final approveS2Again = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s2.id,
+        );
+        final all = [s1, s2, approveS2Early, approveS1, approveS2Again];
+        await _receive(validator, all);
+        final inOrder = _effective(validator);
+        final inOrderFirst = _decisionFor(validator, s2).firstResponse?.id;
 
-      // A second device gets the create first, then the rest in reverse order.
-      final create = validator.usableRecords.singleWhere(
-        (r) => r.type == 'partnership_create',
-      );
-      final other = Validator.unpinnedForTesting();
-      await _receive(other, [create]);
-      await _receive(other, all.reversed);
-      final reversed = _effective(other);
+        // Each other device gets the create first, then the rest in a different
+        // order. Chains buffer gaps, so every order must reach the same result.
+        final create = validator.usableRecords.singleWhere(
+          (r) => r.type == 'partnership_create',
+        );
+        final orders = <List<int>>[
+          [4, 3, 2, 1, 0], // reversed
+          [2, 4, 0, 3, 1],
+          [3, 0, 4, 1, 2],
+          [1, 2, 3, 4, 0],
+        ];
+        for (final order in orders) {
+          final other = Validator.unpinnedForTesting();
+          await _receive(other, [create]);
+          await _receive(other, [for (final i in order) all[i]]);
+          final replay = _effective(other);
 
-      expect(reversed.effectiveIds, inOrder.effectiveIds);
-      expect(reversed.invalidResponses.keys, inOrder.invalidResponses.keys);
-    });
+          expect(replay.effectiveIds, inOrder.effectiveIds, reason: '$order');
+          expect(
+            replay.invalidResponses.keys,
+            inOrder.invalidResponses.keys,
+            reason: '$order',
+          );
+          expect(
+            _decisionFor(other, s2).firstResponse?.id,
+            inOrderFirst,
+            reason: '$order',
+          );
+        }
+      },
+    );
+
+    test(
+      'an investor-authored settlement does not block the investor\'s answers',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 0, manager.key: 0},
+          },
+        );
+        // The investor writes a settlement of their own. It is not a proposal,
+        // so it must not count in the ordering rule.
+        final investorOwn = await investor.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 0, manager.key: 0},
+          },
+        );
+        final approveS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s1.id,
+        );
+        await _receive(validator, [s1, investorOwn, approveS1]);
+
+        expect(_effective(validator).isEffective(s1), isTrue);
+        expect(_effective(validator).isEffective(investorOwn), isFalse);
+      },
+    );
+
+    test(
+      'a malformed settlement with a refersTo does not block the next proposal',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final malformed = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 0, manager.key: 0},
+          },
+          refersTo: partnershipId,
+        );
+        final s2 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 0, manager.key: 0},
+          },
+        );
+        final approveS2 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s2.id,
+        );
+        await _receive(validator, [malformed, s2, approveS2]);
+
+        expect(_effective(validator).isEffective(malformed), isFalse);
+        expect(_effective(validator).isEffective(s2), isTrue);
+      },
+    );
   });
 
   group('cut shape (spec 6.7, step 4a rules)', () {

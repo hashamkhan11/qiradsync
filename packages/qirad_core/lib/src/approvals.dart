@@ -42,9 +42,10 @@ const _needsApproval = {
 ///
 /// [usable] must already be filtered to records that passed spec section 6.1
 /// (see `Validator.usableRecords`). Only the other partner's `approve` or
-/// `reject` counts. The first one is the response with the lowest `seq`,
-/// not the one that arrived first over the network. Because the other
-/// partner is a single author, `seq` alone gives one fixed order everywhere.
+/// `reject` counts. Of those, invalid ones never count (see below). The first
+/// valid one is the response with the lowest `seq`, not the one that arrived
+/// first over the network. Because the other partner is a single author, `seq`
+/// alone gives one fixed order everywhere.
 ///
 /// A `reversal` needs approval only when it cancels the other partner's
 /// record. A reversal whose target is missing is not decided yet, because
