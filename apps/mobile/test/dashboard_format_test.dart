@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/dashboard/format.dart';
+import 'package:qirad_core/qirad_core.dart';
 
 void main() {
   group('formatPaisa', () {
@@ -19,10 +20,21 @@ void main() {
     });
   });
 
-  group('localDateLabel', () {
-    test('gives YYYY-MM-DD with leading zeros', () {
-      expect(localDateLabel(DateTime(2026, 1, 5, 23, 59)), '2026-01-05');
-      expect(localDateLabel(DateTime(2026, 10, 12)), '2026-10-12');
+  group('formatRatio', () {
+    test('says when the ratio was agreed to start', () {
+      final active = ActiveRatio(
+        ratio: const Ratio(investor: 50, manager: 50),
+        agreedStart: '2026-11-01',
+      );
+      expect(formatRatio(active), '50/50 (agreed to start 2026-11-01)');
+    });
+
+    test('says from the start when no change was made', () {
+      final active = ActiveRatio(
+        ratio: const Ratio(investor: 60, manager: 40),
+        agreedStart: null,
+      );
+      expect(formatRatio(active), '60/40 (from the start)');
     });
   });
 }

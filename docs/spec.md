@@ -266,9 +266,19 @@ The app should warn (not block) when an approval would make `cash_balance` or to
 
 ### 6.6 Active ratio
 
-Start with the ratio in the approved `partnership_create`. Then apply effective `ratio_proposal`
-records sorted by `(effectiveFrom, author, seq)`. For a given date D, the active ratio is the latest
-one whose `effectiveFrom <= D`. v1 shows the ratio active today; per-period profit split is future work.
+The active ratio is decided by the records alone, with **no clock** (hard rule 3):
+
+1. If there is an effective `ratio_proposal`, the active ratio is the last one in the order
+   `(effectiveFrom, author, seq)`. Its `effectiveFrom` is only a sort key and display text.
+2. If there is none, the active ratio is the ratio in the approved `partnership_create`.
+
+The `effectiveFrom` date is never compared with the phone's clock or with any other date. A change
+agreed for a later date is already the ratio in force, and it applies to the whole result. The screen
+shows the ratio as text, for example `50/50 (agreed to start 2026-11-01)`, and does not use that date
+to pick a split.
+
+Open issue: profit earned before a change is re-split at the new ratio. Settlement, which will anchor
+a change to consent, is not built yet (see `docs/decisions.md`, 2026-10-05).
 
 ---
 

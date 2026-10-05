@@ -14,25 +14,20 @@ class DashboardScreen extends StatelessWidget {
     super.key,
     required this.store,
     required this.partnership,
-    this.now,
   });
 
   final RecordStore store;
   final String partnership;
 
-  /// The clock, injectable for tests. The date is shown as a label and used
-  /// to look up the ratio. It is not used to order records (hard rule 3).
-  final DateTime Function()? now;
-
   @override
   Widget build(BuildContext context) {
     final validator = store.validatorFor(partnership);
-    final today = localDateLabel((now ?? DateTime.now)());
+    // No clock here: the ratio comes from the records alone (hard rule 3).
     final dashboard = buildDashboard(
       validator.usableRecords,
       partnershipKeys: validator.partnershipKeys!,
-      date: today,
     );
+    final ratio = dashboard.ratio;
     final money = dashboard.money;
     final shares = dashboard.shares;
     final theme = Theme.of(context);
@@ -48,22 +43,22 @@ class DashboardScreen extends StatelessWidget {
           const Divider(height: 32),
           Text('Shares of the result', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
-          if (shares == null)
+          if (shares == null || ratio == null)
             const Text(
               'No active ratio yet. The manager must approve the start.',
             )
           else ...[
             _Figure(
-              label: 'Investor (${dashboard.ratio!.investor}%)',
+              label: 'Investor (${ratio.ratio.investor}%)',
               value: formatPaisa(shares.investor),
             ),
             _Figure(
-              label: 'Manager (${dashboard.ratio!.manager}%)',
+              label: 'Manager (${ratio.ratio.manager}%)',
               value: formatPaisa(shares.manager),
             ),
           ],
           const SizedBox(height: 16),
-          Text('Ratio shown for $today (today)'),
+          if (ratio != null) Text('Ratio: ${formatRatio(ratio)}'),
           if (dashboard.ratioChanged) ...[
             const SizedBox(height: 16),
             Card(
@@ -71,7 +66,7 @@ class DashboardScreen extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Text(
-                  'A ratio change has taken effect. This split uses the current '
+                  'An effective ratio change exists. This split uses the latest '
                   'ratio for all the result, so it may not match the contract '
                   'until settlement is built.',
                   style: TextStyle(color: theme.colorScheme.onErrorContainer),

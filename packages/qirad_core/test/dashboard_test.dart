@@ -3,11 +3,10 @@ import 'package:test/test.dart';
 
 import 'support/partnership_fixture.dart';
 
-Future<Dashboard> _dashboard(Validator validator, String date) async {
+Future<Dashboard> _dashboard(Validator validator) async {
   return buildDashboard(
     validator.usableRecords,
     partnershipKeys: validator.partnershipKeys!,
-    date: date,
   );
 }
 
@@ -85,12 +84,12 @@ void main() {
         expense,
       ]);
 
-      final dashboard = await _dashboard(validator, '2026-10-04');
+      final dashboard = await _dashboard(validator);
 
       expect(dashboard.money.capital, 1000000);
       expect(dashboard.money.cashBalance, 1200000);
       expect(dashboard.money.result, 200000);
-      expect(dashboard.ratio, const Ratio(investor: 60, manager: 40));
+      expect(dashboard.ratio?.ratio, const Ratio(investor: 60, manager: 40));
       // Manager: 200000 * 40 / 100 = 80000. The investor takes the rest.
       expect(dashboard.shares!.manager, 80000);
       expect(dashboard.shares!.investor, 120000);
@@ -140,14 +139,14 @@ void main() {
         expense,
       ]);
 
-      final dashboard = await _dashboard(validator, '2026-10-04');
+      final dashboard = await _dashboard(validator);
 
       expect(dashboard.money.result, -200000);
       expect(dashboard.shares!.investor, -200000);
       expect(dashboard.shares!.manager, 0);
     });
 
-    test('the ratio shown depends on the date', () async {
+    test('the latest proposal sets the split for all the result', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
       // Approved first, so the manager's chain has it at seq 1 (spec 6.1).
@@ -181,14 +180,11 @@ void main() {
         approve,
       ]);
 
-      final before = await _dashboard(validator, '2026-08-31');
-      expect(before.ratio, const Ratio(investor: 60, manager: 40));
-      expect(before.shares!.manager, 40000);
-
-      final after = await _dashboard(validator, '2026-10-04');
-      expect(after.ratio, const Ratio(investor: 50, manager: 50));
-      expect(after.shares!.manager, 50000);
-      expect(after.shares!.investor, 50000);
+      final dashboard = await _dashboard(validator);
+      expect(dashboard.ratio?.ratio, const Ratio(investor: 50, manager: 50));
+      expect(dashboard.ratio?.agreedStart, '2026-09-01');
+      expect(dashboard.shares!.manager, 50000);
+      expect(dashboard.shares!.investor, 50000);
     });
 
     test('an unapproved create gives no ratio and no shares', () async {
@@ -200,7 +196,7 @@ void main() {
       );
       await _receiveInOrder(validator, [invest]);
 
-      final dashboard = await _dashboard(validator, '2026-10-04');
+      final dashboard = await _dashboard(validator);
 
       expect(dashboard.money.capital, 1000000);
       expect(dashboard.ratio, isNull);
@@ -246,23 +242,17 @@ void main() {
       test('the flag is set once a ratio change has taken effect', () async {
         final validator = await saleThenRatioChange('2026-09-01');
 
-        expect(
-          (await _dashboard(validator, '2026-10-04')).ratioChanged,
-          isTrue,
-        );
+        expect((await _dashboard(validator)).ratioChanged, isTrue);
       });
 
-      test(
-        'the flag is not set for a change that starts after the date',
-        () async {
-          final validator = await saleThenRatioChange('2026-11-01');
+      test('a change agreed for a later date is already in force', () async {
+        final validator = await saleThenRatioChange('2026-11-01');
 
-          expect(
-            (await _dashboard(validator, '2026-10-04')).ratioChanged,
-            isFalse,
-          );
-        },
-      );
+        final dashboard = await _dashboard(validator);
+        expect(dashboard.ratioChanged, isTrue);
+        expect(dashboard.shares!.manager, 100000);
+        expect(dashboard.ratio?.agreedStart, '2026-11-01');
+      });
 
       test('KNOWN ISSUE: profit earned before a change is re-split at the new '
           'ratio', () async {
@@ -272,7 +262,7 @@ void main() {
         // change to 80000 and the test must be updated.
         final validator = await saleThenRatioChange('2026-09-01');
 
-        final dashboard = await _dashboard(validator, '2026-10-04');
+        final dashboard = await _dashboard(validator);
 
         expect(dashboard.shares!.manager, 100000);
         expect(dashboard.ratioChanged, isTrue);

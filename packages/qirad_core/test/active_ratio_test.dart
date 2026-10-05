@@ -4,16 +4,12 @@ import 'package:test/test.dart';
 import 'support/partnership_fixture.dart';
 import 'support/test_ids.dart';
 
-Future<Ratio?> _ratioOn(Validator validator, String date) async {
+Future<ActiveRatio?> _activeRatio(Validator validator) async {
   final effectiveness = computeEffective(
     validator.usableRecords,
     partnershipKeys: validator.partnershipKeys!,
   );
-  return activeRatio(
-    validator.usableRecords,
-    effectiveness: effectiveness,
-    date: date,
-  );
+  return activeRatio(validator.usableRecords, effectiveness: effectiveness);
 }
 
 Future<void> _receiveInOrder(Validator validator, List<Record> records) async {
@@ -51,72 +47,78 @@ Future<(Record, Record)> _proposeRatio(
   return (proposal, approve);
 }
 
+/// The manager approves the investor's create. A partnership has no ratio
+/// until this is effective.
+Future<Record> _approveCreate(
+  Validator validator,
+  ChainAuthor manager,
+  String partnershipId,
+) async {
+  final create = validator.usableRecords.singleWhere(
+    (r) => r.type == 'partnership_create',
+  );
+  return manager.next(
+    partnership: partnershipId,
+    type: 'approve',
+    refersTo: create.id,
+  );
+}
+
 void main() {
   group('active ratio (spec section 6.6)', () {
     test('no ratio while the partnership is not approved', () async {
       final (validator, _, _, _) = await setUpPartnership();
 
-      expect(await _ratioOn(validator, '2026-10-03'), isNull);
+      expect(await _activeRatio(validator), isNull);
     });
 
     test('the approved partnership_create gives the starting ratio', () async {
       final (validator, _, manager, partnershipId) = await setUpPartnership();
-      final create = validator.usableRecords.singleWhere(
-        (r) => r.type == 'partnership_create',
-      );
-      final approve = await manager.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: create.id,
-      );
+      final approve = await _approveCreate(validator, manager, partnershipId);
       await _receiveInOrder(validator, [approve]);
 
-      final ratio = await _ratioOn(validator, '2026-10-03');
+      final active = await _activeRatio(validator);
 
-      expect(ratio, const Ratio(investor: 60, manager: 40));
+      expect(active!.ratio, const Ratio(investor: 60, manager: 40));
+      expect(active.agreedStart, isNull);
     });
 
-    test('a proposal applies only from its effectiveFrom date', () async {
-      final (validator, investor, manager, partnershipId) =
-          await setUpPartnership();
-      final create = validator.usableRecords.singleWhere(
-        (r) => r.type == 'partnership_create',
-      );
-      final approveCreate = await manager.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: create.id,
-      );
-      final (proposal, approve) = await _proposeRatio(
-        investor,
-        manager,
-        partnershipId,
-        investorPercent: 50,
-        managerPercent: 50,
-        effectiveFrom: '2026-11-01',
-      );
-      await _receiveInOrder(validator, [approveCreate, proposal, approve]);
+    test(
+      'an effective proposal sets the ratio now, with its agreed start as text',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final approveCreate = await _approveCreate(
+          validator,
+          manager,
+          partnershipId,
+        );
+        final (proposal, approve) = await _proposeRatio(
+          investor,
+          manager,
+          partnershipId,
+          investorPercent: 50,
+          managerPercent: 50,
+          effectiveFrom: '2026-11-01',
+        );
+        await _receiveInOrder(validator, [approveCreate, proposal, approve]);
 
-      expect(
-        await _ratioOn(validator, '2026-10-31'),
-        const Ratio(investor: 60, manager: 40),
-      );
-      expect(
-        await _ratioOn(validator, '2026-11-01'),
-        const Ratio(investor: 50, manager: 50),
-      );
-    });
+        // The agreed date is shown as text. It is not compared with a clock, so
+        // a change agreed for later is already the ratio in force.
+        final active = await _activeRatio(validator);
+        expect(active!.ratio, const Ratio(investor: 50, manager: 50));
+        expect(active.agreedStart, '2026-11-01');
+        expect(active.toString(), contains('agreed to start 2026-11-01'));
+      },
+    );
 
     test('a proposal that is not approved does not change the ratio', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
-      final create = validator.usableRecords.singleWhere(
-        (r) => r.type == 'partnership_create',
-      );
-      final approveCreate = await manager.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: create.id,
+      final approveCreate = await _approveCreate(
+        validator,
+        manager,
+        partnershipId,
       );
       final proposal = await investor.next(
         partnership: partnershipId,
@@ -129,7 +131,7 @@ void main() {
       await _receiveInOrder(validator, [approveCreate, proposal]);
 
       expect(
-        await _ratioOn(validator, '2026-10-03'),
+        (await _activeRatio(validator))!.ratio,
         const Ratio(investor: 60, manager: 40),
       );
     });
@@ -137,13 +139,10 @@ void main() {
     test('a proposal whose ratio does not add up to 100 is ignored', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
-      final create = validator.usableRecords.singleWhere(
-        (r) => r.type == 'partnership_create',
-      );
-      final approveCreate = await manager.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: create.id,
+      final approveCreate = await _approveCreate(
+        validator,
+        manager,
+        partnershipId,
       );
       final (proposal, approve) = await _proposeRatio(
         investor,
@@ -156,7 +155,7 @@ void main() {
       await _receiveInOrder(validator, [approveCreate, proposal, approve]);
 
       expect(
-        await _ratioOn(validator, '2026-10-03'),
+        (await _activeRatio(validator))!.ratio,
         const Ratio(investor: 60, manager: 40),
       );
     });
@@ -164,13 +163,10 @@ void main() {
     test('a proposal with a bad date is ignored', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
-      final create = validator.usableRecords.singleWhere(
-        (r) => r.type == 'partnership_create',
-      );
-      final approveCreate = await manager.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: create.id,
+      final approveCreate = await _approveCreate(
+        validator,
+        manager,
+        partnershipId,
       );
       final (proposal, approve) = await _proposeRatio(
         investor,
@@ -183,7 +179,7 @@ void main() {
       await _receiveInOrder(validator, [approveCreate, proposal, approve]);
 
       expect(
-        await _ratioOn(validator, '2026-10-03'),
+        (await _activeRatio(validator))!.ratio,
         const Ratio(investor: 60, manager: 40),
       );
     });
@@ -211,24 +207,7 @@ void main() {
       );
       await _receiveInOrder(validator, [create, approve]);
 
-      expect(await _ratioOn(validator, '2026-10-03'), isNull);
-    });
-
-    test('a date that is not YYYY-MM-DD is rejected', () async {
-      final (validator, _, _, _) = await setUpPartnership();
-      final effectiveness = computeEffective(
-        validator.usableRecords,
-        partnershipKeys: validator.partnershipKeys!,
-      );
-
-      expect(
-        () => activeRatio(
-          validator.usableRecords,
-          effectiveness: effectiveness,
-          date: '3/10/2026',
-        ),
-        throwsArgumentError,
-      );
+      expect(await _activeRatio(validator), isNull);
     });
 
     test(
@@ -275,14 +254,9 @@ void main() {
             await validator.receiveText(canonicalJson(record.toJson()));
           }
 
-          expect(
-            await _ratioOn(validator, '2026-11-15'),
-            const Ratio(investor: 30, manager: 70),
-          );
-          expect(
-            await _ratioOn(validator, '2026-12-31'),
-            const Ratio(investor: 50, manager: 50),
-          );
+          final active = await _activeRatio(validator);
+          expect(active!.ratio, const Ratio(investor: 50, manager: 50));
+          expect(active.agreedStart, '2026-12-01');
         }
       },
     );

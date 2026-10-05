@@ -353,16 +353,19 @@ marked as a known issue. It must be updated when settlement is built.
 
 ---
 
-## 2026-10-05 — Open question: the dashboard date also picks the ratio
+## 2026-10-05 — The active ratio is picked by record order, not by date
 
-**Status:** Open. Built as the developer asked, for review before merge.
+**Status:** Decided. Option 1 from the open question was chosen by the developer.
 
-**Question:** The dashboard shows today's local date as a label. But `activeRatio` uses the date it is given to pick
-the ratio, so the phone's clock changes which split is shown. Hard rule 3 says clock time must not decide anything.
+**Decision:** The active ratio is the last effective `ratio_proposal` in `(effectiveFrom, author, seq)` order.
+If there is none, it is the ratio in the approved `partnership_create`. No clock is used. The `effectiveFrom`
+date is a sort key and display text only. The dashboard shows the ratio as text, for example
+`50/50 (agreed to start 2026-11-01)`.
 
-**Options:**
-1. Pick the latest effective ratio, with no date. This matches the settlement direction, which anchors changes to
-   consent, not to dates.
-2. Keep the date, and accept that a wrong phone clock can show the wrong split.
+**Reason:** The date chose the ratio, and the ratio sets the shares people act on. A phone with a wrong clock
+would show a different split. That broke hard rule 3, which says clock time must not decide anything. The
+"display label only" framing was wrong, because the date still changed the numbers.
 
-**Until decided:** The screen passes today's local date. The label and the ratio both come from that one value.
+**Consequence:** A ratio change with a future `effectiveFrom` applies to all the current result at once. It does
+not wait for its date. This is the same kind of problem as the open settlement issue above, and it is recorded
+there. Spec 6.6 is updated to match.

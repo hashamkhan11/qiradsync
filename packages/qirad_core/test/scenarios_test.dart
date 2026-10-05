@@ -7,7 +7,7 @@ import 'support/partnership_fixture.dart';
 
 /// Everything a device would show, as one comparable string. Keys are sorted so
 /// that map order cannot make two identical results look different.
-String _snapshot(Validator validator, {required String date}) {
+String _snapshot(Validator validator) {
   final effectiveness = computeEffective(
     validator.usableRecords,
     partnershipKeys: validator.partnershipKeys!,
@@ -19,7 +19,6 @@ String _snapshot(Validator validator, {required String date}) {
   final ratio = activeRatio(
     validator.usableRecords,
     effectiveness: effectiveness,
-    date: date,
   );
   final effectiveIds = effectiveness.effectiveIds.toList()..sort();
   final statuses = [
@@ -202,46 +201,39 @@ void main() {
       },
     );
 
-    test('the same profit is split by the ratio active on each date', () async {
-      final story = await _buildStory();
-      final validator = await _receiveAll(story.records);
-      final effectiveness = computeEffective(
-        validator.usableRecords,
-        partnershipKeys: validator.partnershipKeys!,
-      );
-      final money = computeMoney(
-        validator.usableRecords,
-        effectiveness: effectiveness,
-      );
+    test(
+      'the latest effective ratio splits all the profit, with no date',
+      () async {
+        final story = await _buildStory();
+        final validator = await _receiveAll(story.records);
+        final effectiveness = computeEffective(
+          validator.usableRecords,
+          partnershipKeys: validator.partnershipKeys!,
+        );
+        final money = computeMoney(
+          validator.usableRecords,
+          effectiveness: effectiveness,
+        );
 
-      // Before 2026-11-01 the create's 60/40 applies.
-      final before = activeRatio(
-        validator.usableRecords,
-        effectiveness: effectiveness,
-        date: '2026-10-31',
-      )!;
-      final beforeShares = splitResult(
-        money.result,
-        investorPercent: before.investor,
-        managerPercent: before.manager,
-      );
-      expect(beforeShares.manager, 1600);
-      expect(beforeShares.investor, 2400);
-
-      // From 2026-11-01 the 50/50 proposal applies.
-      final after = activeRatio(
-        validator.usableRecords,
-        effectiveness: effectiveness,
-        date: '2026-11-01',
-      )!;
-      final afterShares = splitResult(
-        money.result,
-        investorPercent: after.investor,
-        managerPercent: after.manager,
-      );
-      expect(afterShares.manager, 2000);
-      expect(afterShares.investor, 2000);
-    });
+        // The 50/50 proposal is effective, so it applies to the whole result. It
+        // is not split by date (hard rule 3). The known issue in docs/decisions.md
+        // says profit earned before the change should keep 60/40. Settlement
+        // will fix this and this expectation will change then.
+        final ratio = activeRatio(
+          validator.usableRecords,
+          effectiveness: effectiveness,
+        )!;
+        expect(ratio.ratio, const Ratio(investor: 50, manager: 50));
+        expect(ratio.agreedStart, '2026-11-01');
+        final shares = splitResult(
+          money.result,
+          investorPercent: ratio.ratio.investor,
+          managerPercent: ratio.ratio.manager,
+        );
+        expect(shares.manager, 2000);
+        expect(shares.investor, 2000);
+      },
+    );
   });
 
   group('same records in any order, with duplicates (spec section 8)', () {
@@ -249,12 +241,8 @@ void main() {
       '200 shuffled arrival orders, with duplicates, give identical results',
       () async {
         final story = await _buildStory();
-        const date = '2026-11-15';
 
-        final baseline = _snapshot(
-          await _receiveAll(story.records),
-          date: date,
-        );
+        final baseline = _snapshot(await _receiveAll(story.records));
 
         // The partnership_create must come first: no other record is accepted
         // before the partnership is known. The rest is shuffled.
@@ -272,16 +260,14 @@ void main() {
           }
 
           final validator = Validator.unpinnedForTesting();
-          await validator.receiveText(canonicalJson(story.records.first.toJson()));
+          await validator.receiveText(
+            canonicalJson(story.records.first.toJson()),
+          );
           for (final record in shuffled) {
             await validator.receiveText(canonicalJson(record.toJson()));
           }
 
-          expect(
-            _snapshot(validator, date: date),
-            baseline,
-            reason: 'shuffle $run',
-          );
+          expect(_snapshot(validator), baseline, reason: 'shuffle $run');
         }
       },
     );

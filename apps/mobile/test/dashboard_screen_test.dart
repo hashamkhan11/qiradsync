@@ -38,11 +38,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     await tester.pumpWidget(
       MaterialApp(
-        home: DashboardScreen(
-          store: store,
-          partnership: id,
-          now: () => DateTime(2026, 10, 5, 9),
-        ),
+        home: DashboardScreen(store: store, partnership: id),
       ),
     );
   }
@@ -162,7 +158,7 @@ void main() {
       find.text('No active ratio yet. The manager must approve the start.'),
       findsOneWidget,
     );
-    expect(find.text('Ratio shown for 2026-10-05 (today)'), findsOneWidget);
+    expect(find.textContaining('Ratio:'), findsNothing);
     expect(find.textContaining('may not match the contract'), findsNothing);
   });
 
@@ -174,6 +170,10 @@ void main() {
 
     expect(find.text('Investor (50%)'), findsOneWidget);
     expect(find.text('Manager (50%)'), findsOneWidget);
+    expect(
+      find.text('Ratio: 50/50 (agreed to start 2026-09-01)'),
+      findsOneWidget,
+    );
     expect(find.textContaining('may not match the contract'), findsOneWidget);
   });
 }
