@@ -153,7 +153,7 @@ author's responses in the same `seq` order regardless of network arrival order.
 
 | Type | Allowed author | `body` | `refersTo` | Effect |
 | --- | --- | --- | --- | --- |
-| `partnership_create` | investor | `{ "investor": key, "manager": key, "ratio": {"investor": int, "manager": int}, "currency": "PKR" }` | null | Proposes the partnership. Ratio values are whole percentages summing to 100, and each is 1 to 99 (a 0 or 100 share is refused: both partners share in the profit). **Needs approval** (by manager). |
+| `partnership_create` | investor | `{ "investor": key, "manager": key, "ratio": {"investor": int, "manager": int}, "currency": "PKR" }` | null | Proposes the partnership. Ratio values are whole percentages summing to 100, and each is 1 to 99 (a 0 or 100 share is refused: both partners share in the profit). The two keys must differ, and the create is refused if either part is missing. **Needs approval** (by manager). |
 | `invest` | investor | `{ "amount": int }` | null | Adds capital. |
 | `sale` | manager | `{ "amount": int }` | null | Adds income. |
 | `budget_proposal` | either | `{ "grantee": key, "amount": int }` | null | Proposes a spending limit for the grantee. **Needs approval.** |
@@ -163,7 +163,7 @@ author's responses in the same `seq` order regardless of network arrival order.
 | `reversal` | either | `{}` | `id` of the record to cancel | Cancels a record (Section 6.3). Only `invest`, `sale`, `expense` and `withdraw_request` can be reversed. Reversing the other partner's record **needs approval**. |
 | `approve` | either | `{}` | `id` of a record that needs approval | Approves it. Must not be authored by the target's author. |
 | `reject` | either | `{}` | same as `approve` | Rejects it. |
-| `settlement` | manager only | `{ "cut": { "<investorKey>": int, "<managerKey>": int } }` | null | Closes a period of the ledger (Section 6.7). **Needs approval** by the investor. *Planned, not built.* |
+| `settlement` | manager only | `{ "cut": { "<investorKey>": int, "<managerKey>": int } }` | null | Closes a period of the ledger (Section 6.7). **Needs approval** by the investor. *Core built; the app approvals inbox is not built yet.* |
 
 Notes:
 
@@ -291,10 +291,11 @@ earned profit it did not cover.
 - No clock is used at any step. `effectiveFrom` is a sort key and display text only.
 - The ratio is shown as text, for example `50/50 (agreed to start 2026-11-01)`.
 
-### 6.7 Settlement (planned, not built)
+### 6.7 Settlement
 
-**Status:** Design decided on 2026-10-05 (see `docs/decisions.md`). Build order: core first, then the app
-approvals inbox. Until then, Section 6.6 "Current build" applies.
+**Status:** The core is built (cut rules, approvals, periods, loss carry-forward, corrections, owed back and
+ahead split, total profit withdrawn). The app approvals inbox is not built yet. The design is in `docs/decisions.md`
+(2026-10-05).
 
 **Record.** A `settlement` is authored by the **manager only**. Its body is
 `{ "cut": { "<investorKey>": int, "<managerKey>": int } }`. It has no `refersTo`. The investor approves it. A
@@ -410,6 +411,12 @@ period's own result (no corrections), and `settled` = X's profit shares with cor
 
 Both labels add up to `excessNow`. Nothing is stored: both are calculated from the records (hard rule 4).
 
+**Total profit withdrawn.** `totalProfitWithdrawn` is each partner's sum of all effective profit withdrawals on the
+whole ledger. It is not limited to closed periods, so the dashboard shows it from the first withdrawal. Until the
+first settlement, the dashboard labels it "not yet compared to settled profit" and shows no split. The owed back and
+ahead split above is separate and uses closed periods only. So `W` in the formulas is the closed-period amount, not
+the total.
+
 **Closed periods only.** All four numbers use the same set: the closed periods, meaning the periods before the
 last effective cut. `W` counts only the profit withdrawals inside that cut. `own` and `settled` count only the
 shares of closed periods, and only the corrections booked in closed periods. A correction that becomes effective
@@ -433,6 +440,9 @@ difference in the period where it becomes effective:
 
 - Only the manager proposes settlements. In the app, the investor cannot force a settlement. The investor can only
   approve or reject one.
+- A settlement waits until the investor answers it. If the investor never answers, that settlement and every later
+  one wait too. The rules use no clock, so there is no timeout. This is a dispute to resolve outside the app. The
+  approvals inbox shows "Settlement S_k is waiting for the investor's answer."
 - Losses are carried forward only. Provisional profit distributions made before a later loss are not clawed back.
   This is future work.
 - If an adjustment removes profit a partner already withdrew, the excess is shown as an amount owed back (see
