@@ -96,8 +96,12 @@ List<PeriodShares> periodShares(
   // The create's ratio is the starting ratio. It is used when no create is
   // accepted inside the cut yet (its acceptance can sit in period 1), so no
   // ratio proposal can be effective there either.
-  final create = records.firstWhere((r) => r.type == 'partnership_create');
-  final startingRatio = ratioOf(create)!;
+  // The validator refuses a create with a bad ratio, so this only happens when
+  // the code is given records that did not come through the validator. Return
+  // nothing rather than crash (decision Q3b).
+  final create = records.where((r) => r.type == 'partnership_create').first;
+  final startingRatio = ratioOf(create);
+  if (startingRatio == null) return const [];
 
   // ownRecords[k - 1] and ratios[k - 1] belong to period k.
   final ownRecords = <List<Record>>[];
