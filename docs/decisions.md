@@ -501,3 +501,62 @@ result by up to one paisa per period. This is deterministic.
 and each partner's settled share for reference.
 
 **Reason:** A cap needs settlement to exist first. The warning is the protection until then.
+
+---
+
+## 2026-10-05 — Closure covers references only, not decisions
+
+**Status:** Decided. Built in step 4b.
+
+**Decision:** Cut rule 3 (closed) checks only that every record inside the cut refers to a record inside the cut.
+Approval decisions are not part of closure. An unanswered request inside a cut has no effect in that period. Its
+approval counts in the period where the approval falls.
+
+**Reason:** If decisions had to be inside the cut, one unanswered request could block every later settlement
+forever (liveness).
+
+---
+
+## 2026-10-05 — Phone-holds-cut, final once held, chained rule, permanent invalidity
+
+**Status:** Decided. Built in step 4b.
+
+**Decision:**
+- A cut is checked only when the phone holds every record it covers. Until then the settlement is waiting.
+- Once the phone holds the whole cut, rules 1 to 5 give a final answer. A settlement that fails a check is
+  permanently invalid.
+- Settlements are decided in manager seq order. A waiting settlement blocks later ones. A rejected or
+  permanently invalid settlement is done and does not block.
+
+**Reason:** A failed check must never be retried later with different records, or the result would depend on
+arrival order. A permanently invalid settlement must not block the next one forever.
+
+**Note on the chained flip:** A cut that is approved but not held cannot happen in a normal ledger. The investor
+approves only after the settlement exists, and the manager's cut only covers records written before that. So the
+phone holds the cut when it holds the approval (chains have no gaps). The waiting state covers only a cut that names
+records the phone has not received.
+
+---
+
+## 2026-10-05 — A settled period is a pure function of its cut
+
+**Status:** Decided. Built in step 4b.
+
+**Decision:** A settled period's view (result and budget statuses) is calculated only from the records inside its
+cut. Later effects, such as a late budget consent, are booked as a difference in the period where they become
+effective. No snapshot is stored.
+
+**Reason:** A fixed set of records always gives the same view, so a settled period never changes and hard rule 4
+(store facts, calculate the rest) holds.
+
+---
+
+## 2026-10-05 — Late budget consent is booked where the budget becomes effective
+
+**Status:** Decided. Built in step 4b.
+
+**Decision:** If the grantee approves a budget after a cut, the budget (and any expense under it) is counted in the
+period where it becomes effective, using the adjustment difference rule.
+
+**Reason:** It keeps the principle above. The settled view stays the same, and the money shows up once, in the
+current period.

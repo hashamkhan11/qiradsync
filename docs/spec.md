@@ -306,11 +306,28 @@ order.
 1. The cut has exactly the two partnership keys, and each value is a non-negative integer.
 2. The manager's value is lower than the settlement's own `seq`. A settlement never covers itself.
 3. The cut is **closed**. Every record inside the cut that refers to another record refers to one inside the
-   cut. Every record inside the cut that needs approval is decided (approved or rejected) by a record inside the
-   cut.
+   cut. Decisions are not part of this rule. A request inside the cut that nobody has answered yet has no effect
+   in this period. Its approval counts in the period where the approval falls (see "Prior-period adjustments").
 4. The cut **dominates** the previous effective settlement's cut: each value is at least that cut's value for
    the same key (0 if there is none).
 5. The cut is **not empty**: at least one value is larger than the previous cut's value.
+
+**The phone must hold the cut.** A record is covered by the cut when its `seq` is at or below the cut's value for
+its author. Chains have no gaps (Section 7.1), so holding the record at value `v` means holding all earlier records
+of that author. A value of 0 covers nothing. Until the phone holds every record the cut covers, the settlement is
+**waiting**.
+
+**Final once held.** When the phone holds the whole cut, every record inside it is known. A record the phone does
+not hold is outside the cut, by definition. So rules 1 to 5 give a final answer. A check that fails now can never
+pass after more records arrive. A settlement that is approved, held and fails a check is **permanently invalid**.
+
+**Chained rule.** Settlements are decided in manager `seq` order. A **waiting** settlement blocks every later one.
+A **rejected** or **permanently invalid** settlement is done, like an effective one, and does not block. So each
+cut is checked against a fixed previous effective cut, and one broken settlement cannot block all later ones.
+
+*Why an approved cut is normally held:* the investor can approve only after the settlement exists. The manager
+wrote the cut from records it already had, and those were written before the approval. So in a normal ledger, an
+approved settlement is always held. Waiting applies only to a cut that names records the phone has not received.
 
 **Ordering rule.** Settlement proposals are decided in order. Let S_k be the k-th settlement by manager `seq`. An
 investor's `approve` or `reject` of S_k is valid only if the investor has already responded to every S_j (j < k)
@@ -332,8 +349,9 @@ settlements.
 *Consequence:* the investor cannot approve S_2 before S_1 in a way that counts. An early answer to S_2 is kept
 as invalid evidence. A new answer to S_2, made after S_1, is valid.
 
-**Effective.** A settlement is effective when it is valid under the cut rules and approved under the ordering
-rule. If it fails rule 4 against the previous effective settlement, it is invalid and flagged.
+**Effective.** A settlement is effective when it is approved under the ordering rule, its cut is held, and it passes
+rules 1 to 5 against the previous effective cut. Otherwise it is rejected, waiting, or permanently invalid, as
+described above. Only effective settlements form the sequence of cuts below.
 
 **Periods.** Let cut_0 be empty. The effective settlements, in order, give cut_1, cut_2, and so on. Period k is
 the records inside cut_k and not inside cut_(k−1). The open period is the records after the last effective cut.
@@ -369,6 +387,15 @@ every case:
    app does not collect it.
 
 The adjustment appears as a separate line, "correction from an earlier period". A settled period never changes.
+
+**A settled period is a pure function of its cut.** The view of a period (its result and its budget statuses) is
+calculated only from the records inside its cut. Those records are a fixed set, so the view never changes, and no
+snapshot is stored (hard rule 4). A later effect is never written back into a settled view. It is booked as the
+difference in the period where it becomes effective:
+
+- **Late budget consent.** If the grantee approves a budget after the cut, the budget becomes effective in the
+  current period. The expense under that budget is booked there too, using the difference rule above. The settled
+  period's view does not change.
 
 **Limitations (v1), documented:**
 
