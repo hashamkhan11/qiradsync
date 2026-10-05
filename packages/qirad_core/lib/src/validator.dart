@@ -152,6 +152,7 @@ const _bodyFields = <String, Set<String>>{
   'expense': {'amount', 'receiptHash'},
   'withdraw_request': {'amount', 'kind'},
   'ratio_proposal': {'ratio', 'effectiveFrom'},
+  'settlement': {'cut'},
   'reversal': <String>{},
   'approve': <String>{},
   'reject': <String>{},
