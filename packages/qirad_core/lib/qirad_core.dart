@@ -2,6 +2,7 @@
 library;
 
 export 'src/active_ratio.dart';
+export 'src/dashboard.dart';
 export 'src/approvals.dart';
 export 'src/canonical_json.dart';
 export 'src/effective.dart';
