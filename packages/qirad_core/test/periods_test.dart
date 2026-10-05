@@ -302,5 +302,189 @@ void main() {
         expect(period2.shares.manager, 0);
       },
     );
+
+    group('several corrections to one period', () {
+      // Period 1: sales 800, 500 and 200, expense 500. Result 1000 (600/400).
+      // A reverses the 800 sale in period 2. B reverses the 500 sale in period 3.
+      Future<List<Record>> buildRecords(
+        ChainAuthor investor,
+        ChainAuthor manager,
+        String partnershipId,
+      ) async {
+        final budget = await investor.next(
+          partnership: partnershipId,
+          type: 'budget_proposal',
+          body: {'grantee': manager.key, 'amount': 10000},
+        );
+        final consent = await manager.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: budget.id,
+        );
+        final sale800 = await manager.next(
+          partnership: partnershipId,
+          type: 'sale',
+          body: {'amount': 800},
+        );
+        final sale500 = await manager.next(
+          partnership: partnershipId,
+          type: 'sale',
+          body: {'amount': 500},
+        );
+        final sale200 = await manager.next(
+          partnership: partnershipId,
+          type: 'sale',
+          body: {'amount': 200},
+        );
+        final expense = await manager.next(
+          partnership: partnershipId,
+          type: 'expense',
+          refersTo: budget.id,
+          body: {'amount': 500, 'receiptHash': null},
+        );
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 2, manager.key: 5},
+          },
+        );
+        final approveS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s1.id,
+        );
+        final reversalA = await manager.next(
+          partnership: partnershipId,
+          type: 'reversal',
+          refersTo: sale800.id,
+        );
+        final approveA = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: reversalA.id,
+        );
+        final s2 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 4, manager.key: 7},
+          },
+        );
+        final approveS2 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s2.id,
+        );
+        final reversalB = await manager.next(
+          partnership: partnershipId,
+          type: 'reversal',
+          refersTo: sale500.id,
+        );
+        final approveB = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: reversalB.id,
+        );
+        final s3 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 6, manager.key: 9},
+          },
+        );
+        final approveS3 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s3.id,
+        );
+        return [
+          budget,
+          consent,
+          sale800,
+          sale500,
+          sale200,
+          expense,
+          s1,
+          approveS1,
+          reversalA,
+          approveA,
+          s2,
+          approveS2,
+          reversalB,
+          approveB,
+          s3,
+          approveS3,
+        ];
+      }
+
+      test(
+        'A books -480/-320, B books -120/-80 and +300 deficit, and period 1 keeps its own view',
+        () async {
+          final (validator, investor, manager, partnershipId) =
+              await setUpPartnership();
+          final records = await buildRecords(investor, manager, partnershipId);
+          await _receive(validator, records);
+
+          final periods = _periods(validator);
+          final period1 = periods[0];
+          final period2 = periods[1];
+          final period3 = periods[2];
+
+          expect(period1.result, 1000);
+          expect(period1.shares.investor, 600);
+          expect(period1.shares.manager, 400);
+
+          expect(period2.correction.investor, -480);
+          expect(period2.correction.manager, -320);
+          expect(period2.deficitChange, 0);
+
+          expect(period3.correction.investor, -120);
+          expect(period3.correction.manager, -80);
+          expect(period3.deficitChange, 300);
+          expect(period3.deficitAfter, 300);
+
+          // The sum of the corrections: -600 and -400. Period 1's net shares
+          // end at 0/0, and the carried deficit is 300.
+          expect(
+            period2.correction.investor + period3.correction.investor,
+            -600,
+          );
+          expect(period2.correction.manager + period3.correction.manager, -400);
+
+          // Period 1 itself is a settled view, so it does not change.
+          expect(period1.result, 1000);
+          expect(period1.shares.investor, 600);
+          expect(period1.shares.manager, 400);
+        },
+      );
+
+      test(
+        'the same records in two arrival orders give identical shares',
+        () async {
+          final (validator, investor, manager, partnershipId) =
+              await setUpPartnership();
+          final records = await buildRecords(investor, manager, partnershipId);
+          await _receive(validator, records);
+
+          // A second phone: the create first, then the records in reverse order.
+          final reversed = Validator.unpinnedForTesting();
+          final create = validator.usableRecords.firstWhere(
+            (r) => r.type == 'partnership_create',
+          );
+          await _receive(reversed, [create]);
+          await _receive(reversed, records.reversed);
+
+          String show(List<PeriodShares> periods) => [
+            for (final p in periods)
+              '${p.index}:${p.result}:${p.shares.investor}/${p.shares.manager}:'
+                  '${p.correction.investor}/${p.correction.manager}:'
+                  '${p.deficitChange}:${p.deficitAfter}',
+          ].join(' ');
+
+          expect(show(_periods(reversed)), show(_periods(validator)));
+        },
+      );
+    });
   });
 }
