@@ -410,6 +410,12 @@ period's own result (no corrections), and `settled` = X's profit shares with cor
 
 Both labels add up to `excessNow`. Nothing is stored: both are calculated from the records (hard rule 4).
 
+**Closed periods only.** All four numbers use the same set: the closed periods, meaning the periods before the
+last effective cut. `W` counts only the profit withdrawals inside that cut. `own` and `settled` count only the
+shares of closed periods, and only the corrections booked in closed periods. A correction that becomes effective
+in the open period does not change owed back until that period is settled. Nothing provisional can create a
+debt. The open period's figures are shown separately on the dashboard, labelled provisional.
+
 Example: investor withdraws 500 profit. Their own shares are 360, so 140 was withdrawn ahead of settled profit. A
 correction then takes 100 from their settled share, so their settled shares are 260. `excessNow` = 240, `owed back`
 = 240 − 140 = 100, and `ahead` = 140.

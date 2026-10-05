@@ -599,3 +599,17 @@ would mislead people.
 withdrawals, `own` = their profit shares from each period's own result, and `settled` = their profit shares with
 corrections applied: `excessBefore = max(0, W − own)`, `excessNow = max(0, W − settled)`, `owedBack =
 max(0, excessNow − excessBefore)`, `aheadOfSettled = excessNow − owedBack`.
+
+## 2026-10-05 — Owed back uses closed periods only
+
+**Status:** Decided. To be built in step 4d.
+
+**Decision:** The withdrawn, own and settled figures all come from the same set: the closed periods (those before
+the last effective cut). A correction that becomes effective in the open period does not change owed back until
+that period is settled. The open period is shown on the dashboard as provisional.
+
+**Reason:** If own and settled came from different sets, the subtraction would mix provisional and final numbers.
+Nothing provisional should ever create a debt.
+
+**Consequence:** Owed back can appear late, only after the period that caused it is settled. This is accepted.
+A withdrawal made before any settlement is "ahead" only after the period that contains it is closed.
