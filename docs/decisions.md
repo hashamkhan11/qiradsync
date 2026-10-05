@@ -613,3 +613,29 @@ Nothing provisional should ever create a debt.
 
 **Consequence:** Owed back can appear late, only after the period that caused it is settled. This is accepted.
 A withdrawal made before any settlement is "ahead" only after the period that contains it is closed.
+
+## 2026-10-05 — Audit follow-ups: create rule, total withdrawn, investor silence
+
+**Decision (create body):** The validator refuses a `partnership_create` whose ratio does not sum to 100, whose
+shares are not 1 to 99, or whose two party keys are missing or equal. Ratio proposals keep the old rule, where a bad
+sum only means "no ratio".
+
+**Reason:** A create has no earlier ratio to fall back on. A bad create would leave every period without a ratio.
+
+**Decision (period code):** `periodShares` returns no periods, instead of throwing, when the create's ratio is not
+valid. This only matters for records that did not come through the validator.
+
+**Decision (total profit withdrawn):** Two separate values. `totalProfitWithdrawn` is each partner's sum of all
+effective profit withdrawals on the whole ledger. The owed back and ahead split is calculated from closed periods only.
+The dashboard shows the total from the first withdrawal. Until the first settlement it is labelled "not yet compared to
+settled profit" and no split is shown.
+
+**Reason:** A total that waited for a settlement would show 0 for a partner who has already withdrawn money. The split
+still needs closed periods, so provisional numbers never create a debt.
+
+**Decision (investor silence):** Kept as a rule. A settlement waits for the investor's answer, and the rules use no
+clock, so there is no timeout. An investor who never answers is a dispute, resolved outside the app. The approvals
+inbox shows "Settlement S_k is waiting for the investor's answer." This is listed under the v1 limitations in spec 6.7.
+
+**Reason:** A timeout would need a clock or a new rule, and the spec forbids clock time in decisions. Silence is the
+same case as a manager who never proposes.
