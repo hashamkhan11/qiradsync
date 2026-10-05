@@ -331,7 +331,7 @@ another app is refused the same way.
 
 ## 2026-10-05 — Open issue: a ratio change re-splits profit already earned
 
-**Status:** Open. Not fixed in v1. The dashboard warns about it.
+**Status:** Open. Design decided on 2026-10-05 (see the settlement entries below). Fixed when the settlement step is built. The dashboard warns about it until then.
 
 **Problem:** Spec section 6.6 says a new ratio applies from its `effectiveFrom` date. Profit earned before the change
 should keep the old ratio. But `buildDashboard` splits the whole result by the ratio active on one date, so the
@@ -343,7 +343,7 @@ manager 100,000 for the same 200,000. The contract says 80,000.
 **Why dates cannot fix it:** Record times come from phone clocks, so they are never used to decide anything (hard
 rule 3). A date on a ratio change says when it should start, but not which earned profit it covers.
 
-**Proposed direction (to agree before building):** A `settlement` record that needs the other partner's approval.
+**Direction (agreed 2026-10-05):** A `settlement` record that needs the other partner's approval.
 When it is effective, it freezes the result up to that point in the ledger and splits that result at the ratio active
 then. A new ratio applies only to results after a settlement. The change is anchored to a point of consent, not a date.
 
@@ -369,3 +369,103 @@ would show a different split. That broke hard rule 3, which says clock time must
 **Consequence:** A ratio change with a future `effectiveFrom` applies to all the current result at once. It does
 not wait for its date. This is the same kind of problem as the open settlement issue above, and it is recorded
 there. Spec 6.6 is updated to match.
+
+---
+
+## 2026-10-05 — Settlement: only the manager proposes, and proposals are decided in order
+
+**Status:** Decided. Built in a later step.
+
+**Decision:** Only the manager authors a `settlement`. The investor approves or rejects it. Settlement proposals are
+decided in order: the investor's response to S_k is valid only if the investor has already responded to every earlier
+settlement, at a lower investor `seq`.
+
+**Reason:** If both partners can propose, two proposals can be approved at the same time from the same starting point.
+Each approval is a valid record, so a grow-only ledger cannot undo either one. Any later winner would change an
+already settled period, which breaks monotonicity. One author gives one chain, and the ordering rule keeps the
+responses in order.
+
+**Limitation:** In the app, the investor cannot force a settlement. Documented in spec 6.7. Future work.
+
+**Test that must exist:** The investor approves S_2 before S_1 → the response is invalid and flagged.
+
+---
+
+## 2026-10-05 — Settlement: the cut is closed, dominating and not empty
+
+**Status:** Decided. Built in a later step.
+
+**Decision:** A settlement's cut must be closed under references and under approvals. It must dominate the previous
+effective cut, and it must cover at least one new record. The manager's value in the cut must be lower than the
+settlement's own `seq`. The settlement body stores no totals.
+
+**Reason:** Without closure, an approval outside the cut could change a settled period later. Without domination, a
+later cut could move backward. Empty settlements only add noise. Storing a total would break hard rule 4.
+
+---
+
+## 2026-10-05 — Ratio changes take effect at the next settlement
+
+**Status:** Decided, with one reading to confirm. Built in a later step.
+
+**Decision:** Period 1 uses the create ratio. Period k uses the last effective `ratio_proposal` approved inside the cut
+of period k−1. If there is none, it uses the previous period's ratio. The open period uses the same rule with the last
+cut. A change approved inside a period applies to the next period, not to the current one.
+
+**Consequence:** Until a settlement is effective, an approved change does not apply to any result. The dashboard shows
+the old ratio and a note that a change is waiting for settlement.
+
+**To confirm with the developer:** The phrase "a ratio change applies only to periods after the next effective
+settlement" was read as above. A change approved after cut_(k−1) but before settlement k applies from period k+1.
+
+---
+
+## 2026-10-05 — Losses are carried forward before any profit is shared
+
+**Status:** Decided. Built in a later step.
+
+**Decision:** Keep a deficit across periods. A loss is added to the deficit and the investor bears it. In a profitable
+period, the deficit is covered first (capital is restored first). Only the rest is split at that period's ratio.
+
+**Limitation (documented, future work):** Provisional profit distributions made before a later loss are not clawed
+back. The app shows them as provisional.
+
+---
+
+## 2026-10-05 — Corrections after settlement are prior-period adjustments
+
+**Status:** Decided, with one open point.
+
+**Decision:** A reversal of a record in an earlier period is allowed. Its effect is booked in the period where the
+reversal and its approval first fall inside a cut together. The adjustment is split at the ratio of the period that
+contains the reversed record. It is shown as a separate line, "correction from an earlier period". A settled period
+never changes.
+
+**Open point:** Does an adjustment enter the deficit account? Example: a sale in a loss period is reversed later. The
+manager got no share in that period, so splitting the reversal at that period's ratio would give a negative manager
+share for money never paid. Options:
+
+1. The adjustment goes into the deficit account. Only the profit part is split. (Recommended.)
+2. The adjustment is split directly at the old ratio, as decided above. This can give a negative share.
+
+**Status of the open point:** Open. Decide before the settlement step that handles adjustments.
+
+---
+
+## 2026-10-05 — Rounding is per period
+
+**Status:** Decided. Built in a later step.
+
+**Decision:** Each period is split on its own with `splitResult`. Summed shares can differ from one split of the whole
+result by up to one paisa per period. This is deterministic.
+
+---
+
+## 2026-10-05 — Profit withdrawals are not capped in v1
+
+**Status:** Decided.
+
+**Decision:** Profit withdrawals are not capped by settled shares. The approval screen shows the ratio-change warning
+and each partner's settled share for reference.
+
+**Reason:** A cap needs settlement to exist first. The warning is the protection until then.

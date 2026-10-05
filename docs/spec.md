@@ -158,6 +158,7 @@ author's responses in the same `seq` order regardless of network arrival order.
 | `reversal` | either | `{}` | `id` of the record to cancel | Cancels a record (Section 6.3). Only `invest`, `sale`, `expense` and `withdraw_request` can be reversed. Reversing the other partner's record **needs approval**. |
 | `approve` | either | `{}` | `id` of a record that needs approval | Approves it. Must not be authored by the target's author. |
 | `reject` | either | `{}` | same as `approve` | Rejects it. |
+| `settlement` | manager only | `{ "cut": { "<investorKey>": int, "<managerKey>": int } }` | null | Closes a period of the ledger (Section 6.7). **Needs approval** by the investor. *Planned, not built.* |
 
 Notes:
 
@@ -266,19 +267,89 @@ The app should warn (not block) when an approval would make `cash_balance` or to
 
 ### 6.6 Active ratio
 
-The active ratio is decided by the records alone, with **no clock** (hard rule 3):
+**Current build (until settlement is built).** The active ratio is decided by the records alone, with **no
+clock** (hard rule 3): the last effective `ratio_proposal` in `(effectiveFrom, author, seq)` order. If there is
+none, it is the ratio in the approved `partnership_create`. This ratio is applied to the **whole** result. That
+re-splits profit earned before a change, which is a known issue (see `docs/decisions.md`, 2026-10-05). The
+`effectiveFrom` date is a sort key and display text only.
 
-1. If there is an effective `ratio_proposal`, the active ratio is the last one in the order
-   `(effectiveFrom, author, seq)`. Its `effectiveFrom` is only a sort key and display text.
-2. If there is none, the active ratio is the ratio in the approved `partnership_create`.
+**Target rule (applies once settlement is built, Section 6.7).** The ledger is split into periods by effective
+settlements. Each period has one ratio, and the ratio is fixed when the period starts. A change never applies to
+earned profit it did not cover.
 
-The `effectiveFrom` date is never compared with the phone's clock or with any other date. A change
-agreed for a later date is already the ratio in force, and it applies to the whole result. The screen
-shows the ratio as text, for example `50/50 (agreed to start 2026-11-01)`, and does not use that date
-to pick a split.
+- Period 1 uses the ratio in the approved `partnership_create`.
+- Period k (k ≥ 2) uses the last effective `ratio_proposal` whose approval is inside the cut of period k−1,
+  sorted by `(effectiveFrom, author, seq)`. If there is none, it uses the ratio of period k−1.
+- The open period (after the last effective settlement) uses the same rule as period k, with the last cut.
+  So an approved change waits for the next settlement before it applies. The dashboard shows that a change is
+  waiting.
+- No clock is used at any step. `effectiveFrom` is a sort key and display text only.
+- The ratio is shown as text, for example `50/50 (agreed to start 2026-11-01)`.
 
-Open issue: profit earned before a change is re-split at the new ratio. Settlement, which will anchor
-a change to consent, is not built yet (see `docs/decisions.md`, 2026-10-05).
+### 6.7 Settlement (planned, not built)
+
+**Status:** Design decided on 2026-10-05 (see `docs/decisions.md`). Build order: core first, then the app
+approvals inbox. Until then, Section 6.6 "Current build" applies.
+
+**Record.** A `settlement` is authored by the **manager only**. Its body is
+`{ "cut": { "<investorKey>": int, "<managerKey>": int } }`. It has no `refersTo`. The investor approves it. A
+settlement stores **no money totals**. The period result is calculated from the cut (hard rule 4).
+
+**Cut rules.** A settlement is valid only if all of these hold. They check the set of records, never the arrival
+order.
+
+1. The cut has exactly the two partnership keys, and each value is a non-negative integer.
+2. The manager's value is lower than the settlement's own `seq`. A settlement never covers itself.
+3. The cut is **closed**. Every record inside the cut that refers to another record refers to one inside the
+   cut. Every record inside the cut that needs approval is decided (approved or rejected) by a record inside the
+   cut.
+4. The cut **dominates** the previous effective settlement's cut: each value is at least that cut's value for
+   the same key (0 if there is none).
+5. The cut is **not empty**: at least one value is larger than the previous cut's value.
+
+**Ordering rule.** Settlement proposals are decided in order. Let S_k be the k-th settlement by manager `seq`. An
+investor's `approve` or `reject` of S_k is valid only if the investor has already responded to every S_j (j < k)
+at a lower investor `seq` than this response. Otherwise the response is invalid and flagged. A phone can decide
+this once it holds the investor's chain up to that `seq`, because chains have no gaps (Section 7.1). A response
+that arrives before its predecessors is pending, not invalid.
+
+*Consequence:* at most one settlement waits for the investor's answer at a time. The investor cannot approve S_2
+before S_1.
+
+**Effective.** A settlement is effective when it is valid under the cut rules and approved under the ordering
+rule. If it fails rule 4 against the previous effective settlement, it is invalid and flagged.
+
+**Periods.** Let cut_0 be empty. The effective settlements, in order, give cut_1, cut_2, and so on. Period k is
+the records inside cut_k and not inside cut_(k−1). The open period is the records after the last effective cut.
+
+**Shares per period.** For each period, compute its result from its effective records (Section 6.5). Then:
+
+- **Loss carry-forward.** Keep a deficit D, starting at 0. For each period in order, with `net` = the period's
+  result:
+  - If `net < 0`: add `-net` to D. The investor bears the loss. The manager gets 0.
+  - If `net > 0`: `cover = min(D, net)`, then `D = D - cover`. The distributable amount is `net - cover`. Split it
+    at the period's ratio.
+  - If `net = 0`: nothing changes.
+
+  Capital is restored first: a loss is covered by later profit before any profit is shared.
+- **Rounding.** Each period is split on its own with `splitResult` (Section 6.5). The shares summed over all
+  periods can differ by up to one paisa per period from one split of the whole result. This is deterministic and
+  accepted.
+
+**Prior-period adjustments.** A `reversal` of a record in an earlier period is allowed. Its effect is booked in the
+period where the reversal and its approval first fall inside a cut together. The adjustment is split at the ratio
+of the period that contains the reversed record. It is shown as a separate line, "correction from an earlier
+period". A settled period never changes. **Open:** whether an adjustment enters the deficit account. See
+`docs/decisions.md`, 2026-10-05.
+
+**Limitations (v1), documented:**
+
+- Only the manager proposes settlements. In the app, the investor cannot force a settlement. The investor can only
+  approve or reject one.
+- Losses are carried forward only. Provisional profit distributions made before a later loss are not clawed back.
+  This is future work.
+- Profit withdrawals are not capped by settled shares. The approval screen shows the ratio-change warning and each
+  partner's settled share for reference.
 
 ---
 
