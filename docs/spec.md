@@ -325,9 +325,18 @@ pass after more records arrive. A settlement that is approved, held and fails a 
 A **rejected** or **permanently invalid** settlement is done, like an effective one, and does not block. So each
 cut is checked against a fixed previous effective cut, and one broken settlement cannot block all later ones.
 
-*Why an approved cut is normally held:* the investor can approve only after the settlement exists. The manager
-wrote the cut from records it already had, and those were written before the approval. So in a normal ledger, an
-approved settlement is always held. Waiting applies only to a cut that names records the phone has not received.
+**Approve rule.** An investor `approve` of a settlement is valid only if the cut's investor value is **below** the
+approve's own `seq`. An approve that breaks this is invalid. It is kept as evidence and never counts. A `reject` is
+not affected by this rule.
+
+*Why an approved cut is always held:* an approve at investor `seq` k is valid only if the cut's investor value is
+below k. Chains have no gaps (Section 7.1), so holding the approve means holding the investor's records up to k,
+which covers the cut. The manager's value is below the settlement's own `seq`, and the approve refers to the
+settlement, so the phone also holds the manager's records up to the cut. This holds even when the manager is
+malicious. So a settlement is **waiting** only until the investor answers. A cut that names records that do not
+exist (for example investor 99) cannot be approved. It waits until the investor **rejects** it. A rejected
+settlement is done, so later settlements continue. The approvals inbox should show such a settlement as
+"covers investor records that do not exist", with a clear reject option.
 
 **Ordering rule.** Settlement proposals are decided in order. Let S_k be the k-th settlement by manager `seq`. An
 investor's `approve` or `reject` of S_k is valid only if the investor has already responded to every S_j (j < k)

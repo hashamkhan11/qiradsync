@@ -560,3 +560,22 @@ period where it becomes effective, using the adjustment difference rule.
 
 **Reason:** It keeps the principle above. The settled view stays the same, and the money shows up once, in the
 current period.
+
+---
+
+## 2026-10-05 — Approve rule: an approve must come after its cut
+
+**Status:** Decided. Built in step 4b (follow-up).
+
+**Decision:** An investor `approve` of a settlement is valid only if the cut's investor value is below the approve's
+own `seq`. Otherwise the approve is invalid, kept as evidence, and never counts. A `reject` is not affected. A
+settlement whose cut names records that do not exist waits until the investor rejects it. Rejected counts as done,
+so later settlements continue.
+
+**Reason:** Phones cannot tell, when they see a cut that names investor records 41 to 99, whether those records
+do not exist or have not arrived yet. So the rule must not make a settlement invalid right away. Instead it makes
+the approve impossible to count. Then "a valid approve means the cut is held" is a rule that holds even with a
+malicious manager, not an honesty assumption. The investor always has a way out: reject.
+
+**Consequence:** An approve of a settlement can never be inside that settlement's own cut, because its seq is above
+the cut's investor value. Closure still checks approves like any other reference.
