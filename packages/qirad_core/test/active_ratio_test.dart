@@ -184,31 +184,44 @@ void main() {
       );
     });
 
-    test('a partnership_create with a bad ratio gives no ratio', () async {
-      final investor = ChainAuthor(await generateEd25519KeyPair());
-      final manager = ChainAuthor(await generateEd25519KeyPair());
-      final partnershipId = testId('partnership-bad');
-      final validator = Validator.unpinnedForTesting();
-      final create = await investor.next(
-        partnership: partnershipId,
-        type: 'partnership_create',
-        id: partnershipId,
-        body: {
-          'investor': investor.key,
-          'manager': manager.key,
-          'ratio': {'investor': 70, 'manager': 20},
-          'currency': 'PKR',
-        },
-      );
-      final approve = await manager.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: create.id,
-      );
-      await _receiveInOrder(validator, [create, approve]);
-
-      expect(await _activeRatio(validator), isNull);
-    });
+    test(
+      'a partnership_create with a bad ratio is refused, so it gives no ratio',
+      () async {
+        final investor = ChainAuthor(await generateEd25519KeyPair());
+        final manager = ChainAuthor(await generateEd25519KeyPair());
+        final partnershipId = testId('partnership-bad');
+        final validator = Validator.unpinnedForTesting();
+        final create = await investor.next(
+          partnership: partnershipId,
+          type: 'partnership_create',
+          id: partnershipId,
+          body: {
+            'investor': investor.key,
+            'manager': manager.key,
+            'ratio': {'investor': 70, 'manager': 20},
+            'currency': 'PKR',
+          },
+        );
+        final approve = await manager.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: create.id,
+        );
+        // The validator refuses the create (sum is 90, not 100), so it is never
+        // stored. Its approve then has no partnership to belong to, and is
+        // refused too. No ratio exists at all.
+        expect(
+          await validator.receiveText(canonicalJson(create.toJson())),
+          ReceiveOutcome.rejectedSchema,
+        );
+        expect(
+          await validator.receiveText(canonicalJson(approve.toJson())),
+          isNot(ReceiveOutcome.accepted),
+        );
+        // No partnership was formed, so there are no keys to calculate with.
+        expect(validator.partnershipKeys, isNull);
+      },
+    );
 
     test(
       'the latest effectiveFrom wins, whatever order the records arrive in',

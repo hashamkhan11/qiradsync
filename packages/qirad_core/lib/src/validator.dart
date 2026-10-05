@@ -99,6 +99,9 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     if (body.keys.any((key) => !allowedBodyKeys.contains(key))) return null;
     final ratio = body['ratio'];
     if (ratio != null && !_isValidRatio(ratio)) return null;
+    // A create has no earlier ratio to fall back on, so a bad one is refused
+    // here. A ratio_proposal with a bad sum is only ignored (see ratioOf).
+    if (type == 'partnership_create' && !_isValidCreateBody(body)) return null;
 
     return Record(
       v: 1,
@@ -170,6 +173,19 @@ bool _isValidRatio(Object? ratio) {
 }
 
 bool _isShare(Object? value) => value is int && value >= 1 && value <= 99;
+
+/// A `partnership_create` must name two different party keys and a ratio whose
+/// shares add up to 100. The parties and the ratio are needed for every
+/// calculation later, so a create without them is refused, not stored.
+bool _isValidCreateBody(Map body) {
+  final ratio = body['ratio'];
+  final investor = body['investor'];
+  final manager = body['manager'];
+  if (!_isValidRatio(ratio)) return false;
+  final shares = ratio as Map;
+  if (shares['investor'] + shares['manager'] != 100) return false;
+  return investor is String && manager is String && investor != manager;
+}
 
 /// Runs raw incoming records through spec section 6.1's full pipeline:
 /// schema, signature, membership, hash-chain (with a pending buffer for
