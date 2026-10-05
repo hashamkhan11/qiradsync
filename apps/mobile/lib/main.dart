@@ -3,6 +3,7 @@ import 'package:path/path.dart' as p;
 import 'package:qirad_core/qirad_core.dart';
 import 'package:sqflite/sqflite.dart';
 
+import 'dashboard/dashboard_screen.dart';
 import 'onboarding/onboarding_screen.dart';
 import 'storage/key_store.dart';
 import 'storage/record_store.dart';
@@ -37,10 +38,9 @@ class _QiradAppState extends State<QiradApp> {
       title: 'QiradSync',
       theme: ThemeData(colorScheme: .fromSeed(seedColor: Colors.teal)),
       home: _hasPartnership
-          ? const Scaffold(
-              body: Center(
-                child: Text('Partnership ready. Dashboard comes next.'),
-              ),
+          ? DashboardScreen(
+              store: widget.store,
+              partnership: widget.store.partnerships.first,
             )
           : OnboardingScreen(
               store: widget.store,

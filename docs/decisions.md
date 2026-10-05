@@ -350,3 +350,19 @@ then. A new ratio applies only to results after a settlement. The change is anch
 **Until then:** The dashboard shows a note whenever a ratio change has taken effect, saying the split uses the current
 ratio and may not match the contract until settlement is built. A core test documents the current behaviour and is
 marked as a known issue. It must be updated when settlement is built.
+
+---
+
+## 2026-10-05 — Open question: the dashboard date also picks the ratio
+
+**Status:** Open. Built as the developer asked, for review before merge.
+
+**Question:** The dashboard shows today's local date as a label. But `activeRatio` uses the date it is given to pick
+the ratio, so the phone's clock changes which split is shown. Hard rule 3 says clock time must not decide anything.
+
+**Options:**
+1. Pick the latest effective ratio, with no date. This matches the settlement direction, which anchors changes to
+   consent, not to dates.
+2. Keep the date, and accept that a wrong phone clock can show the wrong split.
+
+**Until decided:** The screen passes today's local date. The label and the ratio both come from that one value.
