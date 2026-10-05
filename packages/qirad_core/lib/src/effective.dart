@@ -3,6 +3,7 @@ import 'amounts.dart';
 import 'ratio.dart';
 import 'record.dart';
 import 'settlement.dart';
+import 'settlement_states.dart';
 
 /// Record types a `reversal` may cancel in v1 (spec section 5). Reversing any
 /// other type is invalid: it is flagged, shown in the UI, and has no effect.
@@ -46,6 +47,9 @@ class Effectiveness {
   /// settlement ordering rule (spec 6.7). Shown to both partners as evidence.
   final Map<String, String> invalidResponses;
 
+  /// The state of every settlement proposal, in manager seq order (spec 6.7).
+  final List<SettlementStatus> settlements;
+
   const Effectiveness({
     required this.effectiveIds,
     required this.cancelledIds,
@@ -53,6 +57,7 @@ class Effectiveness {
     required this.expenseStatus,
     required this.budgetUsed,
     required this.invalidResponses,
+    required this.settlements,
   });
 
   bool isEffective(Record record) => effectiveIds.contains(record.id);
@@ -90,6 +95,13 @@ Effectiveness computeEffective(
   };
 
   final parties = partiesOf(records);
+  final settlements = parties == null
+      ? <SettlementStatus>[]
+      : settlementStatuses(records, parties: parties, decisions: decisions);
+  final settlementEffectiveIds = {
+    for (final s in settlements)
+      if (s.state == SettlementState.effective) s.record.id,
+  };
 
   // Reversals do not depend on budgets, so they are worked out first.
   final invalidReversals = <String, String>{};
@@ -197,7 +209,7 @@ Effectiveness computeEffective(
             effectiveReversalIds,
             cancelledIds,
             expenseStatus,
-            parties,
+            settlementEffectiveIds,
           ))
         record.id,
   };
@@ -209,6 +221,7 @@ Effectiveness computeEffective(
     expenseStatus: expenseStatus,
     budgetUsed: budgetUsed,
     invalidResponses: invalidResponses,
+    settlements: settlements,
   );
 }
 
@@ -224,16 +237,15 @@ bool _isEffective(
   Set<String> effectiveReversalIds,
   Set<String> cancelledIds,
   Map<String, ExpenseStatus> expenseStatus,
-  Parties? parties,
+  Set<String> settlementEffectiveIds,
 ) {
   if (record.type == 'reversal') {
     return effectiveReversalIds.contains(record.id);
   }
   if (cancelledIds.contains(record.id)) return false;
-  // A settlement is effective only when it is a well-formed manager proposal.
-  // Its approval is checked by the caller through the blocked set (spec 6.7).
+  // A settlement is effective only when its state is `effective` (spec 6.7).
   if (record.type == settlementType) {
-    return parties != null && settlementCut(record, parties) != null;
+    return settlementEffectiveIds.contains(record.id);
   }
   if (record.type == 'expense') {
     return expenseStatus[record.id] == ExpenseStatus.valid;

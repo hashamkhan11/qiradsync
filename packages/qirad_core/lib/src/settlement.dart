@@ -40,8 +40,8 @@ Parties? partiesOf(Iterable<Record> records) {
 ///    settlement never covers itself.
 ///
 /// These checks use only the record and the partners' roles, so every device
-/// gives the same answer. Closure, domination and emptiness are checked in a
-/// later step.
+/// gives the same answer. The checks that need the records themselves are in
+/// [cutIsHeld] and [cutProblem].
 Map<String, int>? settlementCut(Record record, Parties parties) {
   if (record.type != settlementType) return null;
   if (record.author != parties.manager) return null;
@@ -57,4 +57,67 @@ Map<String, int>? settlementCut(Record record, Parties parties) {
   if (managerValue >= record.seq) return null;
 
   return {parties.investor: investorValue, parties.manager: managerValue};
+}
+
+/// True when the phone holds every record that the [cut] covers (spec 6.7).
+///
+/// Chains have no gaps (spec 7.1). So holding the record at seq `v` for a
+/// partner means holding all of that partner's records up to `v`. A cut with
+/// a value of 0 covers nothing from that partner.
+bool cutIsHeld(Iterable<Record> records, Map<String, int> cut) {
+  for (final entry in cut.entries) {
+    if (entry.value == 0) continue;
+    final held = records.any(
+      (r) => r.author == entry.key && r.seq == entry.value,
+    );
+    if (!held) return false;
+  }
+  return true;
+}
+
+/// The first reason the [cut] fails a check, or `null` if it passes (spec 6.7,
+/// cut rules 3 to 5). Only call this when [cutIsHeld] is true.
+///
+/// Why the answer is final: when the phone holds the whole cut, every record
+/// inside the cut is known. A record that is not held is outside the cut, by
+/// definition. So a check that fails now can never pass after more records
+/// arrive.
+///
+/// - Closed (rule 3): a record inside the cut that refers to another record
+///   must refer to one inside the cut. Decisions are not checked here. An
+///   undecided request inside a cut has no effect in that period, and its
+///   approval counts in the period where the approval falls (spec 6.7).
+/// - Dominating (rule 4): each value is at least the previous effective cut's.
+/// - Not empty (rule 5): at least one value is larger than the previous cut's.
+String? cutProblem(
+  Iterable<Record> records,
+  Parties parties,
+  Map<String, int> cut,
+  Map<String, int> previous,
+) {
+  final byId = {for (final r in records) r.id: r};
+
+  for (final record in records) {
+    final limit = cut[record.author];
+    // Records outside the cut have no say in whether the cut is closed.
+    if (limit == null || record.seq > limit) continue;
+    final targetId = record.refersTo;
+    if (targetId == null) continue;
+
+    final target = byId[targetId];
+    final inside = target != null && target.seq <= (cut[target.author] ?? -1);
+    if (!inside) return 'refers to a record outside the cut';
+  }
+
+  for (final key in [parties.investor, parties.manager]) {
+    if (cut[key]! < previous[key]!) return 'does not cover the previous cut';
+  }
+
+  final grows = [
+    parties.investor,
+    parties.manager,
+  ].any((key) => cut[key]! > previous[key]!);
+  if (!grows) return 'covers nothing new';
+
+  return null;
 }

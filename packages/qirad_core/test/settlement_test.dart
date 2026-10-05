@@ -13,6 +13,10 @@ Decision _decisionFor(Validator validator, Record target) => decideApprovals(
   partnershipKeys: validator.partnershipKeys!,
 ).singleWhere((d) => d.target.id == target.id);
 
+SettlementStatus _statusOf(Validator validator, Record proposal) => _effective(
+  validator,
+).settlements.singleWhere((s) => s.record.id == proposal.id);
+
 Future<void> _receive(Validator validator, Iterable<Record> records) async {
   for (final record in records) {
     await validator.receiveText(canonicalJson(record.toJson()));
@@ -26,11 +30,12 @@ void main() {
       () async {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
+        // Investor seq 1 is the create, so a cut of 1 from the investor is held.
         final settlement = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 0},
           },
         );
         await _receive(validator, [settlement]);
@@ -60,7 +65,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 0},
           },
         );
         final approve = await manager.next(
@@ -87,7 +92,7 @@ void main() {
         partnership: partnershipId,
         type: settlementType,
         body: {
-          'cut': {investor.key: 0, manager.key: 0},
+          'cut': {investor.key: 1, manager.key: 0},
         },
       );
       final selfApprove = await manager.next(
@@ -115,14 +120,14 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 0},
           },
         );
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 1},
           },
         );
         // Investor seq 2 answers S2 while S1 is still unanswered.
@@ -183,14 +188,14 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 0},
           },
         );
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 1},
           },
         );
         final approveS2Early = await investor.next(
@@ -254,7 +259,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 0},
           },
         );
         // The investor writes a settlement of their own. It is not a proposal,
@@ -287,7 +292,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 0},
           },
           refersTo: partnershipId,
         );
@@ -295,7 +300,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 1},
           },
         );
         final approveS2 = await investor.next(
@@ -321,17 +326,17 @@ void main() {
         // Each cut is built just before its record is made, because the last
         // case needs the manager's next seq. A plain map would read it too early.
         final badCuts = <Map<String, dynamic> Function()>[
-          () => {investor.key: 0}, // one key only
+          () => {investor.key: 1}, // one key only
           () => {
-            investor.key: 0,
+            investor.key: 1,
             manager.key: 0,
             'someone-else': 0,
           }, // three keys
-          () => {investor.key: 0, 'someone-else': 0}, // manager key missing
+          () => {investor.key: 1, 'someone-else': 0}, // manager key missing
           () => {investor.key: -1, manager.key: 0}, // negative value
           () => {investor.key: '5', manager.key: 0}, // not an integer
           () => {
-            investor.key: 0,
+            investor.key: 1,
             manager.key: manager.seq + 1,
           }, // manager value not below own seq
         ];
@@ -350,7 +355,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 0},
           },
           refersTo: partnershipId,
         );
@@ -360,7 +365,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 0},
           },
         );
         final approveControl = await investor.next(
@@ -379,6 +384,174 @@ void main() {
           );
         }
         expect(effective.isEffective(control), isTrue);
+      },
+    );
+  });
+
+  group('closed, dominating and non-empty cuts (spec 6.7, step 4b)', () {
+    test('an empty cut is invalid and does not block the next one', () async {
+      final (validator, investor, manager, partnershipId) =
+          await setUpPartnership();
+      final empty = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 0, manager.key: 0},
+        },
+      );
+      final approveEmpty = await investor.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: empty.id,
+      );
+      final next = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 1, manager.key: 1},
+        },
+      );
+      final approveNext = await investor.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: next.id,
+      );
+      await _receive(validator, [empty, approveEmpty, next, approveNext]);
+
+      final emptyStatus = _statusOf(validator, empty);
+      expect(emptyStatus.state, SettlementState.invalid);
+      expect(emptyStatus.reason, 'covers nothing new');
+      expect(_statusOf(validator, next).state, SettlementState.effective);
+    });
+
+    test('a cut that does not cover the previous cut is invalid', () async {
+      final (validator, investor, manager, partnershipId) =
+          await setUpPartnership();
+      final invest = await investor.next(
+        partnership: partnershipId,
+        type: 'invest',
+        body: {'amount': 100},
+      );
+      final s1 = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 2, manager.key: 0},
+        },
+      );
+      final approveS1 = await investor.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: s1.id,
+      );
+      // S2 is written after S1, but its investor value is lower than S1's.
+      final s2 = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 1, manager.key: 1},
+        },
+      );
+      final approveS2 = await investor.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: s2.id,
+      );
+      await _receive(validator, [invest, s1, approveS1, s2, approveS2]);
+
+      expect(_statusOf(validator, s1).state, SettlementState.effective);
+      final s2Status = _statusOf(validator, s2);
+      expect(s2Status.state, SettlementState.invalid);
+      expect(s2Status.reason, 'does not cover the previous cut');
+    });
+
+    test('a rejected S1 does not block S2', () async {
+      final (validator, investor, manager, partnershipId) =
+          await setUpPartnership();
+      final s1 = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 1, manager.key: 0},
+        },
+      );
+      final rejectS1 = await investor.next(
+        partnership: partnershipId,
+        type: 'reject',
+        refersTo: s1.id,
+      );
+      final s2 = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 1, manager.key: 1},
+        },
+      );
+      final approveS2 = await investor.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: s2.id,
+      );
+      await _receive(validator, [s1, rejectS1, s2, approveS2]);
+
+      expect(_statusOf(validator, s1).state, SettlementState.rejected);
+      expect(_statusOf(validator, s2).state, SettlementState.effective);
+    });
+
+    test(
+      'an approved S1 that is not closed becomes permanently invalid, and S2 can then be effective',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        // The budget is investor seq 2. The expense is manager seq 1 and points
+        // at the budget, but S1's cut stops at investor seq 1. So the expense
+        // refers to a record outside the cut.
+        final budget = await investor.next(
+          partnership: partnershipId,
+          type: 'budget_proposal',
+          body: {'grantee': manager.key, 'amount': 1000},
+        );
+        final expense = await manager.next(
+          partnership: partnershipId,
+          type: 'expense',
+          refersTo: budget.id,
+          body: {'amount': 300},
+        );
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 1, manager.key: 1},
+          },
+        );
+        final approveS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s1.id,
+        );
+        await _receive(validator, [budget, expense, s1, approveS1]);
+
+        final s1Status = _statusOf(validator, s1);
+        expect(s1Status.state, SettlementState.invalid);
+        expect(s1Status.reason, 'refers to a record outside the cut');
+
+        // S2 covers the budget, so its closure check passes.
+        final s2 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 2, manager.key: 2},
+          },
+        );
+        final approveS2 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s2.id,
+        );
+        await _receive(validator, [s2, approveS2]);
+
+        expect(_statusOf(validator, s2).state, SettlementState.effective);
+        expect(_effective(validator).isEffective(s1), isFalse);
       },
     );
   });
