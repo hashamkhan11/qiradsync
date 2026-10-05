@@ -87,14 +87,13 @@ Effectiveness computeEffective(
       if (d.status != DecisionStatus.active) d.target.id,
   };
 
+  final parties = partiesOf(records);
   final invalidResponses = <String, String>{
     for (final d in decisions)
       for (final response in d.invalidResponses)
-        response.id:
-            'answered a settlement before answering an earlier one (spec 6.7)',
+        response.id: _invalidResponseReason(response, d.target, parties),
   };
 
-  final parties = partiesOf(records);
   final settlements = parties == null
       ? <SettlementStatus>[]
       : settlementStatuses(records, parties: parties, decisions: decisions);
@@ -223,6 +222,21 @@ Effectiveness computeEffective(
     invalidResponses: invalidResponses,
     settlements: settlements,
   );
+}
+
+/// Why [response] to [target] does not count (spec 6.7). Shown to both partners.
+String _invalidResponseReason(
+  Record response,
+  Record target,
+  Parties? parties,
+) {
+  if (parties != null) {
+    final cut = settlementCut(target, parties);
+    if (cut != null && approveNamesFutureRecords(response, cut, parties)) {
+      return 'approves a cut that covers investor records it cannot have seen (spec 6.7)';
+    }
+  }
+  return 'answered a settlement before answering an earlier one (spec 6.7)';
 }
 
 class _BudgetEvent {

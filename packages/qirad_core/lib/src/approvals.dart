@@ -103,6 +103,7 @@ List<Decision> decideApprovals(
       responsesByTarget[proposal.id] ?? const [],
       partnershipKeys,
     );
+    final cut = settlementCut(proposal, parties!)!;
     final valid = <Record>[];
     final invalid = <Record>[];
     for (final response in counted) {
@@ -114,7 +115,8 @@ List<Decision> decideApprovals(
               (answer) => answer.seq < response.seq,
             ),
           );
-      (answeredEarlier ? valid : invalid).add(response);
+      final namesFuture = approveNamesFutureRecords(response, cut, parties);
+      (answeredEarlier && !namesFuture ? valid : invalid).add(response);
     }
     validByProposal[proposal.id] = valid;
     invalidByProposal[proposal.id] = invalid;

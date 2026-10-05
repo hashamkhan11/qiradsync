@@ -59,6 +59,25 @@ Map<String, int>? settlementCut(Record record, Parties parties) {
   return {parties.investor: investorValue, parties.manager: managerValue};
 }
 
+/// True when [response] is an investor `approve` whose cut names an investor
+/// record at or above the approval's own `seq` (spec 6.7, approve rule).
+///
+/// Why this rule exists: the investor can only approve records they have
+/// already written. An approve at investor seq `k` can only be held when the
+/// investor's chain up to `k` is held (chains have no gaps). So a cut that
+/// stays below `k` is always held. A malicious manager can name records that
+/// do not exist, but an approve that names them is simply invalid. A
+/// `reject` is never affected, so the investor can always clear the block.
+bool approveNamesFutureRecords(
+  Record response,
+  Map<String, int> cut,
+  Parties parties,
+) {
+  if (response.type != 'approve') return false;
+  if (response.author != parties.investor) return false;
+  return cut[parties.investor]! >= response.seq;
+}
+
 /// True when the phone holds every record that the [cut] covers (spec 6.7).
 ///
 /// Chains have no gaps (spec 7.1). So holding the record at seq `v` for a

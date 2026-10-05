@@ -555,4 +555,110 @@ void main() {
       },
     );
   });
+
+  group('approve rule: an approve must come after its cut (spec 6.7)', () {
+    test(
+      'an approve whose cut names investor records that do not exist is invalid, and a reject lets S2 proceed',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        // Investor seq 5 does not exist yet. The manager names it anyway.
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 5, manager.key: 0},
+          },
+        );
+        final approveS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s1.id,
+        );
+        await _receive(validator, [s1, approveS1]);
+
+        // The approve is invalid, so S1 waits. It is kept as evidence.
+        expect(_statusOf(validator, s1).state, SettlementState.waiting);
+        expect(
+          _effective(validator).invalidResponses[approveS1.id],
+          contains('cannot have seen'),
+        );
+
+        // The investor rejects S1. Rejected counts as done, so S2 can proceed.
+        final rejectS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'reject',
+          refersTo: s1.id,
+        );
+        final s2 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 1, manager.key: 1},
+          },
+        );
+        final approveS2 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s2.id,
+        );
+        await _receive(validator, [rejectS1, s2, approveS2]);
+
+        expect(_statusOf(validator, s1).state, SettlementState.rejected);
+        expect(_statusOf(validator, s2).state, SettlementState.effective);
+      },
+    );
+
+    test('an approve whose cut value equals its own seq is invalid', () async {
+      final (validator, investor, manager, partnershipId) =
+          await setUpPartnership();
+      final invest = await investor.next(
+        partnership: partnershipId,
+        type: 'invest',
+        body: {'amount': 100},
+      );
+      // The invest is investor seq 2, so this approve is investor seq 3. The cut
+      // value 3 is equal to the approve's seq, so it is not below it.
+      final s1 = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 3, manager.key: 0},
+        },
+      );
+      final approveAtEqual = await investor.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: s1.id,
+      );
+      await _receive(validator, [invest, s1, approveAtEqual]);
+
+      expect(_statusOf(validator, s1).state, SettlementState.waiting);
+      expect(_decisionFor(validator, s1).invalidResponses.map((r) => r.id), [
+        approveAtEqual.id,
+      ]);
+    });
+
+    test('a valid approve still guarantees the cut is held', () async {
+      final (validator, investor, manager, partnershipId) =
+          await setUpPartnership();
+      final s1 = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 1, manager.key: 0},
+        },
+      );
+      final approveS1 = await investor.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: s1.id,
+      );
+      await _receive(validator, [s1, approveS1]);
+
+      final status = _statusOf(validator, s1);
+      expect(status.state, SettlementState.effective);
+      expect(cutIsHeld(validator.usableRecords, status.cut), isTrue);
+    });
+  });
 }

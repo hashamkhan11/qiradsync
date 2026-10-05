@@ -45,10 +45,11 @@ class SettlementStatus {
 /// - Proposals are decided in order (spec 6.7). A proposal that is still
 ///   waiting blocks the ones after it, so an effective cut is always checked
 ///   against a fixed previous cut.
-/// - An approved proposal always has its whole cut held. The investor can only
-///   approve after the proposal exists, and any investor record the manager
-///   had when writing the cut was written before the approval. So the cut
-///   check gives a final answer straight away.
+/// - An approved proposal always has its whole cut held. The approve rule
+///   (spec 6.7) makes an approve invalid when its cut names investor records at
+///   or above the approve's own seq. So a counted approve is always after the
+///   cut, and holding it means holding the cut. The cut check then gives a
+///   final answer straight away.
 /// - A proposal that fails a check is `invalid`, which counts as done. One
 ///   broken settlement therefore cannot block every later one.
 List<SettlementStatus> settlementStatuses(
