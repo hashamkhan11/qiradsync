@@ -245,6 +245,91 @@ bool _isInPeriod(Record r, Map<String, int> from, Map<String, int> to) {
   return r.seq > (from[r.author] ?? -1);
 }
 
+/// The split of one partner's profit withdrawals, spec 6.7 "Withdrawn ahead of
+/// settled profit and owed back". All three numbers come from closed periods.
+class WithdrawalSplit {
+  /// Effective profit withdrawals inside the last effective cut.
+  final int withdrawn;
+
+  /// Withdrawn ahead of settled profit: neutral, not a debt.
+  final int aheadOfSettled;
+
+  /// Owed back: only the part caused by a correction that reduced a settled share.
+  final int owedBack;
+
+  const WithdrawalSplit({
+    required this.withdrawn,
+    required this.aheadOfSettled,
+    required this.owedBack,
+  });
+}
+
+/// Each partner's [WithdrawalSplit], keyed by partner key.
+///
+/// The labels add up: `aheadOfSettled + owedBack` is the excess of withdrawals
+/// over settled shares. Nothing here is stored (hard rule 4).
+Map<String, WithdrawalSplit> withdrawalSplits(
+  Iterable<Record> usable, {
+  required Set<String> partnershipKeys,
+}) {
+  final records = usable.toList();
+  final parties = partiesOf(records);
+  if (parties == null) return const {};
+
+  // Closed periods only, so nothing provisional can create a debt (spec 6.7).
+  final closed = periodShares(
+    records,
+    partnershipKeys: partnershipKeys,
+  ).where((p) => !p.open).toList();
+  final boundary = closed.isEmpty
+      ? {parties.investor: 0, parties.manager: 0}
+      : closed.last.closingCut;
+
+  final inside = recordsInCut(records, boundary);
+  final effectiveness = computeEffective(
+    inside,
+    partnershipKeys: partnershipKeys,
+  );
+
+  final result = <String, WithdrawalSplit>{};
+  for (final partner in [parties.investor, parties.manager]) {
+    var withdrawn = 0;
+    for (final r in inside) {
+      if (r.type == 'withdraw_request' &&
+          r.author == partner &&
+          r.body['kind'] == 'profit' &&
+          effectiveness.isEffective(r)) {
+        withdrawn += r.body['amount'] as int;
+      }
+    }
+
+    var own = 0;
+    var corrections = 0;
+    for (final p in closed) {
+      own += _shareOf(p.shares, partner, parties);
+      corrections += _shareOf(p.correction, partner, parties);
+    }
+    final settled = own + corrections;
+
+    // Excess before any correction, and excess now. The difference is the part
+    // caused by corrections. It can only be positive when a correction reduced
+    // a settled share, so an increase gives owed back 0.
+    final excessBefore = math.max(0, withdrawn - own);
+    final excessNow = math.max(0, withdrawn - settled);
+    final owedBack = math.max(0, excessNow - excessBefore);
+
+    result[partner] = WithdrawalSplit(
+      withdrawn: withdrawn,
+      aheadOfSettled: excessNow - owedBack,
+      owedBack: owedBack,
+    );
+  }
+  return result;
+}
+
+int _shareOf(ProfitShares shares, String partner, Parties parties) =>
+    partner == parties.investor ? shares.investor : shares.manager;
+
 int _highestSeq(Iterable<Record> records, String author) {
   var highest = 0;
   for (final r in records) {
