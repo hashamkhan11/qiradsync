@@ -326,3 +326,27 @@ The validator refuses 0 and 100 in its schema step (spec section 5). The app ref
 would be unpaid work or a loan, not a Mudaraba. The rule is in the validator, not only in the app, so a create from
 another app is refused the same way.
 
+
+---
+
+## 2026-10-05 — Open issue: a ratio change re-splits profit already earned
+
+**Status:** Open. Not fixed in v1. The dashboard warns about it.
+
+**Problem:** Spec section 6.6 says a new ratio applies from its `effectiveFrom` date. Profit earned before the change
+should keep the old ratio. But `buildDashboard` splits the whole result by the ratio active on one date, so the
+old profit is re-split at the new ratio.
+
+**Example:** 200,000 is earned at 60/40 (manager 80,000). Then a 50/50 change takes effect. The dashboard shows the
+manager 100,000 for the same 200,000. The contract says 80,000.
+
+**Why dates cannot fix it:** Record times come from phone clocks, so they are never used to decide anything (hard
+rule 3). A date on a ratio change says when it should start, but not which earned profit it covers.
+
+**Proposed direction (to agree before building):** A `settlement` record that needs the other partner's approval.
+When it is effective, it freezes the result up to that point in the ledger and splits that result at the ratio active
+then. A new ratio applies only to results after a settlement. The change is anchored to a point of consent, not a date.
+
+**Until then:** The dashboard shows a note whenever a ratio change has taken effect, saying the split uses the current
+ratio and may not match the contract until settlement is built. A core test documents the current behaviour and is
+marked as a known issue. It must be updated when settlement is built.

@@ -19,10 +19,16 @@ class Dashboard {
   /// The partners' shares of the result, or `null` when [ratio] is `null`.
   final ProfitShares? shares;
 
+  /// True when an effective `ratio_proposal` starts on or before the chosen
+  /// date. The shares then use the current ratio for all the result, which
+  /// may not match the contract (docs/decisions.md, open issue 2026-10-05).
+  final bool ratioChanged;
+
   const Dashboard({
     required this.money,
     required this.ratio,
     required this.shares,
+    required this.ratioChanged,
   });
 }
 
@@ -51,5 +57,16 @@ Dashboard buildDashboard(
           investorPercent: ratio.investor,
           managerPercent: ratio.manager,
         );
-  return Dashboard(money: money, ratio: ratio, shares: shares);
+  final changed = records.any(
+    (r) =>
+        r.type == 'ratio_proposal' &&
+        effectiveness.isEffective(r) &&
+        (r.body['effectiveFrom'] as String).compareTo(date) <= 0,
+  );
+  return Dashboard(
+    money: money,
+    ratio: ratio,
+    shares: shares,
+    ratioChanged: changed,
+  );
 }

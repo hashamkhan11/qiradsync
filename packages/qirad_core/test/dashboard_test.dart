@@ -206,5 +206,77 @@ void main() {
       expect(dashboard.ratio, isNull);
       expect(dashboard.shares, isNull);
     });
+    group('ratio change flag and known issue (docs/decisions.md, 2026-10-05)', () {
+      /// A sale of 200000 paisa, then a 50/50 ratio change from [effectiveFrom].
+      Future<Validator> saleThenRatioChange(String effectiveFrom) async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final approveCreate = await _approveCreate(
+          validator,
+          manager,
+          partnershipId,
+        );
+        final sale = await manager.next(
+          partnership: partnershipId,
+          type: 'sale',
+          body: {'amount': 200000},
+        );
+        final proposal = await investor.next(
+          partnership: partnershipId,
+          type: 'ratio_proposal',
+          body: {
+            'ratio': {'investor': 50, 'manager': 50},
+            'effectiveFrom': effectiveFrom,
+          },
+        );
+        final approve = await manager.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: proposal.id,
+        );
+        await _receiveInOrder(validator, [
+          approveCreate,
+          sale,
+          proposal,
+          approve,
+        ]);
+        return validator;
+      }
+
+      test('the flag is set once a ratio change has taken effect', () async {
+        final validator = await saleThenRatioChange('2026-09-01');
+
+        expect(
+          (await _dashboard(validator, '2026-10-04')).ratioChanged,
+          isTrue,
+        );
+      });
+
+      test(
+        'the flag is not set for a change that starts after the date',
+        () async {
+          final validator = await saleThenRatioChange('2026-11-01');
+
+          expect(
+            (await _dashboard(validator, '2026-10-04')).ratioChanged,
+            isFalse,
+          );
+        },
+      );
+
+      test('KNOWN ISSUE: profit earned before a change is re-split at the new '
+          'ratio', () async {
+        // Spec 6.6 says the old ratio should keep 200000 at 60/40, so the manager
+        // should get 80000. Today the whole result uses the 50/50 ratio, so the
+        // manager gets 100000. When settlement is built, this expectation must
+        // change to 80000 and the test must be updated.
+        final validator = await saleThenRatioChange('2026-09-01');
+
+        final dashboard = await _dashboard(validator, '2026-10-04');
+
+        expect(dashboard.shares!.manager, 100000);
+        expect(dashboard.ratioChanged, isTrue);
+      });
+    });
   });
 }
