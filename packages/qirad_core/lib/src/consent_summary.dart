@@ -38,6 +38,28 @@ class SettlementConsent {
   /// True when this period splits profit differently from the one before it.
   /// The screen shows a warning, so the investor sees the change.
   bool get ratioChanged => previousRatio != null && previousRatio != ratio;
+
+  /// Equal when every number the investor was shown is equal. The writer uses
+  /// this to check that the summary has not changed since it was shown.
+  @override
+  bool operator ==(Object other) =>
+      other is SettlementConsent &&
+      other.periodIndex == periodIndex &&
+      other.result == result &&
+      other.shares.investor == shares.investor &&
+      other.shares.manager == shares.manager &&
+      other.ratio == ratio &&
+      other.previousRatio == previousRatio;
+
+  @override
+  int get hashCode => Object.hash(
+    periodIndex,
+    result,
+    shares.investor,
+    shares.manager,
+    ratio,
+    previousRatio,
+  );
 }
 
 /// What the investor sees before answering a withdrawal (spec 6.7).
@@ -75,6 +97,28 @@ class WithdrawalConsent {
 
   /// True when some money is owed back. The screen shows a warning.
   bool get hasOwedBack => owedBack > 0;
+
+  /// Equal when every number the investor was shown is equal (see
+  /// [SettlementConsent]).
+  @override
+  bool operator ==(Object other) =>
+      other is WithdrawalConsent &&
+      other.amount == amount &&
+      other.kind == kind &&
+      other.settledShare == settledShare &&
+      other.totalProfitWithdrawn == totalProfitWithdrawn &&
+      other.aheadOfSettled == aheadOfSettled &&
+      other.owedBack == owedBack;
+
+  @override
+  int get hashCode => Object.hash(
+    amount,
+    kind,
+    settledShare,
+    totalProfitWithdrawn,
+    aheadOfSettled,
+    owedBack,
+  );
 }
 
 /// The consent summary for settlement [proposal], as core reports it once
