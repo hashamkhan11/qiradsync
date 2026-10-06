@@ -465,6 +465,48 @@ void main() {
       expect(s2Status.reason, 'does not cover the previous cut');
     });
 
+    test('a second cut identical to the first is invalid', () async {
+      final (validator, investor, manager, partnershipId) =
+          await setUpPartnership();
+      final invest = await investor.next(
+        partnership: partnershipId,
+        type: 'invest',
+        body: {'amount': 100},
+      );
+      final s1 = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 2, manager.key: 0},
+        },
+      );
+      final approveS1 = await investor.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: s1.id,
+      );
+      // S2 covers exactly what S1 covered, so it adds nothing. Its cut must
+      // strictly exceed the previous one somewhere, or it is invalid.
+      final s2 = await manager.next(
+        partnership: partnershipId,
+        type: settlementType,
+        body: {
+          'cut': {investor.key: 2, manager.key: 0},
+        },
+      );
+      final approveS2 = await investor.next(
+        partnership: partnershipId,
+        type: 'approve',
+        refersTo: s2.id,
+      );
+      await _receive(validator, [invest, s1, approveS1, s2, approveS2]);
+
+      expect(_statusOf(validator, s1).state, SettlementState.effective);
+      final s2Status = _statusOf(validator, s2);
+      expect(s2Status.state, SettlementState.invalid);
+      expect(s2Status.reason, 'covers nothing new');
+    });
+
     test('a rejected S1 does not block S2', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
