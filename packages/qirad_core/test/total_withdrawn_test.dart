@@ -49,6 +49,23 @@ void main() {
     );
 
     test(
+      'a withdrawal the manager has not approved is not in the total',
+      () async {
+        final (validator, investor, _, partnershipId) =
+            await setUpPartnership();
+        // Investor seq 2: withdraws 500. Nobody approves it, so it is not effective.
+        final withdraw = await investor.next(
+          partnership: partnershipId,
+          type: 'withdraw_request',
+          body: {'amount': 500, 'kind': 'profit'},
+        );
+        await _receive(validator, [withdraw]);
+
+        expect(_totals(validator)[investor.key], 0);
+      },
+    );
+
+    test(
       'a withdrawal after the last settlement counts in the total, not in the split',
       () async {
         final (validator, investor, manager, partnershipId) =
