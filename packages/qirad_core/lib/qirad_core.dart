@@ -4,6 +4,7 @@ library;
 export 'src/active_ratio.dart';
 export 'src/dashboard.dart';
 export 'src/approvals.dart';
+export 'src/approvals_inbox.dart';
 export 'src/canonical_json.dart';
 export 'src/cut_view.dart';
 export 'src/periods.dart';
