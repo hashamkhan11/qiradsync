@@ -28,6 +28,14 @@ class Decision {
     required this.ignoredResponses,
     this.invalidResponses = const [],
   });
+
+  /// True when [author] has at least one valid response to this target. An
+  /// invalid response does not count, so it does not stop the author from
+  /// answering again later (spec 6.7). A writer uses this to refuse a second
+  /// valid answer, and allow a new one after an invalid answer.
+  bool hasValidResponseFrom(String author) =>
+      firstResponse?.author == author ||
+      ignoredResponses.any((r) => r.author == author);
 }
 
 const _needsApproval = {
