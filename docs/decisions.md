@@ -646,3 +646,26 @@ approve already means the investor's chain up to that approve is held. Chains ha
 manager's cut is held too. The chained rule is covered by the ordering rule, which already requires the investor to
 answer every earlier proposal. These checks are kept as a defence, and no test can fail without a ledger the validator
 would never store.
+
+**Decision (write gate, 2026-10-06):** A phone writes its own record only when its own chain is complete. It must
+have synced the partnership on this install, and the relay's vector for its key must not be higher than its own
+highest saved seq. Otherwise the write is refused and the phone syncs first (spec 7.4, rule 2).
+
+**Reason:** A phone with an empty or partly restored store would otherwise reuse a seq the relay already holds. Two
+different records with one seq is a fork that the relay can never repair.
+
+**Decision (valid answer, 2026-10-06):** "Already answered" means a valid response only. An invalid early answer
+(spec 6.7 ordering rule) does not stop the investor from answering again. A second valid answer is refused.
+
+**Reason:** An invalid answer never counts, so it must not block the correct one. This follows spec 5, where invalid
+responses never decide anything.
+
+**Decision (one device per key, 2026-10-06):** Version 1 supports one device per key. The private key is never
+exported or copied. Supporting several devices per partner is future work with its own design.
+
+**Reason:** A second device with the same key would write its own records with seqs the first device does not know.
+That is the same fork risk as above, so the relay vector gate cannot protect it.
+
+**Finding (waiting-for-records state, 2026-10-06):** The approvals inbox state "Waiting for records to sync" cannot
+happen from a stored ledger. The validator buffers a settlement until its earlier seqs arrive. The branch is kept as
+defence in depth and is tested with hand-built records, the same approach as M9 in the mutation check.

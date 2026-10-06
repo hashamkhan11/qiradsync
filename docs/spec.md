@@ -564,6 +564,26 @@ relay's own freshly-returned vector, checked every time, can say that. This is w
 recover automatically if the relay ever loses data (e.g. a database restore): the very next sync from
 either partner's phone notices the gap and refills it, with no manual restore step.
 
+### 7.4 Writing my own records
+
+A phone writes its own records (an answer, a proposal, a sale) only through one writer. Four rules apply.
+
+1. **Single writer.** Each write reads the saved records, builds the next record, signs it and saves it,
+   in one database transaction, inside one queue. Two writes can never read the same chain and pick the
+   same `seq`. Screens cannot write directly.
+2. **Complete chain before any write.** Before writing, the phone compares its own highest saved `seq`
+   with the relay's vector from the latest sync reply (spec 7.3 step 3). The write is refused when:
+   - the partnership has never been synced on this install (no saved relay vector), or
+   - the relay holds a higher `seq` for this key than the phone does (the phone is missing its own records).
+   The phone must sync first, and the write is tried again after the sync restores the missing records.
+   This stops a phone with an empty or partly restored store from reusing a `seq` the relay already has.
+3. **One valid answer only.** A phone may answer a proposal once with a valid response. An invalid
+   response (spec 6.7, ordering rule) does not count, so the phone may answer again later. A second
+   valid answer is refused.
+4. **Keys stay on the device.** The private key is held only by the writer. It is never shown, copied
+   or exported. One device holds one key in version 1. Supporting several devices for one partner is
+   future work and needs its own design.
+
 ---
 
 ## 8. Required tests (minimum)
