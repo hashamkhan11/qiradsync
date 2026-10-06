@@ -639,3 +639,10 @@ inbox shows "Settlement S_k is waiting for the investor's answer." This is liste
 
 **Reason:** A timeout would need a clock or a new rule, and the spec forbids clock time in decisions. Silence is the
 same case as a manager who never proposes.
+
+**Mutation check (2026-10-06), result for the rules that no test can fail:** Removing the cut-held check (`cutIsHeld`)
+or the chained rule (`settlement_states.dart`) changes nothing in a ledger the validator stores. A valid investor
+approve already means the investor's chain up to that approve is held. Chains have no gaps (spec 7.1), so the
+manager's cut is held too. The chained rule is covered by the ordering rule, which already requires the investor to
+answer every earlier proposal. These checks are kept as a defence, and no test can fail without a ledger the validator
+would never store.
