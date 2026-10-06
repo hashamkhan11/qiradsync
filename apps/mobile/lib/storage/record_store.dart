@@ -198,16 +198,17 @@ class RecordStore {
   }
 
   /// Saves the relay's vector from a sync reply (spec 7.2, 7.3 step 3).
-  Future<void> saveRelayVector(
-    String partnership,
-    Map<String, int> vector,
-  ) async {
-    validatorFor(partnership); // Refuses an unregistered id.
-    await _db.insert('sync_state', {
-      'partnership': partnership,
-      'vector': jsonEncode(vector),
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-  }
+  ///
+  /// It goes through the same queue as writes, so a vector update can never
+  /// land in the middle of a write's read-build-save step.
+  Future<void> saveRelayVector(String partnership, Map<String, int> vector) =>
+      _serial(() async {
+        validatorFor(partnership); // Refuses an unregistered id.
+        await _db.insert('sync_state', {
+          'partnership': partnership,
+          'vector': jsonEncode(vector),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      });
 
   /// Builds and saves one record, in one step that cannot be split (spec 7.4).
   ///

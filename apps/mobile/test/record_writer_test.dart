@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -273,5 +274,37 @@ void main() {
         expect(result.record!.seq, 6);
       },
     );
+
+    test('a vector save waits for a write that is mid-build', () async {
+      await store.addPartnership(
+        partnership,
+        investorKey: investor.publicKeyBase64Url,
+        managerKey: manager.publicKeyBase64Url,
+      );
+      // A write that is held open inside its build step, so it is still in
+      // the queue when the vector save is requested.
+      final release = Completer<void>();
+      final write = store.appendWith(partnership, (texts) async {
+        await release.future;
+        return null;
+      });
+      // Read the flag, not the database: a read would wait for the open
+      // transaction, which is waiting for this test.
+      var saved = false;
+      final save = store
+          .saveRelayVector(partnership, {investor.publicKeyBase64Url: 3})
+          .then((_) => saved = true);
+
+      await Future<void>.delayed(Duration.zero);
+      expect(saved, isFalse);
+
+      release.complete();
+      await write;
+      await save;
+      expect(saved, isTrue);
+      expect(await store.relayVectorFor(partnership), {
+        investor.publicKeyBase64Url: 3,
+      });
+    });
   });
 }
