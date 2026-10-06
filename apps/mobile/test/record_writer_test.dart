@@ -121,6 +121,83 @@ void main() {
   RecordWriter writer() =>
       RecordWriter(keys: investor, partnership: partnership, store: store);
 
+  /// An unsaved investor approve of [targetId], built on the saved ledger.
+  /// The screen builds the same kind of record to show its summary.
+  Record previewApprove(String targetId) => buildRecord(
+    ledger: store.validatorFor(partnership).usableRecords,
+    author: investor.publicKeyBase64Url,
+    partnership: partnership,
+    id: testId('preview-$targetId'),
+    type: 'approve',
+    body: const {},
+    time: '2026-10-06T10:00:00Z',
+    refersTo: targetId,
+  );
+
+  /// The summary the user would be shown for settlement [proposal] now.
+  SettlementConsent? previewSettlement(Record proposal) {
+    final validator = store.validatorFor(partnership);
+    return settlementConsent(
+      validator.usableRecords,
+      partnershipKeys: {
+        investor.publicKeyBase64Url,
+        manager.publicKeyBase64Url,
+      },
+      proposal: proposal,
+      answer: previewApprove(proposal.id),
+    );
+  }
+
+  /// The summary the user would be shown for withdrawal [request] now.
+  WithdrawalConsent? previewWithdrawal(Record request) {
+    final validator = store.validatorFor(partnership);
+    return withdrawalConsent(
+      validator.usableRecords,
+      partnershipKeys: {
+        investor.publicKeyBase64Url,
+        manager.publicKeyBase64Url,
+      },
+      request: request,
+      answer: previewApprove(request.id),
+    );
+  }
+
+  /// Saves an invest and a sale, then the manager's settlement S1 with cut
+  /// {investor: 2, manager: 1}. S1 is pending until the investor answers it.
+  Future<Record> settlementReady() async {
+    await startWithCreate();
+    await receive(
+      await write(
+        investor,
+        investorChain,
+        id: 'invest-1',
+        type: 'invest',
+        body: const {'amount': 100000},
+      ),
+    );
+    await receive(
+      await write(
+        manager,
+        managerChain,
+        id: 'sale-1',
+        type: 'sale',
+        body: const {'amount': 50000},
+      ),
+    );
+    final s1 = await write(
+      manager,
+      managerChain,
+      id: 's1',
+      type: 'settlement',
+      body: {
+        'cut': {investor.publicKeyBase64Url: 2, manager.publicKeyBase64Url: 1},
+      },
+    );
+    await receive(s1);
+    await syncedAs(investorSeq: 2, managerSeq: 1);
+    return s1;
+  }
+
   group('RecordWriter (spec 7.4)', () {
     test('two concurrent answers give one record and no shared seq', () async {
       await startWithCreate();
@@ -305,6 +382,76 @@ void main() {
       expect(await store.relayVectorFor(partnership), {
         investor.publicKeyBase64Url: 3,
       });
+    });
+
+    test('an approve whose shown summary still matches is written', () async {
+      final s1 = await settlementReady();
+      final shown = previewSettlement(s1);
+      expect(shown, isNotNull);
+
+      final result = await writer().answer(
+        testId('s1'),
+        approve: true,
+        shownSettlement: shown,
+      );
+
+      expect(result.record, isNotNull);
+      expect(result.record!.seq, 3);
+    });
+
+    test(
+      'a summary changed between preview and approve is refused, nothing saved',
+      () async {
+        final s1 = await settlementReady();
+        // The manager asks for 1000 of profit. Before S1 is approved, the
+        // withdrawal shows no settled profit yet.
+        final request = await write(
+          manager,
+          managerChain,
+          id: 'w1',
+          type: 'withdraw_request',
+          body: const {'amount': 1000, 'kind': 'profit'},
+        );
+        await receive(request);
+        await syncedAs(investorSeq: 2, managerSeq: 2);
+        final shown = previewWithdrawal(request);
+        expect(shown!.settledShare, 0);
+
+        // Approving S1 makes it effective, so the withdrawal's settled share
+        // changes. In v1 only this key can approve S1, so the change comes
+        // from this writer, saved between the preview and the withdrawal answer.
+        final approvedS1 = await writer().answer(
+          testId('s1'),
+          approve: true,
+          shownSettlement: previewSettlement(s1),
+        );
+        expect(approvedS1.record, isNotNull);
+        final savedBefore = (await store.savedTexts(partnership)).length;
+
+        final result = await writer().answer(
+          testId('w1'),
+          approve: true,
+          shownWithdrawal: shown,
+        );
+
+        expect(result.refusal, WriteRefusal.summaryChanged);
+        expect(result.latestWithdrawal, isNotNull);
+        expect(result.latestWithdrawal!.settledShare, greaterThan(0));
+        expect(result.latestWithdrawal, isNot(shown));
+        expect(await store.savedTexts(partnership), hasLength(savedBefore));
+      },
+    );
+
+    test('a settlement approve without a shown summary is refused', () async {
+      final s1 = await settlementReady();
+      expect(previewSettlement(s1), isNotNull);
+
+      final result = await writer().answer(testId('s1'), approve: true);
+
+      expect(result.refusal, WriteRefusal.consentNotShown);
+      expect(result.latestSettlement, isNotNull);
+      // create, invest, sale and S1: nothing new was saved.
+      expect(await store.savedTexts(partnership), hasLength(4));
     });
   });
 }
