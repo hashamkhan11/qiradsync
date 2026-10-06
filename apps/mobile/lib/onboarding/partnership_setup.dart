@@ -24,13 +24,13 @@ Future<String> createPartnership({
 
   final id = const Uuid().v4();
 
-  final unsigned = Record(
-    v: 1,
-    id: id,
-    partnership: id,
+  // The builder gives seq 1 and a prevHash of 64 zeros, because the investor
+  // has no records yet. Every record in the app is built this one way.
+  final unsigned = buildRecord(
+    ledger: const [],
     author: investorKey,
-    seq: 1,
-    prevHash: '0' * 64,
+    partnership: id,
+    id: id,
     type: 'partnership_create',
     body: {
       'investor': investorKey,
@@ -38,11 +38,8 @@ Future<String> createPartnership({
       'ratio': {'investor': investorPercent, 'manager': 100 - investorPercent},
       'currency': 'PKR',
     },
-    refersTo: null,
-    note: '',
     // Display only (spec 3). Whole seconds, UTC, as the spec's example shows.
     time: '${DateTime.now().toUtc().toIso8601String().split('.').first}Z',
-    sig: '',
   );
   final signed = await signRecord(unsigned, investorKeys);
   // Pins and create are saved together, or not at all (see startPartnership).
