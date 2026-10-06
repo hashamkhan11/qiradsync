@@ -33,7 +33,11 @@ class RecordStore {
   }) async {
     final db = await factory.openDatabase(
       path,
-      options: OpenDatabaseOptions(version: 1, onCreate: _createTables),
+      options: OpenDatabaseOptions(
+        version: 2,
+        onCreate: _createTables,
+        onUpgrade: _upgradeTables,
+      ),
     );
 
     final validators = <String, Validator>{};
@@ -155,7 +159,7 @@ class RecordStore {
   /// Runs [text] through the validator for its partnership and keeps it
   /// unless it was rejected. A text for an unregistered partnership is
   /// refused as `rejectedMembership` and never stored.
-  Future<ReceiveOutcome> receive(String text) async {
+  Future<ReceiveOutcome> receive(String text) => _serial(() async {
     final partnership = _partnershipOf(text);
     if (partnership == null) return ReceiveOutcome.rejectedSchema;
 
@@ -163,8 +167,136 @@ class RecordStore {
     if (validator == null) return ReceiveOutcome.rejectedMembership;
 
     final outcome = await validator.receiveText(text);
-    if (_isKept(outcome)) await _insert(text, partnership);
+    if (!_isKept(outcome)) return outcome;
+    try {
+      await _insert(text, partnership);
+    } catch (_) {
+      // Same rule as appendWith: the validator must never hold a record the
+      // database does not, or the next own write could fork the chain.
+      _validators[partnership] = await _rebuildValidator(partnership);
+      rethrow;
+    }
     return outcome;
+  });
+
+  /// The relay's vector from the latest sync reply for [partnership], or `null`
+  /// when this install has never synced it (spec 7.4). Saved after every reply,
+  /// so it is never older than the last reply the phone got.
+  Future<Map<String, int>?> relayVectorFor(String partnership) async {
+    final rows = await _db.query(
+      'sync_state',
+      columns: ['vector'],
+      where: 'partnership = ?',
+      whereArgs: [partnership],
+    );
+    if (rows.isEmpty) return null;
+    final decoded = jsonDecode(rows.single['vector']! as String) as Map;
+    return {
+      for (final entry in decoded.entries)
+        entry.key as String: entry.value as int,
+    };
+  }
+
+  /// Saves the relay's vector from a sync reply (spec 7.2, 7.3 step 3).
+  Future<void> saveRelayVector(
+    String partnership,
+    Map<String, int> vector,
+  ) async {
+    validatorFor(partnership); // Refuses an unregistered id.
+    await _db.insert('sync_state', {
+      'partnership': partnership,
+      'vector': jsonEncode(vector),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /// Builds and saves one record, in one step that cannot be split (spec 7.4).
+  ///
+  /// [build] gets every saved text of [partnership] and returns the text to
+  /// save, or `null` to write nothing. The read, the build and the insert run in
+  /// one transaction, inside the store's write queue. So two writes cannot read
+  /// the same chain and pick the same seq.
+  ///
+  /// The validator checks the text before the insert, so it can take the text
+  /// before the database does. If anything then fails, the validator is rebuilt
+  /// from the database. Without that, the next write would reuse the seq of a
+  /// record that was never saved, which is a fork.
+  Future<String?> appendWith(
+    String partnership,
+    Future<String?> Function(List<String> savedTexts) build,
+  ) => _serial(() async {
+    final validator = validatorFor(partnership);
+    String? saved;
+    try {
+      await _db.transaction((txn) async {
+        final rows = await txn.query(
+          'records',
+          columns: ['text'],
+          where: 'partnership = ?',
+          whereArgs: [partnership],
+          orderBy: 'n',
+        );
+        final texts = [for (final row in rows) row['text']! as String];
+        final text = await build(texts);
+        if (text == null) return;
+
+        final outcome = await validator.receiveText(text);
+        if (outcome != ReceiveOutcome.accepted) {
+          throw StateError('a record this phone built was refused: $outcome');
+        }
+        await _insertWith(txn, text, partnership);
+        saved = text;
+      });
+    } catch (_) {
+      _validators[partnership] = await _rebuildValidator(partnership);
+      rethrow;
+    }
+    return saved;
+  });
+
+  /// A fresh validator for [partnership], fed from the saved texts only. It is
+  /// the same result as the start-up replay, so it matches the database.
+  Future<Validator> _rebuildValidator(String partnership) async {
+    // The pins come from the database, the same place the open() replay reads them.
+    final pins = (await _db.query(
+      'partnerships',
+      columns: ['investor_key', 'manager_key'],
+      where: 'id = ?',
+      whereArgs: [partnership],
+    )).single;
+    final fresh = Validator(
+      pinnedInvestorKey: pins['investor_key']! as String,
+      pinnedManagerKey: pins['manager_key']! as String,
+    );
+    for (final text in await savedTexts(partnership)) {
+      await fresh.receiveText(text);
+    }
+    return fresh;
+  }
+
+  /// Upgrades a store from an older version. Version 2 adds the sync state.
+  static Future<void> _upgradeTables(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 2) await _createSyncState(db);
+  }
+
+  static Future<void> _createSyncState(Database db) => db.execute('''
+      CREATE TABLE sync_state (
+        partnership TEXT PRIMARY KEY,
+        vector TEXT NOT NULL
+      )
+    ''');
+
+  /// The one queue for every write to this store. Sync receives and local
+  /// writes both go through it. A failed step does not block the next one.
+  Future<void> _queue = Future<void>.value();
+
+  Future<T> _serial<T>(Future<T> Function() action) {
+    final run = _queue.then((_) => action());
+    _queue = run.then<void>((_) {}, onError: (_) {});
+    return run;
   }
 
   /// Every saved text of one partnership, in the order it was first kept.
@@ -267,6 +399,7 @@ class RecordStore {
         manager_key TEXT NOT NULL
       )
     ''');
+    await _createSyncState(db);
     // `n` gives the saved order. Replay depends on it.
     await db.execute('''
       CREATE TABLE records (

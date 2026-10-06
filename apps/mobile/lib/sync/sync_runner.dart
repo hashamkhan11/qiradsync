@@ -169,6 +169,9 @@ class SyncRunner {
     for (final text in [...reply.records, ...reply.conflicts]) {
       await store.receive(text);
     }
+    // Saved after every reply, so the write gate (spec 7.4) always compares
+    // with the relay's latest vector, not an old one.
+    await store.saveRelayVector(partnership, reply.vector);
   }
 
   /// The saved texts that the relay is missing, author by author, in seq
