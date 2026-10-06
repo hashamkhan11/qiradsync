@@ -6,6 +6,7 @@ export 'src/dashboard.dart';
 export 'src/approvals.dart';
 export 'src/approvals_inbox.dart';
 export 'src/canonical_json.dart';
+export 'src/consent_summary.dart';
 export 'src/cut_view.dart';
 export 'src/periods.dart';
 export 'src/effective.dart';
