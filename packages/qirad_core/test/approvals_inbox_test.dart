@@ -192,13 +192,16 @@ void main() {
     test('a malformed settlement cannot be approved', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
-      // A settlement with a refersTo is malformed (spec 6.7, rule 2).
+      // Three keys is not a valid cut shape (spec 6.7, step 4a). This is a
+      // business-layer rule, not a schema one, so the record is still
+      // accepted and stored (spec section 5 only requires `cut` to be a
+      // Map at the schema step) — unlike a settlement with a refersTo,
+      // which the schema step itself now refuses outright.
       final bad = await manager.next(
         partnership: partnershipId,
         type: settlementType,
-        refersTo: 'some-record',
         body: {
-          'cut': {investor.key: 1, manager.key: 0},
+          'cut': {investor.key: 1, manager.key: 0, 'someone-else': 0},
         },
       );
       await _receive(validator, [bad]);
@@ -207,6 +210,30 @@ void main() {
       expect(item.canApprove, isFalse);
       expect(item.blockedReason, 'Not a valid settlement. Reject it.');
     });
+
+    test(
+      'a request the author reverses before it is answered leaves the inbox',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final withdraw = await investor.next(
+          partnership: partnershipId,
+          type: 'withdraw_request',
+          body: {'amount': 500, 'kind': 'profit'},
+        );
+        // The investor cancels their own request before the manager answers it.
+        // Spec section 5: a partner may reverse their own record at any time,
+        // with no approval needed, so this takes effect right away.
+        final reversal = await investor.next(
+          partnership: partnershipId,
+          type: 'reversal',
+          refersTo: withdraw.id,
+        );
+        await _receive(validator, [withdraw, reversal]);
+
+        expect(_inboxFor(validator, manager.key), isEmpty);
+      },
+    );
 
     test('a phone that is not a partner has an empty inbox', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();

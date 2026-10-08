@@ -2,8 +2,11 @@ import 'dart:convert';
 
 import 'package:meta/meta.dart';
 
+import 'amounts.dart';
 import 'canonical_json.dart';
+import 'keys.dart';
 import 'ledger.dart';
+import 'ratio.dart';
 import 'record.dart';
 import 'record_hash.dart';
 import 'signing.dart';
@@ -80,13 +83,13 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     if (partnership is! String || partnership.isEmpty) return null;
     if (author is! String || author.isEmpty) return null;
     if (seq is! int || seq < 1) return null;
-    if (prevHash is! String || prevHash.length != 64) return null;
+    if (prevHash is! String || !_hex64.hasMatch(prevHash)) return null;
     if (type is! String || type.isEmpty) return null;
     if (body is! Map) return null;
     if (refersTo != null && refersTo is! String) return null;
     if (note is! String || note.length > 500) return null;
-    if (time is! String) return null;
-    if (sig is! String) return null;
+    if (time is! String || !_isValidTime(time)) return null;
+    if (sig is! String || !_isValidSig(sig)) return null;
 
     // A partnership is named by its own create record, so the create's
     // `partnership` must be its own `id` (spec section 3).
@@ -97,13 +100,8 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
     final allowedBodyKeys = _bodyFields[type];
     if (allowedBodyKeys == null) return null;
     if (body.keys.any((key) => !allowedBodyKeys.contains(key))) return null;
-    final ratio = body['ratio'];
-    if (ratio != null && !_isValidRatio(ratio)) return null;
-    // A create has no earlier ratio to fall back on, so a bad one is refused
-    // here. A ratio_proposal with a bad sum is only ignored (see ratioOf).
-    if (type == 'partnership_create' && !_isValidCreateBody(body)) return null;
 
-    return Record(
+    final candidate = Record(
       v: 1,
       id: id,
       partnership: partnership,
@@ -117,8 +115,82 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
       time: time,
       sig: sig,
     );
+
+    // Every field a type needs is present, the right type, and in range
+    // (spec section 5), and `refersTo` matches what that type uses it for
+    // (spec section 3). Deny by default: a type with no case here (there is
+    // none today, but a future one before it gets a rule) is refused, not
+    // silently accepted.
+    if (!_matchesTypeRules(candidate)) return null;
+
+    return candidate;
   } catch (_) {
     return null;
+  }
+}
+
+/// Spec section 5's per-type rules: the shape of `body` and what `refersTo`
+/// must be. Checked on the already-shape-checked candidate record, so each
+/// case can read `record.body['x']` knowing it is one of that type's
+/// allowed keys (the caller already refused unknown keys).
+bool _matchesTypeRules(Record record) {
+  switch (record.type) {
+    case 'partnership_create':
+      return record.refersTo == null && _isValidCreateBody(record.body);
+
+    case 'invest':
+    case 'sale':
+      return record.refersTo == null && positiveAmount(record) != null;
+
+    case 'budget_proposal':
+      final grantee = record.body['grantee'];
+      return record.refersTo == null &&
+          positiveAmount(record) != null &&
+          grantee is String &&
+          isCanonicalPublicKey(grantee);
+
+    case 'expense':
+      final receiptHash = record.body['receiptHash'];
+      return record.refersTo != null &&
+          _uuidV4.hasMatch(record.refersTo!) &&
+          positiveAmount(record) != null &&
+          (receiptHash == null ||
+              (receiptHash is String && _hex64.hasMatch(receiptHash)));
+
+    case 'withdraw_request':
+      final kind = record.body['kind'];
+      return record.refersTo == null &&
+          positiveAmount(record) != null &&
+          (kind == 'capital' || kind == 'profit');
+
+    case 'ratio_proposal':
+      final ratio = record.body['ratio'];
+      // `_isValidRatio` enforces the 1-to-99 bound per share; it does not
+      // check the sum, so that is checked here too (spec section 5, the
+      // same rule `partnership_create` uses). This removes the old
+      // asymmetry where a bad sum was only ignored later, in `ratioOf`.
+      return record.refersTo == null &&
+          _isValidRatio(ratio) &&
+          (ratio as Map)['investor'] + ratio['manager'] == 100 &&
+          isIsoDate(record.body['effectiveFrom']);
+
+    case 'reversal':
+    case 'approve':
+    case 'reject':
+      return record.refersTo != null &&
+          _uuidV4.hasMatch(record.refersTo!) &&
+          record.body.isEmpty;
+
+    case 'settlement':
+      // The deep shape of `cut` (exactly the two partnership keys, in
+      // range) depends on knowing those keys, which this schema step does
+      // not have. That stays a business-layer check (`settlementCut`);
+      // here only the field's presence and type are schema-level facts.
+      return record.refersTo == null && record.body['cut'] is Map;
+
+    default:
+      // No rule for this type yet: refused, not silently accepted.
+      return false;
   }
 }
 
@@ -128,6 +200,38 @@ Record? parseRecordSchema(Map<String, dynamic> json) {
 final _uuidV4 = RegExp(
   r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
 );
+
+/// 64 lowercase hex characters: a SHA-256 hash (spec section 3's `prevHash`),
+/// and also the shape of `expense.receiptHash` when it is not `null`
+/// (spec section 5).
+final _hex64 = RegExp(r'^[0-9a-f]{64}$');
+
+/// `time` is the author's clock, display only (spec section 3), but it must
+/// still be real text a device can show: ISO 8601, UTC, whole seconds, with
+/// the literal `Z` suffix the spec's example uses
+/// (`2026-10-02T10:15:00Z`) — the one format every conforming device writes
+/// (see `RecordWriter._timeText`).
+final _isoDateTimeUtc = RegExp(
+  r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$',
+);
+
+bool _isValidTime(String time) =>
+    _isoDateTimeUtc.hasMatch(time) && DateTime.tryParse(time) != null;
+
+/// `sig` is an Ed25519 signature, base64url without padding (spec section
+/// 4.2): 64 bytes, which is 86 characters in that encoding. Checked the same
+/// way as a public key (`isCanonicalPublicKey`): decode, then re-encode, and
+/// accept only the one spelling that round-trips, so no other spelling of
+/// the same bytes is ever treated as valid.
+bool _isValidSig(String sig) {
+  if (sig.length != 86) return false;
+  try {
+    final bytes = decodeBase64UrlNoPadding(sig);
+    return bytes.length == 64 && encodeBase64UrlNoPadding(bytes) == sig;
+  } on FormatException {
+    return false;
+  }
+}
 
 /// The fields of a record, spec section 3. Any other top-level key is invalid.
 const _recordFields = {
@@ -163,8 +267,9 @@ const _bodyFields = <String, Set<String>>{
 
 /// A `ratio` is exactly `{investor, manager}`, and each share is a whole
 /// number from 1 to 99 (spec section 5). A 0 or 100 share would mean one
-/// partner shares in no profit, which is not a Mudaraba. The sum is checked
-/// later, in ratioOf, where a bad sum just means "no ratio".
+/// partner shares in no profit, which is not a Mudaraba. This does not check
+/// the sum — every caller that needs the sum also checks it itself, right
+/// next to this call, so the two rules stay easy to see together.
 bool _isValidRatio(Object? ratio) {
   return ratio is Map &&
       ratio.length == 2 &&
@@ -174,17 +279,25 @@ bool _isValidRatio(Object? ratio) {
 
 bool _isShare(Object? value) => value is int && value >= 1 && value <= 99;
 
-/// A `partnership_create` must name two different party keys and a ratio whose
-/// shares add up to 100. The parties and the ratio are needed for every
-/// calculation later, so a create without them is refused, not stored.
+/// A `partnership_create` must name two different party keys, each the
+/// canonical spelling of a real public key (spec section 2), a ratio whose
+/// shares add up to 100, and the one supported currency. The parties and the
+/// ratio are needed for every calculation later, so a create without them is
+/// refused, not stored.
 bool _isValidCreateBody(Map body) {
   final ratio = body['ratio'];
   final investor = body['investor'];
   final manager = body['manager'];
+  final currency = body['currency'];
   if (!_isValidRatio(ratio)) return false;
   final shares = ratio as Map;
   if (shares['investor'] + shares['manager'] != 100) return false;
-  return investor is String && manager is String && investor != manager;
+  if (currency != 'PKR') return false;
+  return investor is String &&
+      manager is String &&
+      investor != manager &&
+      isCanonicalPublicKey(investor) &&
+      isCanonicalPublicKey(manager);
 }
 
 /// Runs raw incoming records through spec section 6.1's full pipeline:

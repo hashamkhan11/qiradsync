@@ -284,17 +284,20 @@ void main() {
     );
 
     test(
-      'a malformed settlement with a refersTo does not block the next proposal',
+      'a malformed settlement does not block the next proposal',
       () async {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
+        // Three keys is not a valid cut shape (spec 6.7, step 4a), so this
+        // settlement is never effective. That is a business-layer rule, not
+        // a schema one, so the record is still accepted and stored (spec
+        // section 5 only requires `cut` to be a Map at the schema step).
         final malformed = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 1, manager.key: 0},
+            'cut': {investor.key: 1, manager.key: 0, 'someone-else': 0},
           },
-          refersTo: partnershipId,
         );
         final s2 = await manager.next(
           partnership: partnershipId,
@@ -351,15 +354,10 @@ void main() {
             ),
           );
         }
-        final badWithRef = await manager.next(
-          partnership: partnershipId,
-          type: settlementType,
-          body: {
-            'cut': {investor.key: 1, manager.key: 0},
-          },
-          refersTo: partnershipId,
-        );
-        bad.add(badWithRef);
+        // A settlement with a refersTo is a schema-level malformation now
+        // (spec section 3: refersTo must be null for this type), covered by
+        // the table-driven schema tests. This group stays focused on cut
+        // shape, a business-layer rule (spec 6.7, step 4a).
 
         final control = await manager.next(
           partnership: partnershipId,

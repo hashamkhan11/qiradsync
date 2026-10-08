@@ -58,9 +58,23 @@ class _WithdrawalConfirmScreenState extends State<WithdrawalConfirmScreen> {
     final matches = items.where((item) => item.target.id == widget.targetId);
 
     if (matches.isEmpty) {
+      // Two different reasons land here. A request the requester cancelled
+      // with their own reversal (spec section 5) is gone from the inbox the
+      // same way an answered one is, but it was never decided — the other
+      // partner should be told it was withdrawn, not that they answered it.
+      final cancelled = computeEffective(
+        usable,
+        partnershipKeys: keys,
+      ).cancelledIds.contains(widget.targetId);
       return Scaffold(
         appBar: AppBar(title: const Text('Withdrawal')),
-        body: const Center(child: Text('This was already answered.')),
+        body: Center(
+          child: Text(
+            cancelled
+                ? 'This request was cancelled by the requester.'
+                : 'This was already answered.',
+          ),
+        ),
       );
     }
     final item = matches.single;

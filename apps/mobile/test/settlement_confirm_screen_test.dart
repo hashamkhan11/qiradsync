@@ -144,6 +144,32 @@ void main() {
     await syncedAs(investorSeq: 2, managerSeq: 1);
   }
 
+  /// The manager's very first record: a settlement proposing to close a
+  /// period covering zero records from either partner (cut `{0, 0}`). This
+  /// is a real, ordinary record — schema (spec section 5) only requires
+  /// `cut` to be a two-key map, and `approvalsInbox`'s block check (spec
+  /// 6.7) only checks the cut's shape, holding and ordering, not the
+  /// "not empty" rule (cut rule 5). That rule lives one layer deeper, in
+  /// `cutProblem`, which only `settlementConsent` reaches. So this settles
+  /// into the inbox as `canApprove: true, blockedReason: null`, the same as
+  /// a normal one, but never becomes effective — there is genuinely
+  /// nothing to show.
+  Future<Record> emptyCutSettlementReady() async {
+    await startWithCreate();
+    final s1 = await write(
+      manager,
+      managerChain,
+      id: 's1',
+      type: 'settlement',
+      body: {
+        'cut': {investor.publicKeyBase64Url: 0, manager.publicKeyBase64Url: 0},
+      },
+    );
+    await receive(s1);
+    await syncedAs(investorSeq: 1, managerSeq: 1);
+    return s1;
+  }
+
   RecordWriter writer({Future<void> Function()? beforeSign}) => RecordWriter(
     keys: investor,
     partnership: partnership,
@@ -316,18 +342,17 @@ void main() {
       },
     );
 
-    // No "missing summary, no blocked reason" test for settlements: unlike
-    // withdrawals (see withdrawal_confirm_screen_test.dart), this state is
-    // not reachable through the inbox for a settlement. `settlementConsent`
-    // can only be null here if the cut is malformed or unheld — but a
-    // malformed cut already fails `_settlementBlock` ("Not a valid
-    // settlement. Reject it.") and an unheld one is already "Waiting for
-    // records to sync.", so by the time a settlement reaches this screen
-    // with no blocked reason, the ordering rule (M11) and the cut-held check
-    // (M9) together already guarantee the investor's own approve closes a
-    // real period. This is the same defence-in-depth family as mutants M9
-    // and M10 in docs/mutation-testing.md: a state the design rules out, not
-    // one this screen needs to defend against on its own.
+    testWidgets('no Approve when the settlement cut is empty', (tester) async {
+      await tester.runAsync(() async {
+        await emptyCutSettlementReady();
+        await pump(tester);
+        await tester.pump();
+
+        expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
+        expect(find.text('No numbers to show yet.'), findsOneWidget);
+        expect(find.widgetWithText(OutlinedButton, 'Reject'), findsOneWidget);
+      });
+    });
 
     testWidgets(
       'disables both buttons for the whole time a write is in flight',

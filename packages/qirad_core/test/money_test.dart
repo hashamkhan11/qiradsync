@@ -216,8 +216,11 @@ void main() {
     );
 
     test(
-      'an invest with a zero amount is not counted (type-specific check)',
+      'an invest with a zero amount is rejected, not stored',
       () async {
+        // Spec section 5's schema step now catches this directly: an
+        // invest needs a positive amount to be accepted at all, so it
+        // never reaches `computeMoney` to be type-checked there.
         final (validator, investor, _, partnershipId) =
             await setUpPartnership();
         final bad = await investor.next(
@@ -225,7 +228,11 @@ void main() {
           type: 'invest',
           body: {'amount': 0},
         );
-        await _receiveInOrder(validator, [bad]);
+
+        expect(
+          await validator.receiveText(canonicalJson(bad.toJson())),
+          ReceiveOutcome.rejectedSchema,
+        );
 
         final money = await _money(validator);
 
@@ -234,7 +241,9 @@ void main() {
       },
     );
 
-    test('a withdraw of an unknown kind is not counted', () async {
+    test('a withdraw of an unknown kind is rejected, not stored', () async {
+      // Spec section 5's schema step now requires `kind` to be exactly
+      // "capital" or "profit", so this never reaches `computeMoney` either.
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
       final invest = await investor.next(
@@ -247,12 +256,12 @@ void main() {
         type: 'withdraw_request',
         body: {'amount': 400, 'kind': 'bonus'},
       );
-      final approve = await manager.next(
-        partnership: partnershipId,
-        type: 'approve',
-        refersTo: withdraw.id,
+      await _receiveInOrder(validator, [invest]);
+
+      expect(
+        await validator.receiveText(canonicalJson(withdraw.toJson())),
+        ReceiveOutcome.rejectedSchema,
       );
-      await _receiveInOrder(validator, [invest, withdraw, approve]);
 
       final money = await _money(validator);
 

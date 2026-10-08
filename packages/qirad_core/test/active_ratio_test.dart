@@ -136,7 +136,83 @@ void main() {
       );
     });
 
-    test('a proposal whose ratio does not add up to 100 is ignored', () async {
+    test(
+      'a proposal whose ratio does not add up to 100 is rejected, not stored',
+      () async {
+        // Spec section 5's schema step now enforces the sum rule here too,
+        // the same as partnership_create (removing the old asymmetry where
+        // a bad sum was only ignored later, by `ratioOf`).
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final approveCreate = await _approveCreate(
+          validator,
+          manager,
+          partnershipId,
+        );
+        await _receiveInOrder(validator, [approveCreate]);
+        final (proposal, _) = await _proposeRatio(
+          investor,
+          manager,
+          partnershipId,
+          investorPercent: 90,
+          managerPercent: 20,
+          effectiveFrom: '2026-09-01',
+        );
+
+        expect(
+          await validator.receiveText(canonicalJson(proposal.toJson())),
+          ReceiveOutcome.rejectedSchema,
+        );
+        expect(
+          (await _activeRatio(validator))!.ratio,
+          const Ratio(investor: 60, manager: 40),
+        );
+      },
+    );
+
+    test(
+      'a bad-sum ratio is still ignored by activeRatio if it reaches the '
+      'business layer some other way (defense in depth)',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final approveCreate = await _approveCreate(
+          validator,
+          manager,
+          partnershipId,
+        );
+        await _receiveInOrder(validator, [approveCreate]);
+
+        // A validly-signed proposal and approve, with the ratio corrupted
+        // afterwards, without going through the validator, so this never
+        // touches the schema check above.
+        final (validProposal, validApprove) = await _proposeRatio(
+          investor,
+          manager,
+          partnershipId,
+          investorPercent: 50,
+          managerPercent: 50,
+          effectiveFrom: '2026-09-01',
+        );
+        final proposal = validProposal.copyWith(
+          body: {
+            'ratio': {'investor': 90, 'manager': 20},
+            'effectiveFrom': '2026-09-01',
+          },
+        );
+
+        final records = [...validator.usableRecords, proposal, validApprove];
+        final effectiveness = computeEffective(
+          records,
+          partnershipKeys: validator.partnershipKeys!,
+        );
+        final active = activeRatio(records, effectiveness: effectiveness);
+
+        expect(active!.ratio, const Ratio(investor: 60, manager: 40));
+      },
+    );
+
+    test('a proposal with a bad date is rejected, not stored', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
       final approveCreate = await _approveCreate(
@@ -144,31 +220,8 @@ void main() {
         manager,
         partnershipId,
       );
-      final (proposal, approve) = await _proposeRatio(
-        investor,
-        manager,
-        partnershipId,
-        investorPercent: 90,
-        managerPercent: 20,
-        effectiveFrom: '2026-09-01',
-      );
-      await _receiveInOrder(validator, [approveCreate, proposal, approve]);
-
-      expect(
-        (await _activeRatio(validator))!.ratio,
-        const Ratio(investor: 60, manager: 40),
-      );
-    });
-
-    test('a proposal with a bad date is ignored', () async {
-      final (validator, investor, manager, partnershipId) =
-          await setUpPartnership();
-      final approveCreate = await _approveCreate(
-        validator,
-        manager,
-        partnershipId,
-      );
-      final (proposal, approve) = await _proposeRatio(
+      await _receiveInOrder(validator, [approveCreate]);
+      final (proposal, _) = await _proposeRatio(
         investor,
         manager,
         partnershipId,
@@ -176,13 +229,55 @@ void main() {
         managerPercent: 50,
         effectiveFrom: '01-09-2026',
       );
-      await _receiveInOrder(validator, [approveCreate, proposal, approve]);
 
+      expect(
+        await validator.receiveText(canonicalJson(proposal.toJson())),
+        ReceiveOutcome.rejectedSchema,
+      );
       expect(
         (await _activeRatio(validator))!.ratio,
         const Ratio(investor: 60, manager: 40),
       );
     });
+
+    test(
+      'a bad date is still ignored by activeRatio if it reaches the '
+      'business layer some other way (defense in depth)',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final approveCreate = await _approveCreate(
+          validator,
+          manager,
+          partnershipId,
+        );
+        await _receiveInOrder(validator, [approveCreate]);
+
+        final (validProposal, validApprove) = await _proposeRatio(
+          investor,
+          manager,
+          partnershipId,
+          investorPercent: 50,
+          managerPercent: 50,
+          effectiveFrom: '2026-09-01',
+        );
+        final proposal = validProposal.copyWith(
+          body: {
+            'ratio': {'investor': 50, 'manager': 50},
+            'effectiveFrom': '01-09-2026',
+          },
+        );
+
+        final records = [...validator.usableRecords, proposal, validApprove];
+        final effectiveness = computeEffective(
+          records,
+          partnershipKeys: validator.partnershipKeys!,
+        );
+        final active = activeRatio(records, effectiveness: effectiveness);
+
+        expect(active!.ratio, const Ratio(investor: 60, manager: 40));
+      },
+    );
 
     test(
       'a partnership_create with a bad ratio is refused, so it gives no ratio',

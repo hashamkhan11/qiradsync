@@ -1,4 +1,5 @@
 import 'approvals.dart';
+import 'effective.dart';
 import 'record.dart';
 import 'settlement.dart';
 import 'settlement_states.dart';
@@ -57,11 +58,21 @@ List<InboxItem> approvalsInbox(
       ? <SettlementStatus>[]
       : settlementStatuses(records, parties: parties, decisions: decisions);
 
+  // A partner can reverse their own still-pending record at any time, with no
+  // approval needed (spec section 5). Once that reversal is effective, the
+  // original request is gone from both sides, so the other partner must stop
+  // seeing it as something to answer.
+  final effectiveness = computeEffective(
+    records,
+    partnershipKeys: partnershipKeys,
+  );
+
   final items = <InboxItem>[];
   for (final decision in decisions) {
     final target = decision.target;
     if (decision.status != DecisionStatus.pending) continue;
     if (target.author == myKey) continue;
+    if (effectiveness.cancelledIds.contains(target.id)) continue;
 
     final kind = _kindOf(target);
     if (kind == InboxKind.settlement) {

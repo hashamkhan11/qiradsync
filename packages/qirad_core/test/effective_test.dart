@@ -2,6 +2,7 @@ import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
 import 'support/partnership_fixture.dart';
+import 'support/test_ids.dart';
 
 Future<Effectiveness> _effective(Validator validator) async => computeEffective(
   validator.usableRecords,
@@ -62,6 +63,10 @@ Future<(Record, ChainAuthor)> _targetOfType(
         partnership: partnershipId,
         type: 'expense',
         body: {'amount': 4000, 'receiptHash': null},
+        // The refersTo only needs to be a well-formed id here (spec section
+        // 3); whether it resolves to a real, approved budget is a business-
+        // layer question this test does not depend on.
+        refersTo: testId('dummy-budget'),
       );
       final reversal = await investor.next(
         partnership: partnershipId,
@@ -85,6 +90,7 @@ void main() {
           partnership: partnershipId,
           type: 'expense',
           body: {'amount': 4000, 'receiptHash': null},
+          refersTo: testId('dummy-budget'),
         );
         final reversal = await manager.next(
           partnership: partnershipId,
@@ -249,6 +255,9 @@ void main() {
           partnership: partnershipId,
           type: type,
           body: body,
+          // expense is the only one of these types that needs a refersTo
+          // (spec section 3); a well-formed id is enough for this test.
+          refersTo: type == 'expense' ? testId('dummy-budget') : null,
         );
         final reversal = await author.next(
           partnership: partnershipId,
@@ -276,6 +285,7 @@ void main() {
           partnership: partnershipId,
           type: 'expense',
           body: {'amount': 4000, 'receiptHash': null},
+          refersTo: testId('dummy-budget'),
         );
         final reversal = await investor.next(
           partnership: partnershipId,
@@ -325,6 +335,7 @@ void main() {
           partnership: partnershipId,
           type: 'expense',
           body: {'amount': 4000, 'receiptHash': null},
+          refersTo: testId('dummy-budget'),
         );
         final reversal = await investor.next(
           partnership: partnershipId,

@@ -2,6 +2,7 @@ import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
 import 'support/partnership_fixture.dart';
+import 'support/test_ids.dart';
 
 void main() {
   group(
@@ -81,6 +82,7 @@ void main() {
           partnership: partnershipId,
           type: 'expense',
           body: {'amount': 500, 'receiptHash': null},
+          refersTo: testId('dummy-budget'),
         );
 
         // The investor cannot write an expense (spec 5), but step 1 only checks

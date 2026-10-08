@@ -681,3 +681,94 @@ creates a record that is already known to decide nothing, and it is harder to re
 chain than to refuse to make it. The rule that an invalid early answer does not block a later valid one still holds —
 it now covers a record that reached the ledger some other way (an older app version, a different client), proved
 with a hand-built record in the test.
+
+---
+
+## 2026-10-09 — Schema step enforces every type's body shape and `refersTo` use (spec 6.1 step 1, spec section 5)
+
+**Decision:** `parseRecordSchema` now checks, for every record type, exactly what spec section 5 says that type's
+body must contain and what `refersTo` must be — not just the top-level field shapes it already checked. Added:
+
+- `time` must be `YYYY-MM-DDTHH:MM:SSZ` and parse as a real date (`_isValidTime`). `sig` must be a 64-byte Ed25519
+  signature in canonical base64url-no-padding, round-tripped the same way `isCanonicalPublicKey` already checks a
+  public key (`_isValidSig`). `prevHash` is checked as 64 lowercase hex characters by regex, not just length.
+- A new `_matchesTypeRules` switch, one case per type: `invest`/`sale` need a positive amount and no `refersTo`;
+  `budget_proposal` needs a positive amount and a canonical grantee key; `expense` needs a `refersTo` that is a
+  UUID v4, a positive amount, and an optional `receiptHash` that is 64 hex characters; `withdraw_request` needs a
+  positive amount and `kind` of `capital` or `profit`; `ratio_proposal` needs a valid 1–99 ratio whose shares sum
+  to 100, and an ISO date `effectiveFrom`; `reversal`/`approve`/`reject` need a `refersTo` UUID v4 and an empty body;
+  `settlement` needs no `refersTo` and a `cut` that is a `Map` (the deeper shape of `cut` stays a business-layer
+  check in `settlementCut`, since it needs the partnership's two keys, which schema parsing does not have). A type
+  with no case is refused by default, not silently accepted.
+- `partnership_create`'s body check (`_isValidCreateBody`) now also requires `currency == 'PKR'` and that `investor`
+  and `manager` are each a canonical public key (not just "a String, and the two differ").
+- Removed the old sum asymmetry: a `ratio_proposal` whose shares don't sum to 100 is now refused at the schema step,
+  the same as a bad `partnership_create` ratio, instead of being silently stored and only later ignored by `ratioOf`.
+
+**Reason:** Before this, a `withdraw_request` with no `amount` or `kind`, a `settlement` with a `refersTo`, or an
+`expense` with a non-UUID `refersTo` were all accepted and stored, because the schema step only checked that body
+keys were a subset of the type's allowed keys — not that the required ones were present and well-formed. Business-
+layer code (the inbox, the consent screens) then had to treat "missing/malformed required field" as a reachable
+runtime state, which is the wrong layer: spec 6.1 step 1 is specifically the step that checks "every field a type
+needs, with the right shape," before any business rule runs.
+
+**Consequence found while verifying this:** the withdrawal screen's "no numbers to show yet" (missing-summary)
+state is no longer reachable through the inbox in ordinary use, because every `withdraw_request` the schema now
+accepts already has a valid `amount` and `kind`. Its test was kept as a labelled defensive test, built by hand with
+`Ledger.add` bypassing `receive()` on purpose, per the "redundant protections are fine, untested ones are not"
+principle already used for M9/M10 (see the 2026-10-06 mutation-check entry above). The equivalent settlement-screen
+state, by contrast, turned out to still be real: see the next entry.
+
+**Tests:** `packages/qirad_core/test/validator_schema_table_test.dart` (one table-driven test per type/field rule
+above), plus updates to `record_schema_test.dart`, `active_ratio_test.dart`, `money_test.dart`, `settlement_test.dart`,
+`budgets_test.dart`. `apps/mobile/test/withdrawal_confirm_screen_test.dart`'s defensive fixture.
+
+**Known limitation, not fixed:** `_isValidTime` accepts some calendar-invalid-looking strings as valid whenever
+`DateTime.tryParse` normalizes them (for example a day-of-month rollover). `time` is display-only (hard rule 3), so
+this cannot affect any calculation; documented here rather than guarded against, to avoid adding code whose only
+job is to reject a display string more strictly than Dart's own date parser does.
+
+---
+
+## 2026-10-09 — A settlement with an all-zero cut is a real reachable state, not a defensive-only one
+
+**Finding:** While restoring the settlement screen's missing-summary test in the same defensive form as the
+withdrawal one above, checking first showed this state is *not* defensive-only for settlements. `approvalsInbox`'s
+settlement block (`_settlementBlock`) checks the cut's shape, that any earlier settlement is already answered, the
+investor-approve seq bound, and `cutIsHeld` — it does not call `cutProblem`, which is where cut rules 3–5 (closed,
+dominating, **not empty**) live (spec 6.7). So the manager's very first settlement, proposing a cut of
+`{investor: 0, manager: 0}`, is a genuine, schema-valid, `receive()`-accepted record that reaches the inbox as
+`canApprove: true, blockedReason: null` — the same as an ordinary settlement — yet never becomes
+`SettlementState.effective` (`cutProblem` flags it as empty), so `settlementConsent` returns `null` and the
+confirm screen has no numbers to show.
+
+**Decision:** The settlement screen's missing-summary test uses this real empty-cut scenario, built the normal way
+through `receive()`, rather than a hand-built bypass. It is still labelled and still guards the same rule (the
+Approve button is never shown without numbers, for informed consent) as the withdrawal screen's defensive test, so
+the two screens stay consistently tested — but this one needs no `Ledger.add` trick, because the state is reachable
+in the real app.
+
+**Reason:** Using the real scenario is a strictly better test than a hand-built one where a real example exists:
+it proves the screen's guard against an input the validator genuinely accepts, not only against one invented for
+the test. No code change was made to `_settlementBlock` itself (it is not wrong — it just doesn't duplicate a check
+`cutProblem` already makes one layer in); flagged here as an optional future improvement, not acted on, since the
+screen already refuses to show Approve without numbers either way.
+
+**Test:** `apps/mobile/test/settlement_confirm_screen_test.dart`, `'no Approve when the settlement cut is empty'`.
+
+---
+
+## 2026-10-09 — A cancelled request tells the other partner it was cancelled, not that it was "already answered"
+
+**Decision:** The withdrawal confirm screen now tells the two "this request is gone from the inbox" cases apart.
+If the request was reversed by its own author before being answered (spec section 5: a partner may reverse their
+own pending record at any time, with no approval needed) the screen says "This request was cancelled by the
+requester." Otherwise (a real approve/reject already decided it) it still says "This was already answered."
+`approvalsInbox` already stopped listing a cancelled request (a 2026-10-08 fix to `approvals_inbox.dart`, using
+`computeEffective(...).cancelledIds`); this is the matching screen-level message for the same case.
+
+**Reason:** "Already answered" is misleading when nobody answered — the other partner would wrongly think a
+decision was made, when the request was simply withdrawn before anyone had the chance to look at it.
+
+**Test:** `apps/mobile/test/withdrawal_confirm_screen_test.dart`,
+`'a request the requester cancelled says so, not "already answered"'`.

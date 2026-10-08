@@ -149,25 +149,58 @@ void main() {
     return request;
   }
 
-  /// A withdraw_request with no amount and no kind. `approvalsInbox` does no
-  /// shape checking for a withdrawal (unlike a settlement), so this still
-  /// shows up as `canApprove: true, blockedReason: null` — but it can never
-  /// become effective, so `withdrawalConsent` is genuinely null here. Unlike
-  /// the settlement screen's missing-summary state, this one really is
-  /// reachable through the inbox in real use, not just by hand-building a
-  /// record outside it.
+  /// A withdraw_request with no amount and no kind, added straight to the
+  /// ledger — bypassing `receive()`, which would now refuse it at the schema
+  /// step (spec section 6.1 step 1 checks every type's body shape, including
+  /// `withdraw_request`'s `amount` and `kind`). So this state is no longer
+  /// reachable through the inbox in real use; it is built by hand so the
+  /// screen's own guard — never showing Approve without numbers — is still
+  /// under test, the same principle as the mutation-testing cases in
+  /// docs/mutation-testing.md: a redundant protection is still worth testing.
+  ///
+  /// `Ledger.add` is the raw CRDT store with no checks of its own (spec
+  /// section 1); only `Validator.receiveText` enforces schema, which this
+  /// skips on purpose.
   Future<void> malformedWithdrawalReady() async {
     await startWithCreate();
+    final request = await write(
+      manager,
+      managerChain,
+      id: 'w1',
+      type: 'withdraw_request',
+      body: const {},
+    );
+    store.validatorFor(partnership).ledger.add(request);
+    await syncedAs(investorSeq: 1, managerSeq: 1);
+  }
+
+  /// The manager withdraws, then cancels their own request before the
+  /// investor answers it (spec section 5: a partner may reverse their own
+  /// record at any time, with no approval needed, so this takes effect
+  /// right away). The default `pump()` opens the screen as the investor —
+  /// the one who would otherwise have answered it — so this is a real,
+  /// everyday path through the inbox, unlike the malformed case above.
+  Future<Record> cancelledWithdrawalReady() async {
+    await startWithCreate();
+    final request = await write(
+      manager,
+      managerChain,
+      id: 'w1',
+      type: 'withdraw_request',
+      body: const {'amount': 500, 'kind': 'profit'},
+    );
+    await receive(request);
     await receive(
       await write(
         manager,
         managerChain,
-        id: 'w1',
-        type: 'withdraw_request',
-        body: const {},
+        id: 'reversal-1',
+        type: 'reversal',
+        refersTo: request.id,
       ),
     );
-    await syncedAs(investorSeq: 1, managerSeq: 1);
+    await syncedAs(investorSeq: 1, managerSeq: 2);
+    return request;
   }
 
   RecordWriter investorWriter({Future<void> Function()? beforeSign}) =>
@@ -301,19 +334,40 @@ void main() {
       },
     );
 
-    testWidgets('no Approve when the request can never become effective', (
-      tester,
-    ) async {
-      await tester.runAsync(() async {
-        await malformedWithdrawalReady();
-        await pump(tester);
-        await tester.pump();
+    testWidgets(
+      'no Approve when the request can never become effective (defensive: '
+      'not reachable since the schema fix)',
+      (tester) async {
+        await tester.runAsync(() async {
+          await malformedWithdrawalReady();
+          await pump(tester);
+          await tester.pump();
 
-        expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
-        expect(find.text('No numbers to show yet.'), findsOneWidget);
-        expect(find.widgetWithText(OutlinedButton, 'Reject'), findsOneWidget);
-      });
-    });
+          expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
+          expect(find.text('No numbers to show yet.'), findsOneWidget);
+          expect(find.widgetWithText(OutlinedButton, 'Reject'), findsOneWidget);
+        });
+      },
+    );
+
+    testWidgets(
+      'a request the requester cancelled says so, not "already answered"',
+      (tester) async {
+        await tester.runAsync(() async {
+          await cancelledWithdrawalReady();
+          await pump(tester);
+          await tester.pump();
+
+          expect(
+            find.text('This request was cancelled by the requester.'),
+            findsOneWidget,
+          );
+          expect(find.text('This was already answered.'), findsNothing);
+          expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
+          expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
+        });
+      },
+    );
 
     testWidgets(
       'disables both buttons for the whole time a write is in flight',
