@@ -78,15 +78,24 @@ class RecordWriter {
     required RecordStore store,
     String Function()? newId,
     DateTime Function()? now,
+    Future<void> Function()? beforeSign,
   }) : _keys = keys,
        _store = store,
        _newId = newId ?? (() => const Uuid().v4()),
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now,
+       _beforeSign = beforeSign ?? (() async {});
 
   final Ed25519KeyPair _keys;
   final RecordStore _store;
   final String Function() _newId;
   final DateTime Function() _now;
+
+  // Test seam only: every real caller leaves this as a no-op. A test can
+  // pass a hook that waits on a `Completer` it controls, so it can prove a
+  // screen keeps its buttons disabled for the whole time a write is really
+  // in flight — not just for one lucky frame — without depending on how
+  // fast the real database happens to be.
+  final Future<void> Function() _beforeSign;
 
   /// The partnership this writer writes for.
   final String partnership;
@@ -224,6 +233,10 @@ class RecordWriter {
         }
         if (refusal != null) return null;
       }
+
+      // Every check has passed: this write will really happen. A test can
+      // hold this open; a real run passes straight through.
+      await _beforeSign();
 
       final signed = await signRecord(unsigned, _keys);
       return canonicalJson(signed.toJson());

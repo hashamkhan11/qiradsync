@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -142,26 +144,45 @@ void main() {
     await syncedAs(investorSeq: 2, managerSeq: 1);
   }
 
-  RecordWriter writer() =>
-      RecordWriter(keys: investor, partnership: partnership, store: store);
+  RecordWriter writer({Future<void> Function()? beforeSign}) => RecordWriter(
+    keys: investor,
+    partnership: partnership,
+    store: store,
+    beforeSign: beforeSign,
+  );
 
   Future<void> pump(
     WidgetTester tester, {
     Future<void> Function()? onSyncNow,
+    RecordWriter? writerOverride,
+    String? targetId,
   }) async {
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     await tester.pumpWidget(
       MaterialApp(
         home: SettlementConfirmScreen(
           store: store,
-          writer: writer(),
+          writer: writerOverride ?? writer(),
           myKey: investor.publicKeyBase64Url,
           partnership: partnership,
-          targetId: testId('s1'),
+          targetId: targetId ?? testId('s1'),
           onSyncNow: onSyncNow ?? () async {},
         ),
       ),
     );
+  }
+
+  /// Every own record this phone has saved, newest-ignorant: just the `seq`
+  /// values, so a test can check none repeat (a repeat would mean a fork).
+  Future<List<int>> mySeqs() async {
+    final saved = await store.savedTexts(partnership);
+    return [
+          for (final text in saved)
+            Record.fromJson(jsonDecode(text) as Map<String, dynamic>),
+        ]
+        .where((r) => r.author == investor.publicKeyBase64Url)
+        .map((r) => r.seq)
+        .toList();
   }
 
   // Every test body runs inside one `runAsync` call, start to finish, with
@@ -294,5 +315,133 @@ void main() {
         });
       },
     );
+
+    // No "missing summary, no blocked reason" test for settlements: unlike
+    // withdrawals (see withdrawal_confirm_screen_test.dart), this state is
+    // not reachable through the inbox for a settlement. `settlementConsent`
+    // can only be null here if the cut is malformed or unheld — but a
+    // malformed cut already fails `_settlementBlock` ("Not a valid
+    // settlement. Reject it.") and an unheld one is already "Waiting for
+    // records to sync.", so by the time a settlement reaches this screen
+    // with no blocked reason, the ordering rule (M11) and the cut-held check
+    // (M9) together already guarantee the investor's own approve closes a
+    // real period. This is the same defence-in-depth family as mutants M9
+    // and M10 in docs/mutation-testing.md: a state the design rules out, not
+    // one this screen needs to defend against on its own.
+
+    testWidgets(
+      'disables both buttons for the whole time a write is in flight',
+      (tester) async {
+        await tester.runAsync(() async {
+          await settlementReady();
+          // A write that will not finish until the test says so, so the
+          // disabled check cannot depend on how fast the real database
+          // happens to be (no pump-count or real-delay guesswork).
+          final gate = Completer<void>();
+          await pump(
+            tester,
+            writerOverride: writer(beforeSign: () => gate.future),
+          );
+          await tester.pump();
+
+          await tester.tap(find.widgetWithText(ElevatedButton, 'Approve'));
+          // `_writing = true` is set by a synchronous `setState` before the
+          // writer is even called, so one pump is enough to see it, no
+          // matter how long the held write takes.
+          await tester.pump();
+
+          expect(
+            tester
+                .widget<ElevatedButton>(
+                  find.widgetWithText(ElevatedButton, 'Approve'),
+                )
+                .onPressed,
+            isNull,
+          );
+          expect(
+            tester
+                .widget<OutlinedButton>(
+                  find.widgetWithText(OutlinedButton, 'Reject'),
+                )
+                .onPressed,
+            isNull,
+          );
+
+          gate.complete();
+          await pumpUntil(
+            tester,
+            () => find
+                .widgetWithText(ElevatedButton, 'Approve')
+                .evaluate()
+                .isEmpty,
+          );
+          expect(await mySeqs(), [1, 2, 3]);
+        });
+      },
+    );
+
+    testWidgets('rejecting asks "are you sure?" first', (tester) async {
+      await tester.runAsync(() async {
+        await settlementReady();
+        await pump(tester);
+        await tester.pump();
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Reject'));
+        await tester.pump();
+        expect(find.text('Reject this settlement?'), findsOneWidget);
+        expect(find.text('This cannot be undone.'), findsOneWidget);
+
+        // Cancel: the dialog closes, nothing is written.
+        await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+        await tester.pump();
+        expect(find.text('Reject this settlement?'), findsNothing);
+        expect(await store.savedTexts(partnership), hasLength(4));
+
+        // Reject again, this time confirming in the dialog.
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Reject'));
+        await tester.pump();
+        await tester.tap(find.widgetWithText(FilledButton, 'Reject'));
+        await pumpUntil(
+          tester,
+          () =>
+              find.widgetWithText(OutlinedButton, 'Reject').evaluate().isEmpty,
+        );
+        // The confirmed reject is the investor's own third record (after
+        // create and invest).
+        expect(await mySeqs(), [1, 2, 3]);
+      });
+    });
+
+    testWidgets('a quick double tap on Approve saves exactly one record', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        await settlementReady();
+        await pump(tester);
+        await tester.pump();
+
+        final approve = find.widgetWithText(ElevatedButton, 'Approve');
+        // No pump between the two taps: both land on the same build, where
+        // the button is still enabled, the same way two real, fast taps
+        // could both reach the handler before the first rebuild disables it.
+        await tester.tap(approve);
+        await tester.tap(approve);
+        await pumpUntil(tester, () => approve.evaluate().isEmpty);
+
+        // Exactly one approve was saved (create, invest, sale, settlement,
+        // approve), and no two of my own records share a seq: the second
+        // tap's write is refused as alreadyAnswered by the serial queue,
+        // not raced into a fork.
+        expect(await store.savedTexts(partnership), hasLength(5));
+        final seqs = await mySeqs();
+        expect(seqs, hasLength(seqs.toSet().length));
+        // The second tap is refused as alreadyAnswered, but that refusal
+        // never has anywhere to show: once the settlement is decided,
+        // `build` always takes the early "This was already answered."
+        // branch, which does not render `_message` at all, no matter which
+        // tap's result lands first or second.
+        expect(find.text('Already answered.'), findsNothing);
+      });
+    });
   });
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -147,8 +149,47 @@ void main() {
     return request;
   }
 
-  RecordWriter investorWriter() =>
-      RecordWriter(keys: investor, partnership: partnership, store: store);
+  /// A withdraw_request with no amount and no kind. `approvalsInbox` does no
+  /// shape checking for a withdrawal (unlike a settlement), so this still
+  /// shows up as `canApprove: true, blockedReason: null` — but it can never
+  /// become effective, so `withdrawalConsent` is genuinely null here. Unlike
+  /// the settlement screen's missing-summary state, this one really is
+  /// reachable through the inbox in real use, not just by hand-building a
+  /// record outside it.
+  Future<void> malformedWithdrawalReady() async {
+    await startWithCreate();
+    await receive(
+      await write(
+        manager,
+        managerChain,
+        id: 'w1',
+        type: 'withdraw_request',
+        body: const {},
+      ),
+    );
+    await syncedAs(investorSeq: 1, managerSeq: 1);
+  }
+
+  RecordWriter investorWriter({Future<void> Function()? beforeSign}) =>
+      RecordWriter(
+        keys: investor,
+        partnership: partnership,
+        store: store,
+        beforeSign: beforeSign,
+      );
+
+  /// Every own record this phone has saved, newest-ignorant: just the `seq`
+  /// values, so a test can check none repeat (a repeat would mean a fork).
+  Future<List<int>> mySeqs() async {
+    final saved = await store.savedTexts(partnership);
+    return [
+          for (final text in saved)
+            Record.fromJson(jsonDecode(text) as Map<String, dynamic>),
+        ]
+        .where((r) => r.author == investor.publicKeyBase64Url)
+        .map((r) => r.seq)
+        .toList();
+  }
 
   /// The summary the investor would be shown for settlement [proposal] now,
   /// the same way the real screen computes it (spec 6.7).
@@ -173,17 +214,22 @@ void main() {
     );
   }
 
-  Future<void> pump(WidgetTester tester) async {
+  Future<void> pump(
+    WidgetTester tester, {
+    Future<void> Function()? onSyncNow,
+    RecordWriter? writerOverride,
+    String? targetId,
+  }) async {
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     await tester.pumpWidget(
       MaterialApp(
         home: WithdrawalConfirmScreen(
           store: store,
-          writer: investorWriter(),
+          writer: writerOverride ?? investorWriter(),
           myKey: investor.publicKeyBase64Url,
           partnership: partnership,
-          targetId: testId('w1'),
-          onSyncNow: () async {},
+          targetId: targetId ?? testId('w1'),
+          onSyncNow: onSyncNow ?? () async {},
         ),
       ),
     );
@@ -254,5 +300,133 @@ void main() {
         });
       },
     );
+
+    testWidgets('no Approve when the request can never become effective', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        await malformedWithdrawalReady();
+        await pump(tester);
+        await tester.pump();
+
+        expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
+        expect(find.text('No numbers to show yet.'), findsOneWidget);
+        expect(find.widgetWithText(OutlinedButton, 'Reject'), findsOneWidget);
+      });
+    });
+
+    testWidgets(
+      'disables both buttons for the whole time a write is in flight',
+      (tester) async {
+        await tester.runAsync(() async {
+          await withdrawalReady();
+          // A write that will not finish until the test says so, so the
+          // disabled check cannot depend on how fast the real database
+          // happens to be (no pump-count or real-delay guesswork).
+          final gate = Completer<void>();
+          await pump(
+            tester,
+            writerOverride: investorWriter(beforeSign: () => gate.future),
+          );
+          await tester.pump();
+
+          await tester.tap(find.widgetWithText(ElevatedButton, 'Approve'));
+          // `_writing = true` is set by a synchronous `setState` before the
+          // writer is even called, so one pump is enough to see it, no
+          // matter how long the held write takes.
+          await tester.pump();
+
+          expect(
+            tester
+                .widget<ElevatedButton>(
+                  find.widgetWithText(ElevatedButton, 'Approve'),
+                )
+                .onPressed,
+            isNull,
+          );
+          expect(
+            tester
+                .widget<OutlinedButton>(
+                  find.widgetWithText(OutlinedButton, 'Reject'),
+                )
+                .onPressed,
+            isNull,
+          );
+
+          gate.complete();
+          await pumpUntil(
+            tester,
+            () => find
+                .widgetWithText(ElevatedButton, 'Approve')
+                .evaluate()
+                .isEmpty,
+          );
+          expect(await mySeqs(), [1, 2, 3]);
+        });
+      },
+    );
+
+    testWidgets('rejecting asks "are you sure?" first', (tester) async {
+      await tester.runAsync(() async {
+        await withdrawalReady();
+        await pump(tester);
+        await tester.pump();
+
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Reject'));
+        await tester.pump();
+        expect(find.text('Reject this withdrawal?'), findsOneWidget);
+        expect(find.text('This cannot be undone.'), findsOneWidget);
+
+        // Cancel: the dialog closes, nothing is written.
+        await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+        await tester.pump();
+        expect(find.text('Reject this withdrawal?'), findsNothing);
+        expect(await store.savedTexts(partnership), hasLength(5));
+
+        // Reject again, this time confirming in the dialog.
+        await tester.tap(find.widgetWithText(OutlinedButton, 'Reject'));
+        await tester.pump();
+        await tester.tap(find.widgetWithText(FilledButton, 'Reject'));
+        await pumpUntil(
+          tester,
+          () =>
+              find.widgetWithText(OutlinedButton, 'Reject').evaluate().isEmpty,
+        );
+        // The confirmed reject is the investor's own third record (after
+        // create and invest).
+        expect(await mySeqs(), [1, 2, 3]);
+      });
+    });
+
+    testWidgets('a quick double tap on Approve saves exactly one record', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        await withdrawalReady();
+        await pump(tester);
+        await tester.pump();
+
+        final approve = find.widgetWithText(ElevatedButton, 'Approve');
+        // No pump between the two taps: both land on the same build, where
+        // the button is still enabled, the same way two real, fast taps
+        // could both reach the handler before the first rebuild disables it.
+        await tester.tap(approve);
+        await tester.tap(approve);
+        await pumpUntil(tester, () => approve.evaluate().isEmpty);
+
+        // Exactly one approve was saved (create, invest, sale, settlement,
+        // request, approve), and no two of my own records share a seq: the
+        // second tap's write is refused as alreadyAnswered by the serial
+        // queue, not raced into a fork.
+        expect(await store.savedTexts(partnership), hasLength(6));
+        final seqs = await mySeqs();
+        expect(seqs, hasLength(seqs.toSet().length));
+        // The second tap is refused as alreadyAnswered, but that refusal
+        // never has anywhere to show: once the request is decided, `build`
+        // always takes the early "This was already answered." branch,
+        // which does not render `_message` at all.
+        expect(find.text('Already answered.'), findsNothing);
+      });
+    });
   });
 }
