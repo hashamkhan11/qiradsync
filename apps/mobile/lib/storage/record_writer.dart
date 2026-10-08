@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:meta/meta.dart';
 import 'package:qirad_core/qirad_core.dart';
 import 'package:uuid/uuid.dart';
 
@@ -78,7 +79,7 @@ class RecordWriter {
     required RecordStore store,
     String Function()? newId,
     DateTime Function()? now,
-    Future<void> Function()? beforeSign,
+    @visibleForTesting Future<void> Function()? beforeSign,
   }) : _keys = keys,
        _store = store,
        _newId = newId ?? (() => const Uuid().v4()),
