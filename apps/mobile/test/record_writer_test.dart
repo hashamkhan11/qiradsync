@@ -223,36 +223,59 @@ void main() {
       expect(mine, [1, 2]);
     });
 
-    test(
-      'an invalid early answer does not block a later valid one (spec 6.7)',
-      () async {
-        await startWithCreate();
-        await receive(await settlement('s1'));
-        await receive(await settlement('s2'));
-        await syncedAs(investorSeq: 1, managerSeq: 2);
+    test('the writer refuses to answer S2 before S1 (spec 6.7)', () async {
+      await startWithCreate();
+      await receive(await settlement('s1'));
+      await receive(await settlement('s2'));
+      await syncedAs(investorSeq: 1, managerSeq: 2);
 
-        // S2 before S1: the ordering rule makes this answer invalid.
-        final early = await writer().answer(testId('s2'), approve: true);
-        expect(early.record!.seq, 2);
+      // S2 before S1: the ordering rule makes this answer invalid. The app
+      // never writes a record it already knows is invalid.
+      final early = await writer().answer(testId('s2'), approve: true);
 
-        // S1 is valid, and it lets the next answer to S2 count.
-        final s1 = await writer().answer(testId('s1'), approve: true);
-        expect(s1.record!.seq, 3);
+      expect(early.refusal, WriteRefusal.answerEarlierFirst);
+      // create, s1 and s2: nothing new was saved.
+      expect(await store.savedTexts(partnership), hasLength(3));
+    });
 
-        final s2 = await writer().answer(testId('s2'), approve: true);
-        expect(s2.record!.seq, 4);
+    test('an invalid early answer, once on the ledger, does not block a later '
+        'valid one (spec 6.7)', () async {
+      await startWithCreate();
+      await receive(await settlement('s1'));
+      await receive(await settlement('s2'));
+      await syncedAs(investorSeq: 1, managerSeq: 2);
 
-        final validator = store.validatorFor(partnership);
-        final decisions = decideApprovals(
-          validator.usableRecords,
-          partnershipKeys: validator.partnershipKeys!,
-        );
-        final decidedS2 = decisions.singleWhere(
-          (d) => d.target.id == testId('s2'),
-        );
-        expect(decidedS2.status, DecisionStatus.active);
-      },
-    );
+      // A hand-built early answer to S2. The writer itself would refuse to
+      // create this (see the test above); this stands in for a record that
+      // reached the ledger some other way, so the "invalid answers are
+      // evidence, not a block" rule still has a case to cover.
+      final early = await write(
+        investor,
+        investorChain,
+        id: 'early-s2',
+        type: 'approve',
+        refersTo: testId('s2'),
+      );
+      await receive(early);
+      await syncedAs(investorSeq: 2, managerSeq: 2);
+
+      // S1 is valid, and it lets the next answer to S2 count.
+      final s1 = await writer().answer(testId('s1'), approve: true);
+      expect(s1.record!.seq, 3);
+
+      final s2 = await writer().answer(testId('s2'), approve: true);
+      expect(s2.record!.seq, 4);
+
+      final validator = store.validatorFor(partnership);
+      final decisions = decideApprovals(
+        validator.usableRecords,
+        partnershipKeys: validator.partnershipKeys!,
+      );
+      final decidedS2 = decisions.singleWhere(
+        (d) => d.target.id == testId('s2'),
+      );
+      expect(decidedS2.status, DecisionStatus.active);
+    });
 
     test('a second valid answer to the same proposal is refused', () async {
       await startWithCreate();

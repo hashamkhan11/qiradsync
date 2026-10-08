@@ -24,6 +24,12 @@ enum WriteRefusal {
   /// This key already answered this proposal validly (spec 7.4, rule 3).
   alreadyAnswered,
 
+  /// This answer would be invalid under the settlement ordering rule (spec
+  /// 6.7): an earlier settlement proposal is still unanswered. The app never
+  /// writes a record it already knows is invalid, so nothing is written.
+  /// Answer the earlier proposal first.
+  answerEarlierFirst,
+
   /// An approve that would take effect needs the summary the user saw. The
   /// screen did not pass one, so nothing is written.
   consentNotShown,
@@ -160,6 +166,25 @@ class RecordWriter {
         time: _timeText(_now()),
         refersTo: targetId,
       );
+
+      // The app never writes a record it already knows is invalid. "Kept as
+      // evidence" (spec 6.1, 6.7) is for records received from the other
+      // partner, not for records this writer creates itself. Re-run the
+      // ordering rule with the candidate as if it had just arrived, and
+      // refuse if it would land in invalidResponses.
+      if (current.target.type == 'settlement') {
+        final withCandidate = decideApprovals([
+          ...validator.usableRecords,
+          unsigned,
+        ], partnershipKeys: keys);
+        final decided = withCandidate.firstWhere(
+          (d) => d.target.id == targetId,
+        );
+        if (decided.invalidResponses.any((r) => r.id == unsigned.id)) {
+          refusal = WriteRefusal.answerEarlierFirst;
+          return null;
+        }
+      }
 
       // Optimistic check: the numbers the user saw must still be the numbers
       // core reports now (spec 6.7). A reject has no summary to check. When

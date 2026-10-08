@@ -669,3 +669,15 @@ That is the same fork risk as above, so the relay vector gate cannot protect it.
 **Finding (waiting-for-records state, 2026-10-06):** The approvals inbox state "Waiting for records to sync" cannot
 happen from a stored ledger. The validator buffers a settlement until its earlier seqs arrive. The branch is kept as
 defence in depth and is tested with hand-built records, the same approach as M9 in the mutation check.
+
+**Decision (the writer never creates a record it knows is invalid, 2026-10-08):** "Kept as evidence" (spec 6.1, 6.7)
+describes what the validator does with a record it *received* from the other partner. It does not mean this app's own
+writer may knowingly build one. Before signing an approve or reject of a settlement, `RecordWriter` re-runs the
+settlement ordering rule with the candidate added, and refuses with `answerEarlierFirst` if the candidate would land
+in `invalidResponses`. Nothing is written.
+
+**Reason:** A device can always tell, before writing, whether its own answer would be invalid. Writing it anyway only
+creates a record that is already known to decide nothing, and it is harder to recover from a mistake already on the
+chain than to refuse to make it. The rule that an invalid early answer does not block a later valid one still holds —
+it now covers a record that reached the ledger some other way (an older app version, a different client), proved
+with a hand-built record in the test.
