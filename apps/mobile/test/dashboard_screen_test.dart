@@ -140,6 +140,31 @@ void main() {
     return id;
   }
 
+  /// The investor's create is saved by createPartnership. The manager then
+  /// rejects it. Returns the partnership id.
+  Future<String> partnershipWithRejectedCreate() async {
+    final id = await createPartnership(
+      investorKeys: investor,
+      managerKey: manager.publicKeyBase64Url,
+      investorPercent: 60,
+      store: store,
+    );
+    final reject = await signed(
+      manager,
+      partnership: id,
+      seq: 1,
+      prevHash: '0' * 64,
+      type: 'reject',
+      refersTo: id,
+    );
+    expect(
+      await store.receive(reject),
+      ReceiveOutcome.accepted,
+      reason: 'reject',
+    );
+    return id;
+  }
+
   testWidgets('before the manager approves, it says to wait for approval', (
     tester,
   ) async {
@@ -160,6 +185,20 @@ void main() {
     );
     expect(find.textContaining('Ratio:'), findsNothing);
     expect(find.textContaining('may not match the contract'), findsNothing);
+  });
+
+  testWidgets('if the manager rejects the create, it says the partnership was declined', (
+    tester,
+  ) async {
+    final id = await tester.runAsync(partnershipWithRejectedCreate);
+    await pumpDashboard(tester, id!);
+
+    expect(find.text('Rs 0.00'), findsNWidgets(3));
+    expect(
+      find.text('The manager declined this partnership.'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Ratio:'), findsNothing);
   });
 
   testWidgets('after a ratio change, it warns that the split may not match', (
