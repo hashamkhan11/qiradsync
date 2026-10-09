@@ -59,9 +59,14 @@ List<InboxItem> approvalsInbox(
       : settlementStatuses(records, parties: parties, decisions: decisions);
 
   // A partner can reverse their own still-pending record at any time, with no
-  // approval needed (spec section 5). Once that reversal is effective, the
-  // original request is gone from both sides, so the other partner must stop
-  // seeing it as something to answer.
+  // approval needed, but only when that record's type is reversible at all
+  // (spec section 5; `_reversibleTypes` in effective.dart — invest, sale,
+  // expense, withdraw_request). A reversal is not itself reversible in v1, so
+  // a pending reversal is never cancelled this way; it leaves the inbox only
+  // once the other partner approves or rejects it. For a type this does
+  // apply to, once that self-reversal is effective, the original request is
+  // gone from both sides, so the other partner must stop seeing it as
+  // something to answer.
   final effectiveness = computeEffective(
     records,
     partnershipKeys: partnershipKeys,
