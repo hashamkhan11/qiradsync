@@ -189,6 +189,126 @@ void main() {
       expect(second.blockedReason, 'Answer the earlier settlement first.');
     });
 
+    test(
+      'a settlement whose cut covers nothing new cannot be approved',
+      () async {
+        // The manager's very first settlement, proposing a cut of
+        // {investor: 0, manager: 0}. This is schema-valid and `receive()`
+        // accepts it, but cut rule 5 (spec 6.7) refuses an empty cut: there
+        // is nothing new to settle. `approvalsInbox` must say so itself,
+        // instead of showing it as approvable and letting the investor find
+        // out only after approving that it went invalid.
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 0, manager.key: 0},
+          },
+        );
+        await _receive(validator, [s1]);
+
+        final item = _inboxFor(validator, investor.key).single;
+        expect(item.canApprove, isFalse);
+        expect(
+          item.blockedReason,
+          'This settlement covers nothing new. Reject it.',
+        );
+      },
+    );
+
+    test(
+      'a settlement whose cut moves backward from the last one cannot be approved',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final sale = await manager.next(
+          partnership: partnershipId,
+          type: 'sale',
+          body: {'amount': 600},
+        );
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 1, manager.key: 1},
+          },
+        );
+        final approveS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s1.id,
+        );
+        // Investor value 0 leaves the investor's approve of S1 outside this
+        // cut (so closure has nothing to say about it), but it drops below
+        // S1's effective investor value of 1. Cut rule 4 (dominating)
+        // refuses this, even though cutIsHeld passes (the manager value
+        // still only names the sale, which is held).
+        final s2 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 0, manager.key: 1},
+          },
+        );
+        await _receive(validator, [sale, s1, approveS1, s2]);
+
+        final item = _inboxFor(
+          validator,
+          investor.key,
+        ).singleWhere((i) => i.target.id == s2.id);
+        expect(item.canApprove, isFalse);
+        expect(
+          item.blockedReason,
+          'This settlement moves the cut backward. Reject it.',
+        );
+      },
+    );
+
+    test(
+      'a settlement whose cut refers outside itself cannot be approved',
+      () async {
+        // The manager's expense (seq 2) refers to the investor's budget
+        // proposal (investor seq 1), but the cut names investor value 0 —
+        // so the expense is inside the cut while what it refers to is not.
+        // Cut rule 3 (closed) refuses this.
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final budget = await investor.next(
+          partnership: partnershipId,
+          type: 'budget_proposal',
+          body: {'grantee': manager.key, 'amount': 5000},
+        );
+        final sale = await manager.next(
+          partnership: partnershipId,
+          type: 'sale',
+          body: {'amount': 600},
+        );
+        final expense = await manager.next(
+          partnership: partnershipId,
+          type: 'expense',
+          body: {'amount': 1000, 'receiptHash': null},
+          refersTo: budget.id,
+        );
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': {investor.key: 0, manager.key: 2},
+          },
+        );
+        await _receive(validator, [budget, sale, expense, s1]);
+
+        final item = _inboxFor(validator, investor.key).single;
+        expect(item.canApprove, isFalse);
+        expect(
+          item.blockedReason,
+          'This settlement refers to a record outside its own cut. Reject it.',
+        );
+      },
+    );
+
     test('a malformed settlement cannot be approved', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();

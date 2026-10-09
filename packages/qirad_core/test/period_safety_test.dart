@@ -50,4 +50,55 @@ void main() {
       expect(periods, isEmpty);
     });
   });
+
+  // `settlementConsent` calls `periodShares` to build the summary the
+  // confirm screen shows (spec 6.7). An otherwise ordinary, well-formed
+  // settlement — a real cut, a real preview approve — must still come back
+  // null rather than crash when the create behind it has a bad ratio, the
+  // same "handed bad input on purpose" check as above.
+  group('settlementConsent with bad input does not crash', () {
+    test(
+      'a bad-ratio create keeps settlementConsent null too, not crashing',
+      () async {
+        final investor = ChainAuthor(await generateEd25519KeyPair());
+        final manager = ChainAuthor(await generateEd25519KeyPair());
+        final id = testId('partnership-bad-ratio-settlement');
+        final create = await investor.next(
+          partnership: id,
+          type: 'partnership_create',
+          id: id,
+          body: {
+            'investor': investor.key,
+            'manager': manager.key,
+            'ratio': {'investor': 60, 'manager': 50}, // sums to 110
+          },
+        );
+        final sale = await manager.next(
+          partnership: id,
+          type: 'sale',
+          body: {'amount': 600},
+        );
+        final settlement = await manager.next(
+          partnership: id,
+          type: 'settlement',
+          body: {
+            'cut': {investor.key: 0, manager.key: 1},
+          },
+        );
+        final answer = await investor.next(
+          partnership: id,
+          type: 'approve',
+          refersTo: settlement.id,
+        );
+
+        final consent = settlementConsent(
+          [create, sale, settlement],
+          partnershipKeys: {investor.key, manager.key},
+          proposal: settlement,
+          answer: answer,
+        );
+        expect(consent, isNull);
+      },
+    );
+  });
 }

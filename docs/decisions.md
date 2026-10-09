@@ -756,6 +756,11 @@ screen already refuses to show Approve without numbers either way.
 
 **Test:** `apps/mobile/test/settlement_confirm_screen_test.dart`, `'no Approve when the settlement cut is empty'`.
 
+**Superseded below (same day):** this entry's last paragraph called `_settlementBlock` not duplicating `cutProblem`
+"not wrong." On review, the disagreement it causes — the inbox says approvable, the rules say the settlement can
+never become effective — is a bug, not an accepted gap. See "approvalsInbox now reuses cutProblem" below, which
+fixes it; that entry's fixture replaces this one's.
+
 ---
 
 ## 2026-10-09 — A cancelled request tells the other partner it was cancelled, not that it was "already answered"
@@ -772,3 +777,62 @@ decision was made, when the request was simply withdrawn before anyone had the c
 
 **Test:** `apps/mobile/test/withdrawal_confirm_screen_test.dart`,
 `'a request the requester cancelled says so, not "already answered"'`.
+
+---
+
+## 2026-10-09 — `approvalsInbox` now reuses `cutProblem`; the all-zero cut was a real bug
+
+**Finding:** The previous entry's conclusion was wrong. `approvalsInbox`'s settlement block
+(`_settlementBlock`) checked the cut's shape, that any earlier settlement was already answered, the investor-
+approve seq bound, and `cutIsHeld` — but never `cutProblem`, which is where cut rules 3-5 (closed, dominating,
+**not empty**, spec 6.7) live. That is not a harmless gap: it means the inbox and the effectiveness rules could
+disagree. A settlement that can never become effective (an empty cut, one that moves backward, or one that
+refers outside itself) was shown to the investor as an ordinary, approvable item, with nothing to tell them
+Approve would do nothing.
+
+**Decision:** `_settlementBlock` gained a fourth check, after `cutIsHeld`: it computes the cut before this
+proposal (the last *effective* one, or `{0, 0}` if none yet — the same starting point `settlementStatuses`
+tracks) and calls `cutProblem(records, parties, cut, previous)` — the exact function `settlementStatuses` already
+calls once a settlement is approved, not a reimplementation of its rules. A non-null result blocks approve with a
+plain-English reason, Reject highlighted, one message per rule:
+
+- *covers nothing new* → "This settlement covers nothing new. Reject it."
+- *does not cover the previous cut* → "This settlement moves the cut backward. Reject it."
+- *refers to a record outside the cut* → "This settlement refers to a record outside its own cut. Reject it."
+
+Reusing `cutProblem` instead of writing a second check means the inbox can never disagree with what
+`settlementStatuses` decides later — one function owns cut rules 3-5, called from both places.
+
+**A further finding, while restoring the settlement screen's defensive test:** unlike the withdrawal screen's
+missing-summary test, there is no way to rebuild the equivalent "approvable but nothing to show" settlement state
+by hand (`Ledger.add`, bypassing `receive()`). The only remaining path to `settlementConsent` returning `null` on
+an otherwise-clean cut is a `partnership_create` with a ratio that does not sum to 100 (`periods.dart`'s decision
+Q3b short-circuit) — but `Validator._partnershipKeys` (which the screen needs just to open) is set only inside
+`receive()`'s success branch, right after the create passes the ratio-sum schema check. A bad-ratio create and a
+populated `partnershipKeys` can never exist on the same validator, through any public call. So, for settlements,
+this fix closes the gap completely — not only in ordinary use (true before this fix too) but by hand as well.
+
+**Decision (test strategy, three parts):**
+1. `packages/qirad_core/test/approvals_inbox_test.dart` — three new tests, one per `cutProblem` rule (empty,
+   backward, outside-cut), each expecting its message and `canApprove: false`.
+2. The settlement screen's missing-summary test is **not** restored as a widget-level fixture (there is none to
+   build). Instead, `packages/qirad_core/test/period_safety_test.dart` gained a `settlementConsent`-level test:
+   a hand-built bad-ratio create plus an otherwise ordinary settlement and preview approve still comes back
+   `null`, not a crash — proving the function itself stays safe, even though no widget test can reach it. Same
+   principle as M9/M10 (2026-10-06 mutation check): a redundant guard stays tested even when unreachable.
+3. The Approve-button decision itself (`!blocked && !needsSync && summary != null`) was duplicated, slightly
+   differently, in both confirm screens. Pulled out into one pure function, `canShowApprove` (new file
+   `apps/mobile/lib/inbox/approve_gate.dart`), used by both: `summary == null`, or any non-null `blockedReason`,
+   or `needsSync` — each alone hides Approve (deny-by-default, same spirit as `cutProblem` reuse). Both screens
+   now call it instead of repeating the condition. Unit-tested directly in
+   `apps/mobile/test/approve_gate_test.dart` (null summary, blocked reason, needs sync, all clear).
+4. `emptyCutSettlementReady()`'s test in `apps/mobile/test/settlement_confirm_screen_test.dart` is updated to
+   match: the all-zero cut is now blocked in the inbox itself ("This settlement covers nothing new. Reject it."),
+   with Reject highlighted (`FilledButton`), not a plain `OutlinedButton` with "No numbers to show yet."
+
+**Reason:** The spec's informed-consent rule (6.7) means Approve must never be offered for a settlement that can
+never do anything. Discovering this only after the fact (the settlement goes `invalid`, silently, once answered)
+is worse than refusing it up front, the same framing already used for the other three `_settlementBlock` checks.
+
+**Tests:** `packages/qirad_core/test/approvals_inbox_test.dart`, `packages/qirad_core/test/period_safety_test.dart`,
+`apps/mobile/test/approve_gate_test.dart`, `apps/mobile/test/settlement_confirm_screen_test.dart`.

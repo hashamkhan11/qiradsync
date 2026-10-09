@@ -4,6 +4,7 @@ import 'package:qirad_core/qirad_core.dart';
 import '../dashboard/format.dart';
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
+import 'approve_gate.dart';
 import 'confirm_widgets.dart';
 import 'consent_preview.dart';
 import 'refusal_text.dart';
@@ -87,12 +88,17 @@ class _SettlementConfirmScreenState extends State<SettlementConfirmScreen> {
     final summary = _shown;
 
     // Both of these blocked reasons can never become approvable; reject is
-    // the only sensible answer (spec 6.7, approvals_inbox.dart).
+    // the only sensible answer (spec 6.7, approvals_inbox.dart). They only
+    // affect how the block is *shown* (styling); whether Approve shows at
+    // all is decided in one shared place, `canShowApprove`.
     final mustReject =
         blockedReason != null && blockedReason.endsWith('Reject it.');
     final mustSync = blockedReason == 'Waiting for records to sync.';
-    final showApprove =
-        !mustReject && !mustSync && !_needsSync && summary != null;
+    final showApprove = canShowApprove(
+      summary: summary,
+      blockedReason: blockedReason,
+      needsSync: _needsSync,
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settlement')),

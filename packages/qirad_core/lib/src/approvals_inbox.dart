@@ -81,6 +81,7 @@ List<InboxItem> approvalsInbox(
         records: records,
         myKey: myKey,
         settlements: settlements,
+        parties: parties,
       );
       items.add(
         InboxItem(
@@ -130,18 +131,25 @@ InboxKind _kindOf(Record target) {
 /// is allowed. Only the investor answers a settlement, so [myKey] is the
 /// investor here.
 ///
-/// The three checks run in this order, so each partner sees the first problem:
+/// The four checks run in this order, so each partner sees the first problem:
 /// 1. An earlier proposal is still waiting. The ordering rule (spec 6.7) makes
 ///    any approve of this one invalid until the earlier one is answered.
 /// 2. The cut names an investor record the investor has not written. The
 ///    investor's own approve gets the next free seq, so a cut value at or above
 ///    that seq can never be approved. This is final, not a sync delay.
 /// 3. The phone does not hold the whole cut yet. This may clear after sync.
+/// 4. The cut fails one of rules 3-5 (closed, dominating, not empty). This
+///    reuses [cutProblem] — the same function `settlementStatuses` calls once
+///    the settlement is approved — so the inbox never disagrees with what
+///    actually becomes effective. Approving a settlement that fails here would
+///    always be answered with it going `invalid` and never doing anything, so
+///    it is blocked here instead of only being discovered after the fact.
 String? _settlementBlock(
   Record target, {
   required List<Record> records,
   required String myKey,
   required List<SettlementStatus> settlements,
+  required Parties? parties,
 }) {
   // A malformed settlement is not in the proposal list, so it has no cut and
   // no approve can count for it.
@@ -162,7 +170,49 @@ String? _settlementBlock(
   if (!cutIsHeld(records, cut)) {
     return 'Waiting for records to sync.';
   }
+
+  // `settlements` is only ever non-empty (so `index >= 0` above) when
+  // `parties` is not null — both come from the same `partiesOf(records)`
+  // call in `approvalsInbox`.
+  final previous = _previousEffectiveCut(settlements, index, parties!);
+  final problem = cutProblem(records, parties, cut, previous);
+  if (problem != null) return _cutProblemMessage(problem);
   return null;
+}
+
+/// The cut of the last settlement before [index] that became effective, or
+/// zero for both partners if none has yet — the same starting point
+/// [cutProblem]'s domination and not-empty rules (cut rules 4 and 5) compare
+/// against, and the same one `settlementStatuses` tracks as it walks the
+/// proposals in order.
+Map<String, int> _previousEffectiveCut(
+  List<SettlementStatus> settlements,
+  int index,
+  Parties parties,
+) {
+  for (var i = index - 1; i >= 0; i--) {
+    if (settlements[i].state == SettlementState.effective) {
+      return settlements[i].cut;
+    }
+  }
+  return {parties.investor: 0, parties.manager: 0};
+}
+
+/// Plain words for each of [cutProblem]'s reasons (spec 6.7, cut rules 3-5).
+/// A settlement that fails any of these can never become effective, so
+/// Reject is the only useful answer — the same framing as the other final
+/// blocks above.
+String _cutProblemMessage(String problem) {
+  switch (problem) {
+    case 'covers nothing new':
+      return 'This settlement covers nothing new. Reject it.';
+    case 'does not cover the previous cut':
+      return 'This settlement moves the cut backward. Reject it.';
+    case 'refers to a record outside the cut':
+      return 'This settlement refers to a record outside its own cut. Reject it.';
+    default:
+      return 'Not a valid settlement. Reject it.';
+  }
 }
 
 /// The seq of this partner's next record: one more than the highest seq held.

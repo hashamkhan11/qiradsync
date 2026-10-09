@@ -147,13 +147,12 @@ void main() {
   /// The manager's very first record: a settlement proposing to close a
   /// period covering zero records from either partner (cut `{0, 0}`). This
   /// is a real, ordinary record — schema (spec section 5) only requires
-  /// `cut` to be a two-key map, and `approvalsInbox`'s block check (spec
-  /// 6.7) only checks the cut's shape, holding and ordering, not the
-  /// "not empty" rule (cut rule 5). That rule lives one layer deeper, in
-  /// `cutProblem`, which only `settlementConsent` reaches. So this settles
-  /// into the inbox as `canApprove: true, blockedReason: null`, the same as
-  /// a normal one, but never becomes effective — there is genuinely
-  /// nothing to show.
+  /// `cut` to be a two-key map. `approvalsInbox`'s block check (spec 6.7)
+  /// now reuses `cutProblem` (cut rules 3-5: closed, dominating, not
+  /// empty), so this settlement is blocked in the inbox itself: "This
+  /// settlement covers nothing new. Reject it." Kept as a normal (not
+  /// hand-built) fixture, since it is a genuine record the validator
+  /// accepts — see docs/decisions.md, 2026-10-09.
   Future<Record> emptyCutSettlementReady() async {
     await startWithCreate();
     final s1 = await write(
@@ -342,17 +341,26 @@ void main() {
       },
     );
 
-    testWidgets('no Approve when the settlement cut is empty', (tester) async {
-      await tester.runAsync(() async {
-        await emptyCutSettlementReady();
-        await pump(tester);
-        await tester.pump();
+    testWidgets(
+      'no Approve, and Reject highlighted, when the settlement cut is empty',
+      (tester) async {
+        await tester.runAsync(() async {
+          await emptyCutSettlementReady();
+          await pump(tester);
+          await tester.pump();
 
-        expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
-        expect(find.text('No numbers to show yet.'), findsOneWidget);
-        expect(find.widgetWithText(OutlinedButton, 'Reject'), findsOneWidget);
-      });
-    });
+          expect(
+            find.text('This settlement covers nothing new. Reject it.'),
+            findsOneWidget,
+          );
+          expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
+          // Blocked for a reason that can never clear: Reject is
+          // highlighted (destructive), the same as the other final blocks.
+          expect(find.widgetWithText(FilledButton, 'Reject'), findsOneWidget);
+          expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
+        });
+      },
+    );
 
     testWidgets(
       'disables both buttons for the whole time a write is in flight',

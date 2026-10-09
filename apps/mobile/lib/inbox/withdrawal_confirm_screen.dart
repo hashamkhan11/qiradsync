@@ -4,6 +4,7 @@ import 'package:qirad_core/qirad_core.dart';
 import '../dashboard/format.dart';
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
+import 'approve_gate.dart';
 import 'confirm_widgets.dart';
 import 'consent_preview.dart';
 import 'refusal_text.dart';
@@ -91,7 +92,15 @@ class _WithdrawalConfirmScreenState extends State<WithdrawalConfirmScreen> {
       ),
     );
     final summary = _shown;
-    final showApprove = !_needsSync && summary != null;
+    // The inbox never blocks a withdrawal (`approvalsInbox` always gives it
+    // `blockedReason: null`), so only the summary and sync state can hide
+    // Approve here. Passing `item.blockedReason` through — instead of a
+    // literal `null` — keeps this screen honest if that ever changes.
+    final showApprove = canShowApprove(
+      summary: summary,
+      blockedReason: item.blockedReason,
+      needsSync: _needsSync,
+    );
 
     return Scaffold(
       appBar: AppBar(title: const Text('Withdrawal')),
