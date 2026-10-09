@@ -22,14 +22,20 @@ class DashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final validator = store.validatorFor(partnership);
+    final usable = validator.usableRecords;
+    final keys = validator.partnershipKeys!;
     // No clock here: the ratio comes from the records alone (hard rule 3).
-    final dashboard = buildDashboard(
-      validator.usableRecords,
-      partnershipKeys: validator.partnershipKeys!,
-    );
+    final dashboard = buildDashboard(usable, partnershipKeys: keys);
     final ratio = dashboard.ratio;
     final money = dashboard.money;
     final shares = dashboard.shares;
+    final parties = partiesOf(usable);
+    final withdrawn = totalProfitWithdrawn(usable, partnershipKeys: keys);
+    final periods = periodShares(usable, partnershipKeys: keys);
+    // Spec 6.7: "owed back" only counts closed periods, so before the first
+    // settlement there is nothing settled to compare withdrawals against.
+    final beforeFirstSettlement = periods.every((p) => p.open);
+    final openPeriod = periods.isEmpty ? null : periods.last;
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -72,6 +78,56 @@ class DashboardScreen extends StatelessWidget {
                   style: TextStyle(color: theme.colorScheme.onErrorContainer),
                 ),
               ),
+            ),
+          ],
+          // Both sections below need a genuinely active partnership, not just
+          // a well-formed create: `partiesOf` reads the create's body alone,
+          // with no approval check, so it is non-null even before the manager
+          // approves. `ratio` already carries that approval check (it comes
+          // from `activeRatio`, spec 6.6), so it is the right guard here too.
+          if (ratio != null && parties != null) ...[
+            const Divider(height: 32),
+            Text('Profit withdrawn', style: theme.textTheme.titleMedium),
+            if (beforeFirstSettlement) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Not yet compared to settled profit.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+            const SizedBox(height: 8),
+            _Figure(
+              label: 'Investor',
+              value: formatPaisa(withdrawn[parties.investor] ?? 0),
+            ),
+            _Figure(
+              label: 'Manager',
+              value: formatPaisa(withdrawn[parties.manager] ?? 0),
+            ),
+          ],
+          if (ratio != null && openPeriod != null) ...[
+            const Divider(height: 32),
+            Row(
+              children: [
+                Text('Open period', style: theme.textTheme.titleMedium),
+                const SizedBox(width: 8),
+                Text(
+                  '(provisional)',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            _Figure(label: 'Result', value: formatPaisa(openPeriod.result)),
+            _Figure(
+              label: 'Investor share',
+              value: formatPaisa(openPeriod.shares.investor),
+            ),
+            _Figure(
+              label: 'Manager share',
+              value: formatPaisa(openPeriod.shares.manager),
             ),
           ],
         ],
