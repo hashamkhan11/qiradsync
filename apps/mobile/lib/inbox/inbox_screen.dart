@@ -4,6 +4,7 @@ import 'package:qirad_core/qirad_core.dart';
 import '../dashboard/format.dart';
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
+import 'budget_confirm_screen.dart';
 import 'generic_confirm_screen.dart';
 import 'partnership_create_confirm_screen.dart';
 import 'reversal_confirm_screen.dart';
@@ -122,6 +123,14 @@ class _InboxScreenState extends State<InboxScreen> {
             onSyncNow: widget.onSyncNow,
           ),
           InboxKind.reversal => ReversalConfirmScreen(
+            store: widget.store,
+            writer: widget.writer,
+            myKey: widget.myKey,
+            partnership: widget.partnership,
+            targetId: item.target.id,
+            onSyncNow: widget.onSyncNow,
+          ),
+          InboxKind.budget => BudgetConfirmScreen(
             store: widget.store,
             writer: widget.writer,
             myKey: widget.myKey,

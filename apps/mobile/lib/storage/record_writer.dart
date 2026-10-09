@@ -47,13 +47,15 @@ class WriteResult {
     : refusal = null,
       latestSettlement = null,
       latestWithdrawal = null,
-      latestReversal = null;
+      latestReversal = null,
+      latestBudget = null;
 
   const WriteResult.refused(
     WriteRefusal this.refusal, {
     this.latestSettlement,
     this.latestWithdrawal,
     this.latestReversal,
+    this.latestBudget,
   }) : record = null;
 
   final Record? record;
@@ -69,6 +71,9 @@ class WriteResult {
 
   /// The current reversal summary, set in the same cases as [latestSettlement].
   final ReversalConsent? latestReversal;
+
+  /// The current budget summary, set in the same cases as [latestSettlement].
+  final BudgetConsent? latestBudget;
 }
 
 /// The only code that writes this phone's own records (spec 7.4).
@@ -114,16 +119,18 @@ class RecordWriter {
   /// or when this key has already answered validly. An invalid earlier answer
   /// does not count, so a new valid answer is allowed (spec 6.7).
   ///
-  /// An approve of a settlement or withdrawal also needs the summary the user
-  /// saw ([shownSettlement] or [shownWithdrawal]). The summary is recomputed
-  /// inside the write transaction. If it differs, nothing is written, and the
-  /// result carries the new numbers (spec 6.7, consent).
+  /// An approve of a settlement, withdrawal, reversal or budget proposal also
+  /// needs the summary the user saw ([shownSettlement], [shownWithdrawal],
+  /// [shownReversal] or [shownBudget]). The summary is recomputed inside the
+  /// write transaction. If it differs, nothing is written, and the result
+  /// carries the new numbers (spec 6.7, consent).
   Future<WriteResult> answer(
     String targetId, {
     required bool approve,
     SettlementConsent? shownSettlement,
     WithdrawalConsent? shownWithdrawal,
     ReversalConsent? shownReversal,
+    BudgetConsent? shownBudget,
   }) async {
     // The gate reads the relay vector from the latest sync (spec 7.4, rule 2).
     final relayVector = await _store.relayVectorFor(partnership);
@@ -135,6 +142,7 @@ class RecordWriter {
     SettlementConsent? latestSettlement;
     WithdrawalConsent? latestWithdrawal;
     ReversalConsent? latestReversal;
+    BudgetConsent? latestBudget;
     final text = await _store.appendWith(partnership, (texts) async {
       final ledger = [
         for (final text in texts)
@@ -258,6 +266,22 @@ class RecordWriter {
         }
         if (refusal != null) return null;
       }
+      if (approve && current.target.type == 'budget_proposal') {
+        final now = budgetConsent(
+          validator.usableRecords,
+          partnershipKeys: keys,
+          proposal: current.target,
+        );
+        latestBudget = now;
+        if (now == null) {
+          if (shownBudget != null) refusal = WriteRefusal.summaryChanged;
+        } else if (shownBudget == null) {
+          refusal = WriteRefusal.consentNotShown;
+        } else if (now != shownBudget) {
+          refusal = WriteRefusal.summaryChanged;
+        }
+        if (refusal != null) return null;
+      }
 
       // Every check has passed: this write will really happen. A test can
       // hold this open; a real run passes straight through.
@@ -273,6 +297,7 @@ class RecordWriter {
         latestSettlement: latestSettlement,
         latestWithdrawal: latestWithdrawal,
         latestReversal: latestReversal,
+        latestBudget: latestBudget,
       );
     }
     return WriteResult.written(
