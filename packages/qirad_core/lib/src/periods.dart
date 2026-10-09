@@ -67,7 +67,7 @@ List<PeriodShares> periodShares(
   required Set<String> partnershipKeys,
 }) {
   final records = usable.toList();
-  final parties = partiesOf(records);
+  final parties = proposedParties(records);
   if (parties == null) return const [];
 
   // cuts[0] is before period 1. Each effective settlement closes one period.
@@ -279,7 +279,7 @@ Map<String, WithdrawalSplit> withdrawalSplits(
   required Set<String> partnershipKeys,
 }) {
   final records = usable.toList();
-  final parties = partiesOf(records);
+  final parties = proposedParties(records);
   if (parties == null) return const {};
 
   // Closed periods only, so nothing provisional can create a debt (spec 6.7).
@@ -345,7 +345,7 @@ Map<String, int> totalProfitWithdrawn(
   required Set<String> partnershipKeys,
 }) {
   final records = usable.toList();
-  final parties = partiesOf(records);
+  final parties = proposedParties(records);
   if (parties == null) return const {};
 
   final effectiveness = computeEffective(

@@ -80,7 +80,9 @@ void main() {
         manager.publicKeyBase64Url: managerSeq,
       });
 
-  Future<void> startWithCreate() async {
+  /// The investor's partnership_create, saved with the pins (spec 2.1), with
+  /// no approve yet, so the partnership is still pending (spec section 5).
+  Future<void> startWithUnapprovedCreate() async {
     final create = await write(
       investor,
       investorChain,
@@ -104,6 +106,21 @@ void main() {
     );
   }
 
+  /// [startWithUnapprovedCreate], then the manager's approve of it, so the
+  /// partnership is active (spec section 5) and reversals can be answered.
+  Future<void> startWithCreate() async {
+    await startWithUnapprovedCreate();
+    await receive(
+      await write(
+        manager,
+        managerChain,
+        id: 'approve-create',
+        type: 'approve',
+        refersTo: testId('partnership'),
+      ),
+    );
+  }
+
   /// The manager reverses the investor's invest. Only capital and cash move;
   /// there is no period behind an invest (spec 6.5).
   Future<Record> investReversalReady() async {
@@ -124,7 +141,7 @@ void main() {
       refersTo: invest.id,
     );
     await receive(reversal);
-    await syncedAs(investorSeq: 2, managerSeq: 1);
+    await syncedAs(investorSeq: 2, managerSeq: 2);
     return reversal;
   }
 
@@ -176,7 +193,7 @@ void main() {
       refersTo: expense.id,
     );
     await receive(reversal);
-    await syncedAs(investorSeq: 3, managerSeq: 3);
+    await syncedAs(investorSeq: 3, managerSeq: 4);
     return reversal;
   }
 
@@ -223,7 +240,7 @@ void main() {
       refersTo: sale.id,
     );
     await receive(reversal);
-    await syncedAs(investorSeq: 3, managerSeq: 2);
+    await syncedAs(investorSeq: 3, managerSeq: 3);
     return reversal;
   }
 
@@ -261,7 +278,7 @@ void main() {
       refersTo: proposal.id,
     );
     await receive(reversal);
-    await syncedAs(investorSeq: 3, managerSeq: 1);
+    await syncedAs(investorSeq: 3, managerSeq: 2);
     return reversal;
   }
 
@@ -344,7 +361,11 @@ void main() {
       (tester) async {
         await tester.runAsync(() async {
           final reversal = await investReversalReady();
-          await pump(tester, myKey: investor.publicKeyBase64Url, targetId: reversal.id);
+          await pump(
+            tester,
+            myKey: investor.publicKeyBase64Url,
+            targetId: reversal.id,
+          );
           await tester.pump();
 
           expect(valueFor(tester, 'Reversing').data, 'invest (Rs 1,000.00)');
@@ -382,39 +403,44 @@ void main() {
       (tester) async {
         await tester.runAsync(() async {
           final reversal = await expenseReversalReady();
-          await pump(tester, myKey: manager.publicKeyBase64Url, targetId: reversal.id);
+          await pump(
+            tester,
+            myKey: manager.publicKeyBase64Url,
+            targetId: reversal.id,
+          );
           await tester.pump();
 
           expect(valueFor(tester, 'Cash change').data, 'Rs 120.00');
-          expect(valueFor(tester, 'Result change (period 1)').data, 'Rs 120.00');
+          expect(
+            valueFor(tester, 'Result change (period 1)').data,
+            'Rs 120.00',
+          );
           expect(valueFor(tester, 'Freed budget').data, 'Rs 120.00');
           expect(find.textContaining('prior-period adjustment'), findsNothing);
         });
       },
     );
 
-    testWidgets(
-      'reversing a sale after its period closed books a prior-period '
-      'correction instead of a result change',
-      (tester) async {
-        await tester.runAsync(() async {
-          final reversal = await closedSaleReversalReady();
-          await pump(tester, myKey: manager.publicKeyBase64Url, targetId: reversal.id);
-          await tester.pump();
+    testWidgets('reversing a sale after its period closed books a prior-period '
+        'correction instead of a result change', (tester) async {
+      await tester.runAsync(() async {
+        final reversal = await closedSaleReversalReady();
+        await pump(
+          tester,
+          myKey: manager.publicKeyBase64Url,
+          targetId: reversal.id,
+        );
+        await tester.pump();
 
-          expect(find.textContaining('prior-period adjustment'), findsOneWidget);
-          expect(
-            valueFor(tester, 'Investor share correction').data,
-            '-Rs 300.00',
-          );
-          expect(
-            valueFor(tester, 'Manager share correction').data,
-            '-Rs 200.00',
-          );
-          expect(find.textContaining('Result change'), findsNothing);
-        });
-      },
-    );
+        expect(find.textContaining('prior-period adjustment'), findsOneWidget);
+        expect(
+          valueFor(tester, 'Investor share correction').data,
+          '-Rs 300.00',
+        );
+        expect(valueFor(tester, 'Manager share correction').data, '-Rs 200.00');
+        expect(find.textContaining('Result change'), findsNothing);
+      });
+    });
 
     testWidgets(
       'a reversal of a kind that can never be reversed shows no numbers and '
@@ -422,7 +448,11 @@ void main() {
       (tester) async {
         await tester.runAsync(() async {
           final reversal = await nonReversibleReady();
-          await pump(tester, myKey: manager.publicKeyBase64Url, targetId: reversal.id);
+          await pump(
+            tester,
+            myKey: manager.publicKeyBase64Url,
+            targetId: reversal.id,
+          );
           await tester.pump();
 
           expect(find.text('No numbers to show yet.'), findsOneWidget);
@@ -432,25 +462,30 @@ void main() {
       },
     );
 
-    testWidgets(
-      'already answered by a write made elsewhere',
-      (tester) async {
-        await tester.runAsync(() async {
-          final reversal = await answeredElsewhereReady();
-          await pump(tester, myKey: investor.publicKeyBase64Url, targetId: reversal.id);
-          await tester.pump();
+    testWidgets('already answered by a write made elsewhere', (tester) async {
+      await tester.runAsync(() async {
+        final reversal = await answeredElsewhereReady();
+        await pump(
+          tester,
+          myKey: investor.publicKeyBase64Url,
+          targetId: reversal.id,
+        );
+        await tester.pump();
 
-          expect(find.text('This was already answered.'), findsOneWidget);
-          expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
-          expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
-        });
-      },
-    );
+        expect(find.text('This was already answered.'), findsOneWidget);
+        expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
+        expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
+      });
+    });
 
     testWidgets('rejecting asks "are you sure?" first', (tester) async {
       await tester.runAsync(() async {
         final reversal = await investReversalReady();
-        await pump(tester, myKey: investor.publicKeyBase64Url, targetId: reversal.id);
+        await pump(
+          tester,
+          myKey: investor.publicKeyBase64Url,
+          targetId: reversal.id,
+        );
         await tester.pump();
 
         await tester.tap(find.widgetWithText(OutlinedButton, 'Reject'));
@@ -466,7 +501,8 @@ void main() {
         await tester.tap(find.widgetWithText(FilledButton, 'Reject'));
         await pumpUntil(
           tester,
-          () => find.widgetWithText(OutlinedButton, 'Reject').evaluate().isEmpty,
+          () =>
+              find.widgetWithText(OutlinedButton, 'Reject').evaluate().isEmpty,
         );
 
         final saved = [

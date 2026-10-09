@@ -140,7 +140,7 @@ void main() {
     return id;
   }
 
-  testWidgets('before the manager approves, it says there is no ratio yet', (
+  testWidgets('before the manager approves, it says to wait for approval', (
     tester,
   ) async {
     final id = await tester.runAsync(
@@ -155,7 +155,7 @@ void main() {
 
     expect(find.text('Rs 0.00'), findsNWidgets(3));
     expect(
-      find.text('No active ratio yet. The manager must approve the start.'),
+      find.text('Waiting for the manager to approve the partnership.'),
       findsOneWidget,
     );
     expect(find.textContaining('Ratio:'), findsNothing);

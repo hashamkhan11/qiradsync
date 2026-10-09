@@ -1,6 +1,7 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
+import 'support/cut_helper.dart';
 import 'support/partnership_fixture.dart';
 
 MoneySummary _view(Validator validator, Map<String, int> cut) => cutMoney(
@@ -22,18 +23,26 @@ void main() {
       () async {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
-        // Manager seq 1: a profit withdrawal that nobody has answered yet.
+        final create = validator.usableRecords.singleWhere(
+          (r) => r.type == 'partnership_create',
+        );
+        // A profit withdrawal that nobody has answered yet.
         final withdraw = await manager.next(
           partnership: partnershipId,
           type: 'withdraw_request',
           body: {'amount': 300, 'kind': 'profit'},
         );
-        // Manager seq 2: S1 covers the withdrawal (manager seq 1).
+        // S1 covers the create and the withdrawal.
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 1, manager.key: 1},
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: create,
+              upToManager: withdraw,
+            ),
           },
         );
         final approveS1 = await investor.next(
@@ -49,10 +58,15 @@ void main() {
         ).settlements.singleWhere((s) => s.record.id == s1.id);
         expect(status.state, SettlementState.effective);
 
-        final cut1 = {investor.key: 1, manager.key: 1};
+        final cut1 = cutUpTo(
+          investor,
+          manager,
+          upToInvestor: create,
+          upToManager: withdraw,
+        );
         expect(_view(validator, cut1).profitPaid, 0);
 
-        // Investor seq 3: the late approval of the withdrawal, after cut1.
+        // The late approval of the withdrawal, after cut1.
         final approveWithdraw = await investor.next(
           partnership: partnershipId,
           type: 'approve',
@@ -63,12 +77,17 @@ void main() {
         // The settled view does not change. Its money appears in the next period.
         expect(_view(validator, cut1).profitPaid, 0);
 
-        // Manager seq 3: S2 covers investor seq 3 (the approval) and S1.
+        // S2 covers the late approval and S1.
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 3, manager.key: 2},
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: approveWithdraw,
+              upToManager: s1,
+            ),
           },
         );
         final approveS2 = await investor.next(
@@ -78,7 +97,12 @@ void main() {
         );
         await _receive(validator, [s2, approveS2]);
 
-        final cut2 = {investor.key: 3, manager.key: 2};
+        final cut2 = cutUpTo(
+          investor,
+          manager,
+          upToInvestor: approveWithdraw,
+          upToManager: s1,
+        );
         expect(_view(validator, cut2).profitPaid, 300);
         final period2 = periodMoney(
           validator.usableRecords,
@@ -96,28 +120,33 @@ void main() {
       () async {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
-        // Investor seq 2: a budget for the manager. It needs the manager's consent.
+        // A budget for the manager. It needs the manager's consent.
         final budget = await investor.next(
           partnership: partnershipId,
           type: 'budget_proposal',
           body: {'grantee': manager.key, 'amount': 1000},
         );
-        // Manager seq 1: an expense of 300 under that budget.
+        // An expense of 300 under that budget.
         final expense = await manager.next(
           partnership: partnershipId,
           type: 'expense',
           refersTo: budget.id,
           body: {'amount': 300},
         );
-        // Manager seq 2: S1 closes investor seq 2 (the budget) and manager seq 1.
+        // S1 closes the budget and the expense.
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 2, manager.key: 1},
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: budget,
+              upToManager: expense,
+            ),
           },
         );
-        // Investor seq 3: approves S1.
+        // Approves S1.
         final approveS1 = await investor.next(
           partnership: partnershipId,
           type: 'approve',
@@ -125,10 +154,15 @@ void main() {
         );
         await _receive(validator, [budget, expense, s1, approveS1]);
 
-        final cut1 = {investor.key: 2, manager.key: 1};
+        final cut1 = cutUpTo(
+          investor,
+          manager,
+          upToInvestor: budget,
+          upToManager: expense,
+        );
         expect(_view(validator, cut1).result, 0, reason: 'no budget consent');
 
-        // Manager seq 3: the late budget consent, after cut1.
+        // The late budget consent, after cut1.
         final consent = await manager.next(
           partnership: partnershipId,
           type: 'approve',
@@ -139,12 +173,17 @@ void main() {
         // The settled view stays the same. The expense is outside the consent.
         expect(_view(validator, cut1).result, 0);
 
-        // Manager seq 4: S2 covers the consent (manager seq 3) and S1.
+        // S2 covers the consent and S1.
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 2, manager.key: 3},
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: budget,
+              upToManager: consent,
+            ),
           },
         );
         final approveS2 = await investor.next(
@@ -154,7 +193,12 @@ void main() {
         );
         await _receive(validator, [s2, approveS2]);
 
-        final cut2 = {investor.key: 2, manager.key: 3};
+        final cut2 = cutUpTo(
+          investor,
+          manager,
+          upToInvestor: budget,
+          upToManager: consent,
+        );
         expect(_view(validator, cut2).result, -300);
         final period2 = periodMoney(
           validator.usableRecords,

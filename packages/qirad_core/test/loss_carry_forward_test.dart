@@ -1,6 +1,7 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
+import 'support/cut_helper.dart';
 import 'support/partnership_fixture.dart';
 
 Future<void> _receive(Validator validator, Iterable<Record> records) async {
@@ -16,7 +17,7 @@ void main() {
       () async {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
-        // Investor seq 2: budget 10,000 for the manager. Manager seq 1: consent.
+        // Budget 10,000 for the manager, with consent.
         final budget = await investor.next(
           partnership: partnershipId,
           type: 'budget_proposal',
@@ -27,39 +28,47 @@ void main() {
           type: 'approve',
           refersTo: budget.id,
         );
-        // Manager seq 2: expense 300 with no sales, so period 1 is a loss of 300.
+        // Expense 300 with no sales, so period 1 is a loss of 300.
         final expense = await manager.next(
           partnership: partnershipId,
           type: 'expense',
           refersTo: budget.id,
           body: {'amount': 300, 'receiptHash': null},
         );
-        // Manager seq 3: S1 closes period 1. Investor seq 3 approves it.
+        // S1 closes period 1: it must reach the expense, or the loss it
+        // creates stays outside the settled period.
+        final s1Cut = cutUpTo(investor, manager, upToInvestor: budget, upToManager: expense);
+        expect(
+          expense.seq,
+          lessThanOrEqualTo(s1Cut[manager.key]!),
+          reason: 'the expense is inside S1\'s cut',
+        );
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
-          body: {
-            'cut': {investor.key: 2, manager.key: 2},
-          },
+          body: {'cut': s1Cut},
         );
         final approveS1 = await investor.next(
           partnership: partnershipId,
           type: 'approve',
           refersTo: s1.id,
         );
-        // Manager seq 4: sale 500 in period 2. Manager seq 5: S2 closes it.
-        // Investor seq 4 approves S2.
+        // Sale 500 in period 2. S2 closes it.
         final sale = await manager.next(
           partnership: partnershipId,
           type: 'sale',
           body: {'amount': 500},
         );
+        final s2Cut = cutUpTo(investor, manager, upToInvestor: budget, upToManager: sale);
+        expect(
+          sale.seq,
+          lessThanOrEqualTo(s2Cut[manager.key]!),
+          reason: 'the sale is inside S2\'s cut',
+        );
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
-          body: {
-            'cut': {investor.key: 3, manager.key: 4},
-          },
+          body: {'cut': s2Cut},
         );
         final approveS2 = await investor.next(
           partnership: partnershipId,

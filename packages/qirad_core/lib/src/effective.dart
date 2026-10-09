@@ -50,6 +50,12 @@ class Effectiveness {
   /// The state of every settlement proposal, in manager seq order (spec 6.7).
   final List<SettlementStatus> settlements;
 
+  /// The `partnership_create`'s own decision (spec section 5): `pending`
+  /// while the manager has not answered, `active` once approved, `dead` if
+  /// rejected, or `null` if there is no create at all. Nothing but the
+  /// create is in [effectiveIds] unless this is `active`.
+  final DecisionStatus? partnershipStatus;
+
   const Effectiveness({
     required this.effectiveIds,
     required this.cancelledIds,
@@ -58,6 +64,7 @@ class Effectiveness {
     required this.budgetUsed,
     required this.invalidResponses,
     required this.settlements,
+    required this.partnershipStatus,
   });
 
   bool isEffective(Record record) => effectiveIds.contains(record.id);
@@ -87,7 +94,7 @@ Effectiveness computeEffective(
       if (d.status != DecisionStatus.active) d.target.id,
   };
 
-  final parties = partiesOf(records);
+  final parties = proposedParties(records);
   final invalidResponses = <String, String>{
     for (final d in decisions)
       for (final response in d.invalidResponses)
@@ -200,9 +207,22 @@ Effectiveness computeEffective(
     expenseStatus.putIfAbsent(record.id, () => ExpenseStatus.noEffectiveBudget);
   }
 
+  // Spec section 5: until the create is active, nothing else is effective —
+  // not even a record made before the create existed, since this is a pure
+  // function of the current set, with no notion of "before" or "after"
+  // (hard rule 3, no clock-based ordering). A create whose own ratio is
+  // broken (so it could never give a real split) also activates nothing.
+  final status = partnershipStatus(decisions);
+  final create = records.where((r) => r.type == 'partnership_create').toList();
+  final partnershipActive =
+      status == DecisionStatus.active &&
+      create.isNotEmpty &&
+      ratioOf(create.single) != null;
+
   final effectiveIds = {
     for (final record in records)
       if (!blockedIds.contains(record.id) &&
+          (record.type == 'partnership_create' || partnershipActive) &&
           _isEffective(
             record,
             effectiveReversalIds,
@@ -221,6 +241,7 @@ Effectiveness computeEffective(
     budgetUsed: budgetUsed,
     invalidResponses: invalidResponses,
     settlements: settlements,
+    partnershipStatus: status,
   );
 }
 

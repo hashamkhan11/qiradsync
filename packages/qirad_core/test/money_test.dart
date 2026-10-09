@@ -367,6 +367,9 @@ void main() {
         final create = first.usableRecords.singleWhere(
           (r) => r.type == 'partnership_create',
         );
+        final approveCreate = first.usableRecords.singleWhere(
+          (r) => r.type == 'approve' && r.refersTo == create.id,
+        );
         final invest = await investor.next(
           partnership: partnershipId,
           type: 'invest',
@@ -399,6 +402,7 @@ void main() {
         for (final order in orders) {
           final validator = Validator.unpinnedForTesting();
           await validator.receiveText(canonicalJson(create.toJson()));
+          await validator.receiveText(canonicalJson(approveCreate.toJson()));
           for (final record in order) {
             await validator.receiveText(canonicalJson(record.toJson()));
           }

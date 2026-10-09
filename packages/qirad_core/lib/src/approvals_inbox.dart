@@ -53,7 +53,7 @@ List<InboxItem> approvalsInbox(
 
   final records = usable.toList();
   final decisions = decideApprovals(records, partnershipKeys: partnershipKeys);
-  final parties = partiesOf(records);
+  final parties = proposedParties(records);
   final settlements = parties == null
       ? <SettlementStatus>[]
       : settlementStatuses(records, parties: parties, decisions: decisions);
@@ -72,12 +72,21 @@ List<InboxItem> approvalsInbox(
     partnershipKeys: partnershipKeys,
   );
 
+  // Spec section 5: until the create is active, nothing but the create (and
+  // the manager's answer to it) is effective — so nothing else belongs in
+  // the inbox either. Reusing `effectiveness.partnershipStatus`, already
+  // computed above, keeps this the same one answer `computeEffective` gives,
+  // not a second check that could disagree with it.
+  final partnershipActive =
+      effectiveness.partnershipStatus == DecisionStatus.active;
+
   final items = <InboxItem>[];
   for (final decision in decisions) {
     final target = decision.target;
     if (decision.status != DecisionStatus.pending) continue;
     if (target.author == myKey) continue;
     if (effectiveness.cancelledIds.contains(target.id)) continue;
+    if (target.type != 'partnership_create' && !partnershipActive) continue;
 
     final kind = _kindOf(target);
     if (kind == InboxKind.settlement) {
@@ -177,7 +186,7 @@ String? _settlementBlock(
   }
 
   // `settlements` is only ever non-empty (so `index >= 0` above) when
-  // `parties` is not null — both come from the same `partiesOf(records)`
+  // `parties` is not null — both come from the same `proposedParties(records)`
   // call in `approvalsInbox`.
   final previous = _previousEffectiveCut(settlements, index, parties!);
   final problem = cutProblem(records, parties, cut, previous);

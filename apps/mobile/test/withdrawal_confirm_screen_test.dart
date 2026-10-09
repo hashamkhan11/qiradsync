@@ -80,7 +80,9 @@ void main() {
         manager.publicKeyBase64Url: managerSeq,
       });
 
-  Future<void> startWithCreate() async {
+  /// The investor's partnership_create, saved with the pins (spec 2.1), with
+  /// no approve yet, so the partnership is still pending (spec section 5).
+  Future<void> startWithUnapprovedCreate() async {
     final create = await write(
       investor,
       investorChain,
@@ -104,36 +106,55 @@ void main() {
     );
   }
 
+  /// [startWithUnapprovedCreate], then the manager's approve of it, so the
+  /// partnership is active (spec section 5) and withdrawals can be answered.
+  Future<void> startWithCreate() async {
+    await startWithUnapprovedCreate();
+    await receive(
+      await write(
+        manager,
+        managerChain,
+        id: 'approve-create',
+        type: 'approve',
+        refersTo: testId('partnership'),
+      ),
+    );
+  }
+
   /// Invest 1,000, sale 500, a pending settlement S1, and a manager request
   /// to withdraw 10 of profit. Before S1 is approved, the manager's settled
   /// share is 0 (mirrors record_writer_test.dart's own summary-changed case).
   Future<Record> withdrawalReady() async {
     await startWithCreate();
-    await receive(
-      await write(
-        investor,
-        investorChain,
-        id: 'invest-1',
-        type: 'invest',
-        body: const {'amount': 100000},
-      ),
+    final invest = await write(
+      investor,
+      investorChain,
+      id: 'invest-1',
+      type: 'invest',
+      body: const {'amount': 100000},
     );
-    await receive(
-      await write(
-        manager,
-        managerChain,
-        id: 'sale-1',
-        type: 'sale',
-        body: const {'amount': 50000},
-      ),
+    await receive(invest);
+    final sale = await write(
+      manager,
+      managerChain,
+      id: 'sale-1',
+      type: 'sale',
+      body: const {'amount': 50000},
     );
+    await receive(sale);
+    // The cut reads each record's own seq, not a hand-counted number, so a
+    // fixture change (like adding the manager's approve of the create)
+    // cannot silently shift what this settlement covers.
     s1 = await write(
       manager,
       managerChain,
       id: 's1',
       type: 'settlement',
       body: {
-        'cut': {investor.publicKeyBase64Url: 2, manager.publicKeyBase64Url: 1},
+        'cut': {
+          investor.publicKeyBase64Url: invest.seq,
+          manager.publicKeyBase64Url: sale.seq,
+        },
       },
     );
     await receive(s1);
@@ -145,7 +166,7 @@ void main() {
       body: const {'amount': 1000, 'kind': 'profit'},
     );
     await receive(request);
-    await syncedAs(investorSeq: 2, managerSeq: 2);
+    await syncedAs(investorSeq: invest.seq, managerSeq: s1.seq);
     return request;
   }
 
@@ -171,7 +192,7 @@ void main() {
       body: const {},
     );
     store.validatorFor(partnership).ledger.add(request);
-    await syncedAs(investorSeq: 1, managerSeq: 1);
+    await syncedAs(investorSeq: 1, managerSeq: 2);
   }
 
   /// The manager withdraws, then cancels their own request before the
@@ -199,7 +220,7 @@ void main() {
         refersTo: request.id,
       ),
     );
-    await syncedAs(investorSeq: 1, managerSeq: 2);
+    await syncedAs(investorSeq: 1, managerSeq: 3);
     return request;
   }
 
@@ -435,7 +456,7 @@ void main() {
         await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
         await tester.pump();
         expect(find.text('Reject this withdrawal?'), findsNothing);
-        expect(await store.savedTexts(partnership), hasLength(5));
+        expect(await store.savedTexts(partnership), hasLength(6));
 
         // Reject again, this time confirming in the dialog.
         await tester.tap(find.widgetWithText(OutlinedButton, 'Reject'));
@@ -468,11 +489,11 @@ void main() {
         await tester.tap(approve);
         await pumpUntil(tester, () => approve.evaluate().isEmpty);
 
-        // Exactly one approve was saved (create, invest, sale, settlement,
-        // request, approve), and no two of my own records share a seq: the
-        // second tap's write is refused as alreadyAnswered by the serial
-        // queue, not raced into a fork.
-        expect(await store.savedTexts(partnership), hasLength(6));
+        // Exactly one approve was saved (create, approveCreate, invest,
+        // sale, settlement, request, approve), and no two of my own records
+        // share a seq: the second tap's write is refused as alreadyAnswered
+        // by the serial queue, not raced into a fork.
+        expect(await store.savedTexts(partnership), hasLength(7));
         final seqs = await mySeqs();
         expect(seqs, hasLength(seqs.toSet().length));
         // The second tap is refused as alreadyAnswered, but that refusal

@@ -1,6 +1,7 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
+import 'support/cut_helper.dart';
 import 'support/partnership_fixture.dart';
 
 const _investor = 'investor-key';
@@ -32,6 +33,7 @@ Record _record({
   required int seq,
   required String type,
   Map<String, dynamic> body = const {},
+  String? refersTo,
 }) => Record(
   v: 1,
   id: id,
@@ -41,7 +43,7 @@ Record _record({
   prevHash: '0' * 64,
   type: type,
   body: body,
-  refersTo: null,
+  refersTo: refersTo,
   note: '',
   time: '2026-10-06T10:00:00Z',
   sig: '',
@@ -50,7 +52,8 @@ Record _record({
 void main() {
   group('approvals inbox (spec 5, 6.7)', () {
     test('the partnership start waits in the manager inbox', () async {
-      final (validator, investor, manager, _) = await setUpPartnership();
+      final (validator, investor, manager, _) =
+          await setUpUnapprovedPartnership();
 
       final managerItems = _allItems(validator, manager.key);
       expect(managerItems.single.kind, InboxKind.partnershipStart);
@@ -103,6 +106,9 @@ void main() {
       () async {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
+        final create = validator.usableRecords.singleWhere(
+          (r) => r.type == 'partnership_create',
+        );
         final sale = await manager.next(
           partnership: partnershipId,
           type: 'sale',
@@ -112,7 +118,12 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 1, manager.key: 1},
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: create,
+              upToManager: sale,
+            ),
           },
         );
         await _receive(validator, [sale, s1]);
@@ -137,13 +148,15 @@ void main() {
           type: 'sale',
           body: {'amount': 600},
         );
-        // Investor value 99: the investor has written only seq 1, so seq 2 is the
-        // next free seq. No approve of this investor can ever cover seq 99.
+        // Investor value 99: the investor has written only the create, so
+        // seq 99 can never exist. No approve of this investor can ever
+        // cover it. The manager value covers the sale, so only the
+        // investor side of the cut is the point of this test.
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 99, manager.key: 1},
+            'cut': {investor.key: 99, manager.key: sale.seq},
           },
         );
         await _receive(validator, [sale, s1]);
@@ -160,6 +173,9 @@ void main() {
     test('a second settlement waits until the first one is answered', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();
+      final create = validator.usableRecords.singleWhere(
+        (r) => r.type == 'partnership_create',
+      );
       final sale = await manager.next(
         partnership: partnershipId,
         type: 'sale',
@@ -169,14 +185,24 @@ void main() {
         partnership: partnershipId,
         type: settlementType,
         body: {
-          'cut': {investor.key: 1, manager.key: 1},
+          'cut': cutUpTo(
+            investor,
+            manager,
+            upToInvestor: create,
+            upToManager: sale,
+          ),
         },
       );
       final s2 = await manager.next(
         partnership: partnershipId,
         type: settlementType,
         body: {
-          'cut': {investor.key: 1, manager.key: 2},
+          'cut': cutUpTo(
+            investor,
+            manager,
+            upToInvestor: create,
+            upToManager: s1,
+          ),
         },
       );
       await _receive(validator, [sale, s1, s2]);
@@ -223,6 +249,18 @@ void main() {
       () async {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
+        final create = validator.usableRecords.singleWhere(
+          (r) => r.type == 'partnership_create',
+        );
+        // An investor record after the create, so S1's cut can reach past
+        // the create: S2 then regresses to the create alone, which still
+        // covers the manager's approve-of-create (so closure has nothing to
+        // say), but drops below S1's effective investor value.
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 100},
+        );
         final sale = await manager.next(
           partnership: partnershipId,
           type: 'sale',
@@ -232,7 +270,12 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 1, manager.key: 1},
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: invest,
+              upToManager: sale,
+            ),
           },
         );
         final approveS1 = await investor.next(
@@ -240,19 +283,18 @@ void main() {
           type: 'approve',
           refersTo: s1.id,
         );
-        // Investor value 0 leaves the investor's approve of S1 outside this
-        // cut (so closure has nothing to say about it), but it drops below
-        // S1's effective investor value of 1. Cut rule 4 (dominating)
-        // refuses this, even though cutIsHeld passes (the manager value
-        // still only names the sale, which is held).
+        // Cut rule 4 (dominating) refuses this, even though cutIsHeld
+        // passes (the manager value still only names the sale, which is
+        // held, and the investor value still names the create, which is
+        // held too — just not the invest S1 already covered).
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 1},
+            'cut': {investor.key: create.seq, manager.key: sale.seq},
           },
         );
-        await _receive(validator, [sale, s1, approveS1, s2]);
+        await _receive(validator, [invest, sale, s1, approveS1, s2]);
 
         final item = _inboxFor(
           validator,
@@ -295,7 +337,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 0, manager.key: 2},
+            'cut': {investor.key: 0, manager.key: expense.seq},
           },
         );
         await _receive(validator, [budget, sale, expense, s1]);
@@ -317,11 +359,14 @@ void main() {
       // accepted and stored (spec section 5 only requires `cut` to be a
       // Map at the schema step) — unlike a settlement with a refersTo,
       // which the schema step itself now refuses outright.
+      final create = validator.usableRecords.singleWhere(
+        (r) => r.type == 'partnership_create',
+      );
       final bad = await manager.next(
         partnership: partnershipId,
         type: settlementType,
         body: {
-          'cut': {investor.key: 1, manager.key: 0, 'someone-else': 0},
+          'cut': {investor.key: create.seq, manager.key: 0, 'someone-else': 0},
         },
       );
       await _receive(validator, [bad]);
@@ -385,6 +430,15 @@ void main() {
             'manager': _manager,
             'ratio': {'investor': 60, 'manager': 40},
           },
+        ),
+        // The create must be approved, or nothing but it is effective (spec
+        // section 5), and this test is about a settlement, not the create.
+        _record(
+          id: 'approve-create',
+          author: _manager,
+          seq: 1,
+          type: 'approve',
+          refersTo: 'create',
         ),
         // Manager seq 3, cut names manager seq 2, which this phone does not hold.
         _record(

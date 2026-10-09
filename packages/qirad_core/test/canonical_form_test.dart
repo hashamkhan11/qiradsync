@@ -34,7 +34,11 @@ void main() {
       final outcome = await validator.receiveText(' $text');
 
       expect(outcome, ReceiveOutcome.rejectedNotCanonical);
-      expect(validator.ledger.records, hasLength(1), reason: 'only the create');
+      expect(
+        validator.ledger.records,
+        hasLength(2),
+        reason: 'only the create and its approval',
+      );
     });
 
     test(
@@ -56,8 +60,8 @@ void main() {
         );
         expect(
           validator.ledger.records,
-          hasLength(1),
-          reason: 'only the create',
+          hasLength(2),
+          reason: 'only the create and its approval',
         );
       },
     );
@@ -77,7 +81,11 @@ void main() {
       final outcome = await validator.receiveText(withDuplicate);
 
       expect(outcome, ReceiveOutcome.rejectedNotCanonical);
-      expect(validator.ledger.records, hasLength(1), reason: 'only the create');
+      expect(
+        validator.ledger.records,
+        hasLength(2),
+        reason: 'only the create and its approval',
+      );
     });
 
     test('an empty array where the body object belongs is refused', () async {
@@ -93,7 +101,11 @@ void main() {
       final outcome = await validator.receiveText(emptyArray);
 
       expect(outcome, ReceiveOutcome.rejectedSchema);
-      expect(validator.ledger.records, hasLength(1), reason: 'only the create');
+      expect(
+        validator.ledger.records,
+        hasLength(2),
+        reason: 'only the create and its approval',
+      );
     });
 
     test('text that is not JSON is refused as a schema error', () async {

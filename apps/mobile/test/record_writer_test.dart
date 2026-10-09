@@ -67,8 +67,9 @@ void main() {
     return signed;
   }
 
-  /// The investor's partnership_create, saved with the pins (spec 2.1).
-  Future<void> startWithCreate() async {
+  /// The investor's partnership_create, saved with the pins (spec 2.1), with
+  /// no approve yet, so the partnership is still pending (spec section 5).
+  Future<void> startWithUnapprovedCreate() async {
     // A create's record id is its partnership id (spec 3), so it uses the
     // same name as the partnership.
     final create = await write(
@@ -90,6 +91,24 @@ void main() {
       createText: canonicalJson(create.toJson()),
     );
     expect(outcome, ReceiveOutcome.accepted);
+  }
+
+  /// [startWithUnapprovedCreate], then the manager's approve of it, so the
+  /// partnership is active (spec section 5) and later proposals can be
+  /// answered.
+  Future<void> startWithCreate() async {
+    await startWithUnapprovedCreate();
+    final approveCreate = await write(
+      manager,
+      managerChain,
+      id: 'approve-create',
+      type: 'approve',
+      refersTo: testId('partnership'),
+    );
+    expect(
+      await store.receive(canonicalJson(approveCreate.toJson())),
+      ReceiveOutcome.accepted,
+    );
   }
 
   /// A manager settlement proposal with an empty cut (covers nothing). An empty
@@ -162,35 +181,39 @@ void main() {
     );
   }
 
-  /// Saves an invest and a sale, then the manager's settlement S1 with cut
-  /// {investor: 2, manager: 1}. S1 is pending until the investor answers it.
+  /// Saves an invest and a sale, then the manager's settlement S1 with a cut
+  /// up to both of those records. S1 is pending until the investor answers it.
   Future<Record> settlementReady() async {
     await startWithCreate();
-    await receive(
-      await write(
-        investor,
-        investorChain,
-        id: 'invest-1',
-        type: 'invest',
-        body: const {'amount': 100000},
-      ),
+    final invest = await write(
+      investor,
+      investorChain,
+      id: 'invest-1',
+      type: 'invest',
+      body: const {'amount': 100000},
     );
-    await receive(
-      await write(
-        manager,
-        managerChain,
-        id: 'sale-1',
-        type: 'sale',
-        body: const {'amount': 50000},
-      ),
+    await receive(invest);
+    final sale = await write(
+      manager,
+      managerChain,
+      id: 'sale-1',
+      type: 'sale',
+      body: const {'amount': 50000},
     );
+    await receive(sale);
+    // The cut reads each record's own seq, not a hand-counted number, so a
+    // fixture change (like adding the manager's approve of the create)
+    // cannot silently shift what this settlement covers.
     final s1 = await write(
       manager,
       managerChain,
       id: 's1',
       type: 'settlement',
       body: {
-        'cut': {investor.publicKeyBase64Url: 2, manager.publicKeyBase64Url: 1},
+        'cut': {
+          investor.publicKeyBase64Url: invest.seq,
+          manager.publicKeyBase64Url: sale.seq,
+        },
       },
     );
     await receive(s1);
@@ -234,8 +257,8 @@ void main() {
       final early = await writer().answer(testId('s2'), approve: true);
 
       expect(early.refusal, WriteRefusal.answerEarlierFirst);
-      // create, s1 and s2: nothing new was saved.
-      expect(await store.savedTexts(partnership), hasLength(3));
+      // create, approveCreate, s1 and s2: nothing new was saved.
+      expect(await store.savedTexts(partnership), hasLength(4));
     });
 
     test('an invalid early answer, once on the ledger, does not block a later '
@@ -317,7 +340,8 @@ void main() {
 
         final retry = await writer().answer(testId('s1'), approve: true);
         expect(retry.record!.seq, 2);
-        expect(await store.savedTexts(partnership), hasLength(3));
+        // create, approveCreate, s1 and the retried answer.
+        expect(await store.savedTexts(partnership), hasLength(4));
       },
     );
 
@@ -344,6 +368,35 @@ void main() {
       expect(result.refusal, WriteRefusal.chainBehindRelay);
       expect(await store.savedTexts(partnership), isEmpty);
     });
+
+    test(
+      'answering anything but the create is refused while it is still pending',
+      () async {
+        // Spec section 5: until the create is active, the only write allowed
+        // is the manager's own answer to it. A budget proposal made while
+        // the create is still pending cannot be answered either.
+        await startWithUnapprovedCreate();
+        final budget = await write(
+          investor,
+          investorChain,
+          id: 'budget-1',
+          type: 'budget_proposal',
+          body: {'grantee': manager.publicKeyBase64Url, 'amount': 100000},
+        );
+        await receive(budget);
+        await syncedAs(investorSeq: 2, managerSeq: 0);
+
+        final result = await RecordWriter(
+          keys: manager,
+          partnership: partnership,
+          store: store,
+        ).answer(testId('budget-1'), approve: true);
+
+        expect(result.refusal, WriteRefusal.partnershipNotActive);
+        // create and budget: nothing new was saved.
+        expect(await store.savedTexts(partnership), hasLength(2));
+      },
+    );
 
     test(
       'after sync restores my seq 1 to 5, the next write is seq 6',
@@ -473,8 +526,8 @@ void main() {
 
       expect(result.refusal, WriteRefusal.consentNotShown);
       expect(result.latestSettlement, isNotNull);
-      // create, invest, sale and S1: nothing new was saved.
-      expect(await store.savedTexts(partnership), hasLength(4));
+      // create, approveCreate, invest, sale and S1: nothing new was saved.
+      expect(await store.savedTexts(partnership), hasLength(5));
     });
   });
 }

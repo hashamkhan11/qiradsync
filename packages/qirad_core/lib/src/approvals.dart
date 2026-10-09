@@ -38,6 +38,19 @@ class Decision {
       ignoredResponses.any((r) => r.author == author);
 }
 
+/// The `partnership_create`'s own decision: pending while unapproved, active
+/// once the manager approves it, dead if rejected. `null` only if [decisions]
+/// holds no create at all, which does not happen for a ledger that has one
+/// (spec section 5). Shared so every caller that needs "is the partnership
+/// active yet" (effectiveness, the inbox, the writer, the dashboard) reads
+/// the same value instead of each re-deriving it.
+DecisionStatus? partnershipStatus(List<Decision> decisions) {
+  for (final decision in decisions) {
+    if (decision.target.type == 'partnership_create') return decision.status;
+  }
+  return null;
+}
+
 const _needsApproval = {
   'partnership_create',
   'budget_proposal',
@@ -96,7 +109,7 @@ List<Decision> decideApprovals(
   // The settlement proposals, in the manager's seq order. Only well-formed
   // ones take part in the ordering rule, so a malformed record can never block
   // the next settlement.
-  final parties = partiesOf(records);
+  final parties = proposedParties(records);
   final proposals = parties == null
       ? <Record>[]
       : (records.where((r) => settlementCut(r, parties) != null).toList()

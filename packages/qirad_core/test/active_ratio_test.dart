@@ -67,13 +67,14 @@ Future<Record> _approveCreate(
 void main() {
   group('active ratio (spec section 6.6)', () {
     test('no ratio while the partnership is not approved', () async {
-      final (validator, _, _, _) = await setUpPartnership();
+      final (validator, _, _, _) = await setUpUnapprovedPartnership();
 
       expect(await _activeRatio(validator), isNull);
     });
 
     test('the approved partnership_create gives the starting ratio', () async {
-      final (validator, _, manager, partnershipId) = await setUpPartnership();
+      final (validator, _, manager, partnershipId) =
+          await setUpUnapprovedPartnership();
       final approve = await _approveCreate(validator, manager, partnershipId);
       await _receiveInOrder(validator, [approve]);
 
@@ -87,7 +88,7 @@ void main() {
       'an effective proposal sets the ratio now, with its agreed start as text',
       () async {
         final (validator, investor, manager, partnershipId) =
-            await setUpPartnership();
+            await setUpUnapprovedPartnership();
         final approveCreate = await _approveCreate(
           validator,
           manager,
@@ -114,7 +115,7 @@ void main() {
 
     test('a proposal that is not approved does not change the ratio', () async {
       final (validator, investor, manager, partnershipId) =
-          await setUpPartnership();
+          await setUpUnapprovedPartnership();
       final approveCreate = await _approveCreate(
         validator,
         manager,
@@ -143,7 +144,7 @@ void main() {
         // the same as partnership_create (removing the old asymmetry where
         // a bad sum was only ignored later, by `ratioOf`).
         final (validator, investor, manager, partnershipId) =
-            await setUpPartnership();
+            await setUpUnapprovedPartnership();
         final approveCreate = await _approveCreate(
           validator,
           manager,
@@ -170,51 +171,48 @@ void main() {
       },
     );
 
-    test(
-      'a bad-sum ratio is still ignored by activeRatio if it reaches the '
-      'business layer some other way (defense in depth)',
-      () async {
-        final (validator, investor, manager, partnershipId) =
-            await setUpPartnership();
-        final approveCreate = await _approveCreate(
-          validator,
-          manager,
-          partnershipId,
-        );
-        await _receiveInOrder(validator, [approveCreate]);
+    test('a bad-sum ratio is still ignored by activeRatio if it reaches the '
+        'business layer some other way (defense in depth)', () async {
+      final (validator, investor, manager, partnershipId) =
+          await setUpUnapprovedPartnership();
+      final approveCreate = await _approveCreate(
+        validator,
+        manager,
+        partnershipId,
+      );
+      await _receiveInOrder(validator, [approveCreate]);
 
-        // A validly-signed proposal and approve, with the ratio corrupted
-        // afterwards, without going through the validator, so this never
-        // touches the schema check above.
-        final (validProposal, validApprove) = await _proposeRatio(
-          investor,
-          manager,
-          partnershipId,
-          investorPercent: 50,
-          managerPercent: 50,
-          effectiveFrom: '2026-09-01',
-        );
-        final proposal = validProposal.copyWith(
-          body: {
-            'ratio': {'investor': 90, 'manager': 20},
-            'effectiveFrom': '2026-09-01',
-          },
-        );
+      // A validly-signed proposal and approve, with the ratio corrupted
+      // afterwards, without going through the validator, so this never
+      // touches the schema check above.
+      final (validProposal, validApprove) = await _proposeRatio(
+        investor,
+        manager,
+        partnershipId,
+        investorPercent: 50,
+        managerPercent: 50,
+        effectiveFrom: '2026-09-01',
+      );
+      final proposal = validProposal.copyWith(
+        body: {
+          'ratio': {'investor': 90, 'manager': 20},
+          'effectiveFrom': '2026-09-01',
+        },
+      );
 
-        final records = [...validator.usableRecords, proposal, validApprove];
-        final effectiveness = computeEffective(
-          records,
-          partnershipKeys: validator.partnershipKeys!,
-        );
-        final active = activeRatio(records, effectiveness: effectiveness);
+      final records = [...validator.usableRecords, proposal, validApprove];
+      final effectiveness = computeEffective(
+        records,
+        partnershipKeys: validator.partnershipKeys!,
+      );
+      final active = activeRatio(records, effectiveness: effectiveness);
 
-        expect(active!.ratio, const Ratio(investor: 60, manager: 40));
-      },
-    );
+      expect(active!.ratio, const Ratio(investor: 60, manager: 40));
+    });
 
     test('a proposal with a bad date is rejected, not stored', () async {
       final (validator, investor, manager, partnershipId) =
-          await setUpPartnership();
+          await setUpUnapprovedPartnership();
       final approveCreate = await _approveCreate(
         validator,
         manager,
@@ -240,44 +238,41 @@ void main() {
       );
     });
 
-    test(
-      'a bad date is still ignored by activeRatio if it reaches the '
-      'business layer some other way (defense in depth)',
-      () async {
-        final (validator, investor, manager, partnershipId) =
-            await setUpPartnership();
-        final approveCreate = await _approveCreate(
-          validator,
-          manager,
-          partnershipId,
-        );
-        await _receiveInOrder(validator, [approveCreate]);
+    test('a bad date is still ignored by activeRatio if it reaches the '
+        'business layer some other way (defense in depth)', () async {
+      final (validator, investor, manager, partnershipId) =
+          await setUpUnapprovedPartnership();
+      final approveCreate = await _approveCreate(
+        validator,
+        manager,
+        partnershipId,
+      );
+      await _receiveInOrder(validator, [approveCreate]);
 
-        final (validProposal, validApprove) = await _proposeRatio(
-          investor,
-          manager,
-          partnershipId,
-          investorPercent: 50,
-          managerPercent: 50,
-          effectiveFrom: '2026-09-01',
-        );
-        final proposal = validProposal.copyWith(
-          body: {
-            'ratio': {'investor': 50, 'manager': 50},
-            'effectiveFrom': '01-09-2026',
-          },
-        );
+      final (validProposal, validApprove) = await _proposeRatio(
+        investor,
+        manager,
+        partnershipId,
+        investorPercent: 50,
+        managerPercent: 50,
+        effectiveFrom: '2026-09-01',
+      );
+      final proposal = validProposal.copyWith(
+        body: {
+          'ratio': {'investor': 50, 'manager': 50},
+          'effectiveFrom': '01-09-2026',
+        },
+      );
 
-        final records = [...validator.usableRecords, proposal, validApprove];
-        final effectiveness = computeEffective(
-          records,
-          partnershipKeys: validator.partnershipKeys!,
-        );
-        final active = activeRatio(records, effectiveness: effectiveness);
+      final records = [...validator.usableRecords, proposal, validApprove];
+      final effectiveness = computeEffective(
+        records,
+        partnershipKeys: validator.partnershipKeys!,
+      );
+      final active = activeRatio(records, effectiveness: effectiveness);
 
-        expect(active!.ratio, const Ratio(investor: 60, manager: 40));
-      },
-    );
+      expect(active!.ratio, const Ratio(investor: 60, manager: 40));
+    });
 
     test(
       'a partnership_create with a bad ratio is refused, so it gives no ratio',
@@ -322,7 +317,7 @@ void main() {
       'the latest effectiveFrom wins, whatever order the records arrive in',
       () async {
         final (first, investor, manager, partnershipId) =
-            await setUpPartnership();
+            await setUpUnapprovedPartnership();
         final create = first.usableRecords.singleWhere(
           (r) => r.type == 'partnership_create',
         );

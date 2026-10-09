@@ -18,6 +18,8 @@ String refusalText(WriteRefusal refusal) {
       return 'Already decided by the other partner.';
     case WriteRefusal.notAnswerable:
       return 'This cannot be answered.';
+    case WriteRefusal.partnershipNotActive:
+      return 'The partnership is not active yet.';
     case WriteRefusal.consentNotShown:
     case WriteRefusal.summaryChanged:
       return 'The numbers changed. Check them again before answering.';

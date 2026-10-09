@@ -79,7 +79,9 @@ void main() {
         manager.publicKeyBase64Url: managerSeq,
       });
 
-  Future<void> startWithCreate() async {
+  /// The investor's partnership_create, saved with the pins (spec 2.1), with
+  /// no approve yet, so the partnership is still pending (spec section 5).
+  Future<void> startWithUnapprovedCreate() async {
     final create = await write(
       investor,
       investorChain,
@@ -100,6 +102,22 @@ void main() {
         createText: canonicalJson(create.toJson()),
       ),
       ReceiveOutcome.accepted,
+    );
+  }
+
+  /// [startWithUnapprovedCreate], then the manager's approve of it, so the
+  /// partnership is active (spec section 5) and budget proposals can be
+  /// answered.
+  Future<void> startWithCreate() async {
+    await startWithUnapprovedCreate();
+    await receive(
+      await write(
+        manager,
+        managerChain,
+        id: 'approve-create',
+        type: 'approve',
+        refersTo: testId('partnership'),
+      ),
     );
   }
 
@@ -344,29 +362,29 @@ void main() {
           expect(valueFor(tester, 'Cash balance now').data, 'Rs 500.00');
           expect(find.textContaining('exceed the cash'), findsOneWidget);
           // The warning is a warning, not a block (spec 6.4).
-          expect(find.widgetWithText(ElevatedButton, 'Approve'), findsOneWidget);
-        });
-      },
-    );
-
-    testWidgets(
-      'already answered by a write made elsewhere',
-      (tester) async {
-        await tester.runAsync(() async {
-          final proposal = await answeredElsewhereReady();
-          await pump(
-            tester,
-            myKey: manager.publicKeyBase64Url,
-            targetId: proposal.id,
+          expect(
+            find.widgetWithText(ElevatedButton, 'Approve'),
+            findsOneWidget,
           );
-          await tester.pump();
-
-          expect(find.text('This was already answered.'), findsOneWidget);
-          expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
-          expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
         });
       },
     );
+
+    testWidgets('already answered by a write made elsewhere', (tester) async {
+      await tester.runAsync(() async {
+        final proposal = await answeredElsewhereReady();
+        await pump(
+          tester,
+          myKey: manager.publicKeyBase64Url,
+          targetId: proposal.id,
+        );
+        await tester.pump();
+
+        expect(find.text('This was already answered.'), findsOneWidget);
+        expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
+        expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
+      });
+    });
 
     testWidgets('rejecting asks "are you sure?" first', (tester) async {
       await tester.runAsync(() async {
@@ -391,7 +409,8 @@ void main() {
         await tester.tap(find.widgetWithText(FilledButton, 'Reject'));
         await pumpUntil(
           tester,
-          () => find.widgetWithText(OutlinedButton, 'Reject').evaluate().isEmpty,
+          () =>
+              find.widgetWithText(OutlinedButton, 'Reject').evaluate().isEmpty,
         );
 
         final saved = [

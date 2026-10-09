@@ -46,6 +46,7 @@ void main() {
     required String id,
     required String type,
     Map<String, dynamic> body = const {},
+    String? refersTo,
   }) async {
     final unsigned = buildRecord(
       ledger: chain,
@@ -55,6 +56,7 @@ void main() {
       type: type,
       body: body,
       time: '2026-10-08T10:00:00Z',
+      refersTo: refersTo,
     );
     final signed = await signRecord(unsigned, keys);
     chain.add(signed);
@@ -91,23 +93,33 @@ void main() {
         ),
         ReceiveOutcome.accepted,
       );
+      // The partnership is only active, and anything but the create only
+      // effective, once the manager approves the create (spec section 5).
       await receive(
         await write(
           manager,
           managerChain,
-          id: 's1',
-          type: 'settlement',
-          body: {
-            'cut': {
-              investor.publicKeyBase64Url: 1,
-              manager.publicKeyBase64Url: 1,
-            },
-          },
+          id: 'approve-create',
+          type: 'approve',
+          refersTo: create.id,
         ),
       );
+      final s1 = await write(
+        manager,
+        managerChain,
+        id: 's1',
+        type: 'settlement',
+        body: {
+          'cut': {
+            investor.publicKeyBase64Url: investorChain.length,
+            manager.publicKeyBase64Url: managerChain.length,
+          },
+        },
+      );
+      await receive(s1);
       await store.saveRelayVector(partnership, {
-        investor.publicKeyBase64Url: 1,
-        manager.publicKeyBase64Url: 1,
+        investor.publicKeyBase64Url: investorChain.length,
+        manager.publicKeyBase64Url: s1.seq,
       });
     });
 

@@ -41,7 +41,7 @@ void main() {
   group('dashboard (spec sections 6.5 and 6.6)', () {
     test('a profit gives the money totals and each partner\'s share', () async {
       final (validator, investor, manager, partnershipId) =
-          await setUpPartnership();
+          await setUpUnapprovedPartnership();
       // Approved first, so the manager's chain has it at seq 1 (spec 6.1).
       final approveCreate = await _approveCreate(
         validator,
@@ -97,7 +97,7 @@ void main() {
 
     test('a loss is carried by the investor, and the manager gets 0', () async {
       final (validator, investor, manager, partnershipId) =
-          await setUpPartnership();
+          await setUpUnapprovedPartnership();
       // Approved first, so the manager's chain has it at seq 1 (spec 6.1).
       final approveCreate = await _approveCreate(
         validator,
@@ -148,7 +148,7 @@ void main() {
 
     test('the latest proposal sets the split for all the result', () async {
       final (validator, investor, manager, partnershipId) =
-          await setUpPartnership();
+          await setUpUnapprovedPartnership();
       // Approved first, so the manager's chain has it at seq 1 (spec 6.1).
       final approveCreate = await _approveCreate(
         validator,
@@ -187,26 +187,32 @@ void main() {
       expect(dashboard.shares!.investor, 50000);
     });
 
-    test('an unapproved create gives no ratio and no shares', () async {
-      final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final invest = await investor.next(
-        partnership: partnershipId,
-        type: 'invest',
-        body: {'amount': 1000000},
-      );
-      await _receiveInOrder(validator, [invest]);
+    test(
+      'an unapproved create gives no money, no ratio and no shares',
+      () async {
+        final (validator, investor, _, partnershipId) =
+            await setUpUnapprovedPartnership();
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 1000000},
+        );
+        await _receiveInOrder(validator, [invest]);
 
-      final dashboard = await _dashboard(validator);
+        final dashboard = await _dashboard(validator);
 
-      expect(dashboard.money.capital, 1000000);
-      expect(dashboard.ratio, isNull);
-      expect(dashboard.shares, isNull);
-    });
+        // Spec section 5: until the create is active, nothing else is
+        // effective, so the invest does not count either (effective.dart).
+        expect(dashboard.money.capital, 0);
+        expect(dashboard.ratio, isNull);
+        expect(dashboard.shares, isNull);
+      },
+    );
     group('ratio change flag and known issue (docs/decisions.md, 2026-10-05)', () {
       /// A sale of 200000 paisa, then a 50/50 ratio change from [effectiveFrom].
       Future<Validator> saleThenRatioChange(String effectiveFrom) async {
         final (validator, investor, manager, partnershipId) =
-            await setUpPartnership();
+            await setUpUnapprovedPartnership();
         final approveCreate = await _approveCreate(
           validator,
           manager,

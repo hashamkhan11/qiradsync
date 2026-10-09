@@ -1,6 +1,7 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
+import 'support/cut_helper.dart';
 import 'support/partnership_fixture.dart';
 
 Future<void> _receive(Validator validator, Iterable<Record> records) async {
@@ -17,8 +18,7 @@ List<PeriodShares> _periods(Validator validator) => periodShares(
 void main() {
   group('period shares and prior-period adjustments (spec 6.7, step 4c)', () {
     // Every expense needs an approved budget whose grantee is the manager
-    // (spec 6.4). Each test starts with the same budget: investor seq 2, and
-    // the manager's consent at manager seq 1.
+    // (spec 6.4). Each test starts with the same budget proposal and consent.
     Future<(Record, Record)> budget(
       Validator validator,
       ChainAuthor investor,
@@ -49,7 +49,7 @@ void main() {
           manager,
           partnershipId,
         );
-        // Manager seq 2: sale 1000. Manager seq 3: expense 100 under the budget.
+        // Sale 1000. Expense 100 under the budget.
         final sale = await manager.next(
           partnership: partnershipId,
           type: 'sale',
@@ -61,12 +61,12 @@ void main() {
           refersTo: proposal.id,
           body: {'amount': 100, 'receiptHash': null},
         );
-        // Manager seq 4: S1 closes period 1. Investor seq 3 approves it.
+        // S1 closes period 1, reaching the budget and the expense.
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 2, manager.key: 3},
+            'cut': cutUpTo(investor, manager, upToInvestor: proposal, upToManager: expense),
           },
         );
         final approveS1 = await investor.next(
@@ -88,7 +88,7 @@ void main() {
         expect(before.first.shares.investor, 540);
         expect(before.first.shares.manager, 360);
 
-        // Manager seq 5: reverses the expense. Investor seq 4 approves it.
+        // Reverses the expense. The investor approves it.
         final reversal = await manager.next(
           partnership: partnershipId,
           type: 'reversal',
@@ -99,12 +99,12 @@ void main() {
           type: 'approve',
           refersTo: reversal.id,
         );
-        // Manager seq 6: S2 closes period 2. Investor seq 5 approves it.
+        // S2 closes period 2, reaching the reversal and its approval.
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 4, manager.key: 5},
+            'cut': cutUpTo(investor, manager, upToInvestor: approveReversal, upToManager: reversal),
           },
         );
         final approveS2 = await investor.next(
@@ -145,19 +145,19 @@ void main() {
           manager,
           partnershipId,
         );
-        // Manager seq 2: expense 300, with no sales. Period 1 is a loss of 300.
+        // Expense 300, with no sales. Period 1 is a loss of 300.
         final expense1 = await manager.next(
           partnership: partnershipId,
           type: 'expense',
           refersTo: proposal.id,
           body: {'amount': 300, 'receiptHash': null},
         );
-        // Manager seq 3: S1 closes period 1. Investor seq 3 approves it.
+        // S1 closes period 1, reaching the budget and the expense.
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 2, manager.key: 2},
+            'cut': cutUpTo(investor, manager, upToInvestor: proposal, upToManager: expense1),
           },
         );
         final approveS1 = await investor.next(
@@ -165,19 +165,19 @@ void main() {
           type: 'approve',
           refersTo: s1.id,
         );
-        // Manager seq 4: a second expense of 200, a loss in period 2.
+        // A second expense of 200, a loss in period 2.
         final expense2 = await manager.next(
           partnership: partnershipId,
           type: 'expense',
           refersTo: proposal.id,
           body: {'amount': 200, 'receiptHash': null},
         );
-        // Manager seq 5: S2 closes period 2. Investor seq 4 approves it.
+        // S2 closes period 2, reaching the second expense and S1's approval.
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 3, manager.key: 4},
+            'cut': cutUpTo(investor, manager, upToInvestor: approveS1, upToManager: expense2),
           },
         );
         final approveS2 = await investor.next(
@@ -225,7 +225,7 @@ void main() {
           manager,
           partnershipId,
         );
-        // Manager seq 2: sale 1000. Manager seq 3: expense 200. Result 800.
+        // Sale 1000. Expense 200. Result 800.
         final sale = await manager.next(
           partnership: partnershipId,
           type: 'sale',
@@ -237,12 +237,12 @@ void main() {
           refersTo: proposal.id,
           body: {'amount': 200, 'receiptHash': null},
         );
-        // Manager seq 4: S1 closes period 1. Investor seq 3 approves it.
+        // S1 closes period 1, reaching the budget and the expense.
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 2, manager.key: 3},
+            'cut': cutUpTo(investor, manager, upToInvestor: proposal, upToManager: expense),
           },
         );
         final approveS1 = await investor.next(
@@ -263,7 +263,7 @@ void main() {
         expect(before.first.shares.investor, 480);
         expect(before.first.shares.manager, 320);
 
-        // Manager seq 5: reverses the sale. Investor seq 4 approves it.
+        // Reverses the sale. The investor approves it.
         // Period 1 becomes 0 - 200 = -200, a loss.
         final reversal = await manager.next(
           partnership: partnershipId,
@@ -275,12 +275,12 @@ void main() {
           type: 'approve',
           refersTo: reversal.id,
         );
-        // Manager seq 6: S2 closes period 2. Investor seq 5 approves it.
+        // S2 closes period 2, reaching the reversal and its approval.
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 4, manager.key: 5},
+            'cut': cutUpTo(investor, manager, upToInvestor: approveReversal, upToManager: reversal),
           },
         );
         final approveS2 = await investor.next(
@@ -346,7 +346,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 2, manager.key: 5},
+            'cut': cutUpTo(investor, manager, upToInvestor: budget, upToManager: expense),
           },
         );
         final approveS1 = await investor.next(
@@ -368,7 +368,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 4, manager.key: 7},
+            'cut': cutUpTo(investor, manager, upToInvestor: approveA, upToManager: reversalA),
           },
         );
         final approveS2 = await investor.next(
@@ -390,7 +390,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 6, manager.key: 9},
+            'cut': cutUpTo(investor, manager, upToInvestor: approveB, upToManager: reversalB),
           },
         );
         final approveS3 = await investor.next(
@@ -467,12 +467,16 @@ void main() {
           final records = await buildRecords(investor, manager, partnershipId);
           await _receive(validator, records);
 
-          // A second phone: the create first, then the records in reverse order.
+          // A second phone: the create and its approval first, then the
+          // records in reverse order.
           final reversed = Validator.unpinnedForTesting();
           final create = validator.usableRecords.firstWhere(
             (r) => r.type == 'partnership_create',
           );
-          await _receive(reversed, [create]);
+          final approveCreate = validator.usableRecords.firstWhere(
+            (r) => r.type == 'approve' && r.refersTo == create.id,
+          );
+          await _receive(reversed, [create, approveCreate]);
           await _receive(reversed, records.reversed);
 
           String show(List<PeriodShares> periods) => [

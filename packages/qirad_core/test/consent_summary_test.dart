@@ -1,6 +1,7 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
+import 'support/cut_helper.dart';
 import 'support/partnership_fixture.dart';
 import 'support/test_ids.dart';
 
@@ -32,39 +33,42 @@ void main() {
         final keys = {investor.key, manager.key};
 
         // Records that make a period with a result: an invest and a sale.
-        expect(
-          await validator.receiveText(
-            canonicalJson(
-              (await investor.next(
-                partnership: partnership,
-                type: 'invest',
-                body: {'amount': 100000},
-              )).toJson(),
-            ),
-          ),
-          ReceiveOutcome.accepted,
+        final invest = await investor.next(
+          partnership: partnership,
+          type: 'invest',
+          body: {'amount': 100000},
         );
         expect(
-          await validator.receiveText(
-            canonicalJson(
-              (await manager.next(
-                partnership: partnership,
-                type: 'sale',
-                body: {'amount': 50000},
-              )).toJson(),
-            ),
-          ),
+          await validator.receiveText(canonicalJson(invest.toJson())),
+          ReceiveOutcome.accepted,
+        );
+        final sale = await manager.next(
+          partnership: partnership,
+          type: 'sale',
+          body: {'amount': 50000},
+        );
+        expect(
+          await validator.receiveText(canonicalJson(sale.toJson())),
           ReceiveOutcome.accepted,
         );
 
-        // The manager proposes the settlement. The cut covers the investor's
-        // seqs 1 and 2 and the manager's seq 1.
+        // The manager proposes the settlement. The cut covers the invest
+        // and the sale: both must be inside it for the result to be 50000.
+        final cut = cutUpTo(investor, manager, upToInvestor: invest, upToManager: sale);
+        expect(
+          invest.seq,
+          lessThanOrEqualTo(cut[investor.key]!),
+          reason: 'the invest is inside the cut',
+        );
+        expect(
+          sale.seq,
+          lessThanOrEqualTo(cut[manager.key]!),
+          reason: 'the sale is inside the cut',
+        );
         final proposal = await manager.next(
           partnership: partnership,
           type: 'settlement',
-          body: {
-            'cut': {investor.key: 2, manager.key: 1},
-          },
+          body: {'cut': cut},
         );
         expect(
           await validator.receiveText(canonicalJson(proposal.toJson())),
@@ -654,17 +658,8 @@ void main() {
       final (validator, investor, manager, partnership) =
           await setUpPartnership();
       final keys = {investor.key, manager.key};
-      // The create needs the manager's approval before any ratio is active
-      // (spec section 5).
-      await validator.receiveText(
-        canonicalJson(
-          (await manager.next(
-            partnership: partnership,
-            type: 'approve',
-            refersTo: partnership,
-          )).toJson(),
-        ),
-      );
+      // setUpPartnership already approves the create (spec section 5), so
+      // the ratio from it is active here without any extra approval.
 
       final proposal = await manager.next(
         partnership: partnership,

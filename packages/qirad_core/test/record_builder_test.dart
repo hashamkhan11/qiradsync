@@ -100,7 +100,9 @@ void main() {
 
     test('a gap in my own chain is refused rather than built on', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final create = validator.usableRecords.single;
+      final create = validator.usableRecords.singleWhere(
+        (r) => r.type == 'partnership_create',
+      );
       // Seq 3 with no seq 2: the chain has a hole, so no next record is safe.
       final gapped = Record(
         v: 1,
@@ -133,7 +135,9 @@ void main() {
 
     test('two records of mine with the same seq are refused', () async {
       final (validator, investor, _, partnershipId) = await setUpPartnership();
-      final create = validator.usableRecords.single; // my seq 1
+      final create = validator.usableRecords.singleWhere(
+        (r) => r.type == 'partnership_create',
+      ); // my seq 1
       final invest = await investor.next(
         partnership: partnershipId,
         type: 'invest',

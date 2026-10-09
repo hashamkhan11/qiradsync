@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
+import 'support/cut_helper.dart';
 import 'support/partnership_fixture.dart';
 import 'support/test_ids.dart';
 
@@ -23,6 +24,12 @@ Future<List<Record>> _story() async {
       'ratio': {'investor': 60, 'manager': 40},
       'currency': 'PKR',
     },
+  );
+  // Spec section 5: until the create is active, nothing else is effective.
+  final approveCreate = await manager.next(
+    partnership: partnershipId,
+    type: 'approve',
+    refersTo: create.id,
   );
   final budget = await investor.next(
     partnership: partnershipId,
@@ -64,7 +71,12 @@ Future<List<Record>> _story() async {
     partnership: partnershipId,
     type: settlementType,
     body: {
-      'cut': {investor.key: 3, manager.key: 5},
+      'cut': cutUpTo(
+        investor,
+        manager,
+        upToInvestor: withdraw,
+        upToManager: approveWithdraw,
+      ),
     },
   );
   final approveS1 = await investor.next(
@@ -86,7 +98,12 @@ Future<List<Record>> _story() async {
     partnership: partnershipId,
     type: settlementType,
     body: {
-      'cut': {investor.key: 5, manager.key: 7},
+      'cut': cutUpTo(
+        investor,
+        manager,
+        upToInvestor: approveReversal,
+        upToManager: reversal,
+      ),
     },
   );
   final approveS2 = await investor.next(
@@ -96,6 +113,7 @@ Future<List<Record>> _story() async {
   );
   return [
     create,
+    approveCreate,
     budget,
     withdraw,
     consent,

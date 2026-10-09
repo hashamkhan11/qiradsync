@@ -836,3 +836,58 @@ is worse than refusing it up front, the same framing already used for the other 
 
 **Tests:** `packages/qirad_core/test/approvals_inbox_test.dart`, `packages/qirad_core/test/period_safety_test.dart`,
 `apps/mobile/test/approve_gate_test.dart`, `apps/mobile/test/settlement_confirm_screen_test.dart`.
+
+---
+
+## 2026-10-09 — Until the create is approved, nothing else is effective, and nothing else can be written
+
+**Finding:** Spec section 5 said only the create and the manager's answer to it were "valid" before approval,
+but nothing enforced that as a single rule. `computeEffective` applied its ordinary effectiveness checks
+(signature, schema, reference) to every record regardless of the create's own decision, so a proposal written
+while the create was still pending — by either partner, since nothing stopped it — could already be effective,
+with downstream code (periods, withdrawals, the dashboard) none the wiser that the partnership had never
+actually started.
+
+**Decision:** The rule is now carried as one shared value, `partnershipStatus` (new in `approvals.dart`): the
+create's own `Decision.status` — `pending`, `active`, `dead`, or `null` if there is no create at all — read
+once and passed everywhere "is the partnership actually active" matters, instead of each caller re-deriving it.
+
+- `effective.dart`: `computeEffective` now exposes `partnershipStatus` and gates `effectiveIds` with a new
+  `partnershipActive` check (`status == active && create.isNotEmpty && ratioOf(create.single) != null`) —
+  `record.type == 'partnership_create' || partnershipActive` must hold before a record's ordinary effectiveness
+  rules are even considered. This keeps the rule a pure function of the current record set (hard rule 3): no
+  clock, no arrival order, just "is there an active create right now."
+- `record_writer.dart`: `RecordWriter.answer()` gained the matching write-side refusal, `partnershipNotActive` —
+  until `partnershipStatus(decisions) == active`, the only record this app will write is the create itself (every
+  other proposal and every answer, including the manager's own approve/reject of the create, goes through this
+  one method). This is enforcement at the point of writing, not just display; a record built by hand and pushed
+  straight through `receive()` still goes nowhere, per the effectiveness gate above.
+- `approvals_inbox.dart`: reuses the same `effectiveness.partnershipStatus` (already computed) to drop every
+  non-create pending item from the inbox while the partnership is pending — one answer, not a second check that
+  could disagree with `computeEffective`.
+- `dashboard.dart` / `dashboard_screen.dart`: the dashboard now tells "waiting for the manager," "the manager
+  declined," and "approved but no active ratio" apart, instead of one message for all three.
+- `settlement.dart`: `partiesOf` is renamed `proposedParties` — it still just reads the create's body with no
+  approval check (the roles are proposed as soon as the create exists), but the old name invited callers to treat
+  "parties exist" as "the partnership is active," which is exactly the bug above. Every caller that also needs
+  "actually active" now checks `partnershipStatus` alongside it.
+- `docs/spec.md` section 5 is reworded from "valid" to "effective," and spells out that a record written before
+  *or after* the create's approval is equally not effective until the create itself goes active, and that a
+  reject kills everything else for good.
+
+**Reason:** "Store facts, calculate everything else" (hard rule 4) only works if effectiveness is one function
+every reader agrees on. Letting records become effective independently of the create's own approval made that
+false for exactly the one case the spec calls out by name (section 5's bootstrap window) — and the fix is cheap
+and central (one shared `partnershipStatus`, two call sites that gate on it) precisely because nothing else in
+the system needs to know *why* a record is or is not effective, only that `computeEffective` already decided.
+
+**Tests:** `packages/qirad_core/test/effective_test.dart`, `packages/qirad_core/test/approvals_inbox_test.dart`,
+`packages/qirad_core/test/dashboard_test.dart`, `apps/mobile/test/record_writer_test.dart`, and every mobile
+confirm-screen test whose fixture starts a partnership (`budget_confirm_screen_test.dart`,
+`reversal_confirm_screen_test.dart`, `settlement_confirm_screen_test.dart`, `withdrawal_confirm_screen_test.dart`,
+`inbox_screen_test.dart`) — each needed its shared `startWithCreate()` helper split into
+`startWithUnapprovedCreate()` (the pending state, for tests that need it) and `startWithCreate()` (that, plus the
+manager's approve), since a fixture that left the create unapproved now gets an inactive partnership, not just an
+unwritable one. `inbox_screen_test.dart` in particular failed not through the write gate (its fixture only calls
+`receive()`) but through the effectiveness gate alone — proof the two are genuinely independent checks, not one
+rule enforced twice.

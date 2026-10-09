@@ -29,7 +29,7 @@ class DashboardScreen extends StatelessWidget {
     final ratio = dashboard.ratio;
     final money = dashboard.money;
     final shares = dashboard.shares;
-    final parties = partiesOf(usable);
+    final parties = proposedParties(usable);
     final withdrawn = totalProfitWithdrawn(usable, partnershipKeys: keys);
     final periods = periodShares(usable, partnershipKeys: keys);
     // Spec 6.7: "owed back" only counts closed periods, so before the first
@@ -50,9 +50,7 @@ class DashboardScreen extends StatelessWidget {
           Text('Shares of the result', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           if (shares == null || ratio == null)
-            const Text(
-              'No active ratio yet. The manager must approve the start.',
-            )
+            Text(_statusMessage(dashboard.partnershipStatus))
           else ...[
             _Figure(
               label: 'Investor (${ratio.ratio.investor}%)',
@@ -81,10 +79,10 @@ class DashboardScreen extends StatelessWidget {
             ),
           ],
           // Both sections below need a genuinely active partnership, not just
-          // a well-formed create: `partiesOf` reads the create's body alone,
-          // with no approval check, so it is non-null even before the manager
-          // approves. `ratio` already carries that approval check (it comes
-          // from `activeRatio`, spec 6.6), so it is the right guard here too.
+          // a well-formed create: `proposedParties` reads the create's body
+          // alone, with no approval check, so it is non-null even before the
+          // manager approves. `ratio` already carries that approval check (it
+          // comes from `activeRatio`, spec 6.6), so it is the right guard here too.
           if (ratio != null && parties != null) ...[
             const Divider(height: 32),
             Text('Profit withdrawn', style: theme.textTheme.titleMedium),
@@ -133,6 +131,20 @@ class DashboardScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// What to say when there is no active ratio yet (spec section 5): waiting,
+/// declined, or (defensively) something else gone wrong with the create.
+String _statusMessage(DecisionStatus? status) {
+  switch (status) {
+    case DecisionStatus.dead:
+      return 'The manager declined this partnership.';
+    case DecisionStatus.pending:
+    case null:
+      return 'Waiting for the manager to approve the partnership.';
+    case DecisionStatus.active:
+      return 'No active ratio yet. The manager must approve the start.';
   }
 }
 

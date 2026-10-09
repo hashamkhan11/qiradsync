@@ -271,45 +271,13 @@ void main() {
       expect(effective.isEffective(expense), isFalse);
     });
 
-    test('an amount that is zero or negative is rejected, not stored', () async {
-      // Fractions cannot reach this check: canonicalJson refuses doubles
-      // (hard rule 1), so such a record can never be signed or verified.
-      // A zero or negative amount is caught earlier now too (spec section
-      // 5, schema step), so it never reaches `expenseStatus` at all.
-      final (validator, investor, manager, partnershipId) =
-          await setUpPartnership();
-      final (budget, approve) = await _approvedBudget(
-        investor,
-        manager,
-        partnershipId,
-      );
-      final zero = await _expense(manager, partnershipId, budget, 0);
-      final negative = await _expense(manager, partnershipId, budget, -500);
-      await _receiveInOrder(validator, [budget, approve]);
-
-      expect(
-        await validator.receiveText(canonicalJson(zero.toJson())),
-        ReceiveOutcome.rejectedSchema,
-      );
-      expect(
-        await validator.receiveText(canonicalJson(negative.toJson())),
-        ReceiveOutcome.rejectedSchema,
-      );
-
-      final effective = await _effective(validator);
-      expect(effective.expenseStatus.containsKey(zero.id), isFalse);
-      expect(effective.expenseStatus.containsKey(negative.id), isFalse);
-      expect(effective.budgetUsed[budget.id], 0);
-    });
-
     test(
-      'a zero or negative amount is still badAmount if it ever reaches the '
-      'business layer some other way (defense in depth)',
+      'an amount that is zero or negative is rejected, not stored',
       () async {
-        // The schema check above means a real receive never gets this far.
-        // This takes a validly-signed expense and corrupts its amount
-        // afterwards, without sending it through the validator, to prove
-        // `expenseStatus` still catches a bad amount on its own.
+        // Fractions cannot reach this check: canonicalJson refuses doubles
+        // (hard rule 1), so such a record can never be signed or verified.
+        // A zero or negative amount is caught earlier now too (spec section
+        // 5, schema step), so it never reaches `expenseStatus` at all.
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
         final (budget, approve) = await _approvedBudget(
@@ -317,22 +285,54 @@ void main() {
           manager,
           partnershipId,
         );
+        final zero = await _expense(manager, partnershipId, budget, 0);
+        final negative = await _expense(manager, partnershipId, budget, -500);
         await _receiveInOrder(validator, [budget, approve]);
-        final zero = (await _expense(
-          manager,
-          partnershipId,
-          budget,
-          1,
-        )).copyWith(body: {'amount': 0, 'receiptHash': null});
 
-        final effective = computeEffective(
-          [...validator.usableRecords, zero],
-          partnershipKeys: validator.partnershipKeys!,
+        expect(
+          await validator.receiveText(canonicalJson(zero.toJson())),
+          ReceiveOutcome.rejectedSchema,
+        );
+        expect(
+          await validator.receiveText(canonicalJson(negative.toJson())),
+          ReceiveOutcome.rejectedSchema,
         );
 
-        expect(effective.expenseStatus[zero.id], ExpenseStatus.badAmount);
+        final effective = await _effective(validator);
+        expect(effective.expenseStatus.containsKey(zero.id), isFalse);
+        expect(effective.expenseStatus.containsKey(negative.id), isFalse);
+        expect(effective.budgetUsed[budget.id], 0);
       },
     );
+
+    test('a zero or negative amount is still badAmount if it ever reaches the '
+        'business layer some other way (defense in depth)', () async {
+      // The schema check above means a real receive never gets this far.
+      // This takes a validly-signed expense and corrupts its amount
+      // afterwards, without sending it through the validator, to prove
+      // `expenseStatus` still catches a bad amount on its own.
+      final (validator, investor, manager, partnershipId) =
+          await setUpPartnership();
+      final (budget, approve) = await _approvedBudget(
+        investor,
+        manager,
+        partnershipId,
+      );
+      await _receiveInOrder(validator, [budget, approve]);
+      final zero = (await _expense(
+        manager,
+        partnershipId,
+        budget,
+        1,
+      )).copyWith(body: {'amount': 0, 'receiptHash': null});
+
+      final effective = computeEffective([
+        ...validator.usableRecords,
+        zero,
+      ], partnershipKeys: validator.partnershipKeys!);
+
+      expect(effective.expenseStatus[zero.id], ExpenseStatus.badAmount);
+    });
 
     test('an expense that exactly fills the budget is valid', () async {
       final (validator, investor, manager, partnershipId) =
@@ -360,6 +360,9 @@ void main() {
             await setUpPartnership();
         final create = first.usableRecords.singleWhere(
           (r) => r.type == 'partnership_create',
+        );
+        final approveCreate = first.usableRecords.singleWhere(
+          (r) => r.type == 'approve' && r.refersTo == create.id,
         );
         final (budget, approve) = await _approvedBudget(
           investor,
@@ -391,6 +394,7 @@ void main() {
         for (final order in orders) {
           final validator = Validator.unpinnedForTesting();
           await validator.receiveText(canonicalJson(create.toJson()));
+          await validator.receiveText(canonicalJson(approveCreate.toJson()));
           for (final record in order) {
             await validator.receiveText(canonicalJson(record.toJson()));
           }

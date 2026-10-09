@@ -302,8 +302,12 @@ void main() {
         final create = first.usableRecords.singleWhere(
           (r) => r.type == 'partnership_create',
         );
+        final approveCreate = first.usableRecords.singleWhere(
+          (r) => r.type == 'approve' && r.refersTo == create.id,
+        );
         final validator = Validator.unpinnedForTesting();
         await validator.receiveText(canonicalJson(create.toJson()));
+        await validator.receiveText(canonicalJson(approveCreate.toJson()));
 
         // The reversal is accepted first; its target is still missing.
         expect(
@@ -330,6 +334,9 @@ void main() {
             await setUpPartnership();
         final create = first.usableRecords.singleWhere(
           (r) => r.type == 'partnership_create',
+        );
+        final approveCreate = first.usableRecords.singleWhere(
+          (r) => r.type == 'approve' && r.refersTo == create.id,
         );
         final expense = await manager.next(
           partnership: partnershipId,
@@ -358,6 +365,7 @@ void main() {
         for (final order in orders) {
           final validator = Validator.unpinnedForTesting();
           await validator.receiveText(canonicalJson(create.toJson()));
+          await validator.receiveText(canonicalJson(approveCreate.toJson()));
           for (final record in order) {
             await validator.receiveText(canonicalJson(record.toJson()));
           }

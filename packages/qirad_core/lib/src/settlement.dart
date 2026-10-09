@@ -14,9 +14,13 @@ class Parties {
   const Parties({required this.investor, required this.manager});
 }
 
-/// The roles from the partnership's create record, or `null` if no create is
-/// held yet. A ledger holds one partnership, so there is one create.
-Parties? partiesOf(Iterable<Record> records) {
+/// The roles named in the partnership's create record, or `null` if no
+/// create is held yet. Reads the create's body alone, with no approval
+/// check — the roles are proposed as soon as the create exists, whether or
+/// not the manager has approved it yet (spec section 5). Callers that need
+/// "the partnership is actually active" also check `partnershipStatus`
+/// (see `approvals.dart`, `effective.dart`), not this function.
+Parties? proposedParties(Iterable<Record> records) {
   for (final record in records) {
     if (record.type != 'partnership_create') continue;
     final investor = record.body['investor'];

@@ -1,6 +1,7 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
+import 'support/cut_helper.dart';
 import 'support/partnership_fixture.dart';
 
 Future<void> _receive(Validator validator, Iterable<Record> records) async {
@@ -70,7 +71,7 @@ void main() {
       () async {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
-        // Investor seq 2: withdraws 300. Manager seq 1 approves it.
+        // Withdraws 300. The manager approves it.
         final withdraw1 = await investor.next(
           partnership: partnershipId,
           type: 'withdraw_request',
@@ -81,7 +82,7 @@ void main() {
           type: 'approve',
           refersTo: withdraw1.id,
         );
-        // Manager seq 2: sale 600. Manager seq 3: S1 closes period 1.
+        // Sale 600. S1 closes period 1, reaching the withdrawal and the sale.
         final sale = await manager.next(
           partnership: partnershipId,
           type: 'sale',
@@ -91,7 +92,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 2, manager.key: 2},
+            'cut': cutUpTo(investor, manager, upToInvestor: withdraw1, upToManager: sale),
           },
         );
         final approveS1 = await investor.next(
@@ -99,7 +100,7 @@ void main() {
           type: 'approve',
           refersTo: s1.id,
         );
-        // Investor seq 4: withdraws 100 after S1. Manager seq 4 approves it.
+        // Withdraws 100 after S1. The manager approves it.
         final withdraw2 = await investor.next(
           partnership: partnershipId,
           type: 'withdraw_request',

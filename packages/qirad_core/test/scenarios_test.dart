@@ -63,7 +63,7 @@ class _Story {
 
 Future<_Story> _buildStory() async {
   final (validator, investor, manager, partnershipId) =
-      await setUpPartnership();
+      await setUpUnapprovedPartnership();
   final create = validator.usableRecords.singleWhere(
     (r) => r.type == 'partnership_create',
   );

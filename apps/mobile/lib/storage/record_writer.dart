@@ -35,6 +35,11 @@ enum WriteRefusal {
   /// screen did not pass one, so nothing is written.
   consentNotShown,
 
+  /// The partnership is not active yet (still pending, or the manager
+  /// rejected it). Spec section 5: until the create is approved, nothing but
+  /// the create (and the manager's own approve/reject of it) may be written.
+  partnershipNotActive,
+
   /// The numbers changed since the user saw them, for example a sync made a
   /// settlement effective. Nothing is written. The result carries the new
   /// summary, and the screen asks again.
@@ -183,6 +188,18 @@ class RecordWriter {
       }
       if (current.status != DecisionStatus.pending) {
         refusal = WriteRefusal.alreadyDecided;
+        return null;
+      }
+
+      // Spec section 5: until the create is active, the only record anyone
+      // may write is the manager's own answer to it. This is the one write
+      // path in the app for anything other than that bootstrap create
+      // (invest, sale, budget, withdrawal and ratio proposals are all
+      // answered here too), so the gate belongs here, reading the same
+      // `partnershipStatus` that decides effectiveness and the inbox.
+      if (current.target.type != 'partnership_create' &&
+          partnershipStatus(decisions) != DecisionStatus.active) {
+        refusal = WriteRefusal.partnershipNotActive;
         return null;
       }
 

@@ -1,6 +1,7 @@
 import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
+import 'support/cut_helper.dart';
 import 'support/partnership_fixture.dart';
 
 Future<void> _receive(Validator validator, Iterable<Record> records) async {
@@ -29,7 +30,7 @@ void main() {
           type: 'budget_proposal',
           body: {'grantee': manager.key, 'amount': 10000},
         );
-        // Investor seq 3: the investor withdraws 500 of profit.
+        // The investor withdraws 500 of profit.
         final withdraw = await investor.next(
           partnership: partnershipId,
           type: 'withdraw_request',
@@ -65,7 +66,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 3, manager.key: 5},
+            'cut': cutUpTo(investor, manager, upToInvestor: withdraw, upToManager: approveWithdraw),
           },
         );
         final approveS1 = await investor.next(
@@ -89,7 +90,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 5, manager.key: 7},
+            'cut': cutUpTo(investor, manager, upToInvestor: approveS1, upToManager: reversal),
           },
         );
         final approveS2 = await investor.next(
@@ -135,7 +136,7 @@ void main() {
         type: 'budget_proposal',
         body: {'grantee': manager.key, 'amount': 10000},
       );
-      // Investor seq 3: withdraws 500 of profit.
+      // Withdraws 500 of profit.
       final withdraw = await investor.next(
         partnership: partnershipId,
         type: 'withdraw_request',
@@ -167,7 +168,7 @@ void main() {
         partnership: partnershipId,
         type: settlementType,
         body: {
-          'cut': {investor.key: 3, manager.key: 4},
+          'cut': cutUpTo(investor, manager, upToInvestor: withdraw, upToManager: approveWithdraw),
         },
       );
       final approveS1 = await investor.next(
@@ -191,7 +192,7 @@ void main() {
         partnership: partnershipId,
         type: settlementType,
         body: {
-          'cut': {investor.key: 5, manager.key: 6},
+          'cut': cutUpTo(investor, manager, upToInvestor: approveS1, upToManager: reversal),
         },
       );
       final approveS2 = await investor.next(
@@ -226,13 +227,13 @@ void main() {
       () async {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
-        // Investor seq 2: withdraws 500 of profit, before any settlement.
+        // Withdraws 500 of profit, before any settlement.
         final withdraw = await investor.next(
           partnership: partnershipId,
           type: 'withdraw_request',
           body: {'amount': 500, 'kind': 'profit'},
         );
-        // Manager seq 1: approves the withdrawal. Manager seq 2: sale 600.
+        // Approves the withdrawal. Sale 600.
         final approveWithdraw = await manager.next(
           partnership: partnershipId,
           type: 'approve',
@@ -243,12 +244,12 @@ void main() {
           type: 'sale',
           body: {'amount': 600},
         );
-        // Manager seq 3: S1 closes period 1. Investor seq 3 approves it.
+        // S1 closes period 1, reaching the withdrawal and the sale.
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 2, manager.key: 2},
+            'cut': cutUpTo(investor, manager, upToInvestor: withdraw, upToManager: sale),
           },
         );
         final approveS1 = await investor.next(
@@ -318,7 +319,7 @@ void main() {
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 3, manager.key: 5},
+            'cut': cutUpTo(investor, manager, upToInvestor: withdraw, upToManager: approveWithdraw),
           },
         );
         final approveS1 = await investor.next(
@@ -355,13 +356,12 @@ void main() {
         expect(before.owedBack, 0, reason: 'period 2 is still open');
         expect(before.aheadOfSettled, 140);
 
-        // Manager seq 8: S2 closes period 2 (its cut covers the reversal, seq 7).
-        // Investor seq 6 approves it.
+        // S2 closes period 2, reaching S1's approval and the reversal.
         final s2 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
           body: {
-            'cut': {investor.key: 5, manager.key: 7},
+            'cut': cutUpTo(investor, manager, upToInvestor: approveS1, upToManager: reversal),
           },
         );
         final approveS2 = await investor.next(

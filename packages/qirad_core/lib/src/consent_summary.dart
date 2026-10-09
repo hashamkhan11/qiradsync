@@ -136,7 +136,7 @@ SettlementConsent? settlementConsent(
   required Record answer,
 }) {
   final records = [...usable, answer];
-  final parties = partiesOf(records);
+  final parties = proposedParties(records);
   if (parties == null) return null;
   final cut = settlementCut(proposal, parties);
   if (cut == null) return null;
@@ -175,7 +175,7 @@ WithdrawalConsent? withdrawalConsent(
   final kind = request.body['kind'];
   if (amount == null || kind is! String) return null;
 
-  final parties = partiesOf(records);
+  final parties = proposedParties(records);
   if (parties == null) return null;
   final partner = request.author;
   final isInvestor = partner == parties.investor;

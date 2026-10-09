@@ -1,4 +1,5 @@
 import 'active_ratio.dart';
+import 'approvals.dart';
 import 'effective.dart';
 import 'money.dart';
 import 'record.dart';
@@ -22,11 +23,18 @@ class Dashboard {
   /// (docs/decisions.md, open issue: settlement).
   final bool ratioChanged;
 
+  /// The `partnership_create`'s own decision (spec section 5): `pending`
+  /// while waiting for the manager, `active` once approved, `dead` if
+  /// rejected. The screen uses this to tell those states apart when [ratio]
+  /// is `null`.
+  final DecisionStatus? partnershipStatus;
+
   const Dashboard({
     required this.money,
     required this.ratio,
     required this.shares,
     required this.ratioChanged,
+    required this.partnershipStatus,
   });
 }
 
@@ -59,5 +67,6 @@ Dashboard buildDashboard(
     ratio: ratio,
     shares: shares,
     ratioChanged: changed,
+    partnershipStatus: effectiveness.partnershipStatus,
   );
 }
