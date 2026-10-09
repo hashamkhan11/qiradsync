@@ -5,6 +5,7 @@ import '../dashboard/format.dart';
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
 import 'generic_confirm_screen.dart';
+import 'partnership_create_confirm_screen.dart';
 import 'settlement_confirm_screen.dart';
 import 'withdrawal_confirm_screen.dart';
 
@@ -104,6 +105,14 @@ class _InboxScreenState extends State<InboxScreen> {
             onSyncNow: widget.onSyncNow,
           ),
           InboxKind.withdrawal => WithdrawalConfirmScreen(
+            store: widget.store,
+            writer: widget.writer,
+            myKey: widget.myKey,
+            partnership: widget.partnership,
+            targetId: item.target.id,
+            onSyncNow: widget.onSyncNow,
+          ),
+          InboxKind.partnershipStart => PartnershipCreateConfirmScreen(
             store: widget.store,
             writer: widget.writer,
             myKey: widget.myKey,
