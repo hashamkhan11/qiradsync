@@ -81,6 +81,88 @@ Future<(Record, ChainAuthor)> _targetOfType(
 }
 
 void main() {
+  group('partnership activation (spec section 5)', () {
+    test(
+      'before approval, nothing but the create is effective, not even a '
+      'money record written while it waits',
+      () async {
+        final (validator, investor, _, partnershipId) =
+            await setUpUnapprovedPartnership();
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 1000000},
+        );
+        await validator.receiveText(canonicalJson(invest.toJson()));
+
+        final effective = await _effective(validator);
+        expect(effective.partnershipStatus, DecisionStatus.pending);
+        expect(effective.isEffective(invest), isFalse);
+      },
+    );
+
+    test(
+      'a rejected create means nothing else ever takes effect, including '
+      'the create itself',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpUnapprovedPartnership();
+        final create = validator.usableRecords.singleWhere(
+          (r) => r.type == 'partnership_create',
+        );
+        final reject = await manager.next(
+          partnership: partnershipId,
+          type: 'reject',
+          refersTo: partnershipId,
+        );
+        // Written after the reject, to prove a dead create blocks the
+        // future too, not just records already waiting at reject time.
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 1000000},
+        );
+        await validator.receiveText(canonicalJson(reject.toJson()));
+        await validator.receiveText(canonicalJson(invest.toJson()));
+
+        final effective = await _effective(validator);
+        expect(effective.partnershipStatus, DecisionStatus.dead);
+        expect(effective.isEffective(create), isFalse);
+        expect(effective.isEffective(invest), isFalse);
+      },
+    );
+
+    test(
+      'a record written before the create is approved takes effect once '
+      'it is approved, with no need to be written again',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpUnapprovedPartnership();
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 1000000},
+        );
+        await validator.receiveText(canonicalJson(invest.toJson()));
+        expect((await _effective(validator)).isEffective(invest), isFalse);
+
+        final approve = await manager.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: partnershipId,
+        );
+        await validator.receiveText(canonicalJson(approve.toJson()));
+
+        // Same invest record, never rewritten: effectiveness is a pure
+        // function of the current record set, with no notion of "it
+        // arrived before approval" (hard rule 3, no clock-based ordering).
+        final effective = await _effective(validator);
+        expect(effective.partnershipStatus, DecisionStatus.active);
+        expect(effective.isEffective(invest), isTrue);
+      },
+    );
+  });
+
   group('own reversal (spec section 6.3)', () {
     test(
       'a partner reversing their own expense cancels it with no approval',

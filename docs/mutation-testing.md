@@ -73,8 +73,35 @@ is defence in depth. The unit tests prove that each check works on its own.
   `cutIsHeld` and `settlementStatuses` never check signatures. Signature checks
   are tested elsewhere.
 
+## Spec section 5: the partnership-activation gate (2026-10-09)
+
+**Purpose.** Same method, a different rule: until `partnership_create` is
+active, nothing else is effective (`effective.dart`) and nothing else can be
+written (`record_writer.dart`). Two separate mutants, one per gate, run
+directly in the working tree (edit, run the full suite, revert) rather than a
+scratch copy, since each change was one line and immediately reverted.
+
+| # | Rule | What was changed | Result | Tests that catch it (or reason) |
+|---|---|---|---|---|
+| M18 | `effective.dart`'s `partnershipActive` check | `(record.type == 'partnership_create' \|\| partnershipActive)` changed to always `true` | Killed, weakly | Before this entry's new tests existed, only 1 of 266 `qirad_core` tests caught it (`dashboard_test`: "an unapproved create gives no money, no ratio and no shares") and 0 of 137 mobile tests caught it. Four tests were added to close this: `effective_test.dart`'s new "partnership activation (spec section 5)" group (three tests — before approval nothing but the create is effective; a rejected create blocks the create itself and everything after; a record written before approval takes effect once approved, with no rewrite) and `approvals_inbox_test.dart`'s "before approval, only the create waits in the inbox...". With those added, the same mutation is caught by 5 tests. |
+| M19 | `record_writer.dart`'s `partnershipNotActive` refusal | Condition changed to `current.target.type != 'partnership_create' && false` | Killed | `record_writer_test.dart`: "answering anything but the create is refused while it is still pending" — the only test in the mobile suite that exercises this refusal directly. No other mobile test happened to need it, which is expected: the gate is a single `if` with one well-named test, not spread across call sites the way the effectiveness check is. |
+
+**Finding from M18.** The effectiveness gate was live in the code (committed
+`771ae81`) with almost no test actually depending on it — every mobile
+fixture that needed an active partnership already wrote the manager's
+approve for unrelated reasons (to get a real settlement, ratio, etc.), so
+removing the gate changed nothing those fixtures checked. Only one core test
+happened to assert a value (`dashboard.money.capital`) that the gate
+protects. This is the same shape of gap the rest of this file's table was
+built to catch for the settlement rules; it took running the mutant to see it
+for this rule too, since "the code is there" and "a test depends on the code
+being there" are different claims.
+
 ## Weak spots left
 
 - The mutants were run one at a time. Two broken rules at once were not tested.
-- The scratch copies used for the runs are deleted. The method above lists the
-  steps so the run can be repeated.
+- The scratch copies used for the M1-M17 runs are deleted. The method above
+  lists the steps so the run can be repeated. M18 and M19 were run in place
+  (edit, test, revert) and are reproducible the same way, directly on
+  `packages/qirad_core/lib/src/effective.dart` and
+  `apps/mobile/lib/storage/record_writer.dart`.

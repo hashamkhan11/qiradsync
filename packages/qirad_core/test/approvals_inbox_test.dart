@@ -62,6 +62,33 @@ void main() {
     });
 
     test(
+      'before approval, only the create waits in the inbox; an invest '
+      'written in the meantime does not count',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpUnapprovedPartnership();
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 1000000},
+        );
+        await _receive(validator, [invest]);
+
+        // Spec section 5: nothing but the create is effective yet, so
+        // nothing but the create's own approval is waiting either.
+        final managerItems = _allItems(validator, manager.key);
+        expect(managerItems.single.kind, InboxKind.partnershipStart);
+        expect(
+          computeEffective(
+            validator.usableRecords,
+            partnershipKeys: validator.partnershipKeys!,
+          ).isEffective(invest),
+          isFalse,
+        );
+      },
+    );
+
+    test(
       'a withdrawal waits in the manager inbox, not the investor inbox',
       () async {
         final (validator, investor, manager, partnershipId) =
@@ -114,17 +141,21 @@ void main() {
           type: 'sale',
           body: {'amount': 600},
         );
+        final s1Cut = cutUpTo(
+          investor,
+          manager,
+          upToInvestor: create,
+          upToManager: sale,
+        );
+        expect(
+          sale.seq,
+          lessThanOrEqualTo(s1Cut[manager.key]!),
+          reason: 'the sale is inside the cut',
+        );
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
-          body: {
-            'cut': cutUpTo(
-              investor,
-              manager,
-              upToInvestor: create,
-              upToManager: sale,
-            ),
-          },
+          body: {'cut': s1Cut},
         );
         await _receive(validator, [sale, s1]);
 
@@ -181,29 +212,37 @@ void main() {
         type: 'sale',
         body: {'amount': 600},
       );
+      final s1Cut = cutUpTo(
+        investor,
+        manager,
+        upToInvestor: create,
+        upToManager: sale,
+      );
+      expect(
+        sale.seq,
+        lessThanOrEqualTo(s1Cut[manager.key]!),
+        reason: 'the sale is inside S1\'s cut',
+      );
       final s1 = await manager.next(
         partnership: partnershipId,
         type: settlementType,
-        body: {
-          'cut': cutUpTo(
-            investor,
-            manager,
-            upToInvestor: create,
-            upToManager: sale,
-          ),
-        },
+        body: {'cut': s1Cut},
+      );
+      final s2Cut = cutUpTo(
+        investor,
+        manager,
+        upToInvestor: create,
+        upToManager: s1,
+      );
+      expect(
+        s1.seq,
+        lessThanOrEqualTo(s2Cut[manager.key]!),
+        reason: 'S2\'s cut reaches past S1',
       );
       final s2 = await manager.next(
         partnership: partnershipId,
         type: settlementType,
-        body: {
-          'cut': cutUpTo(
-            investor,
-            manager,
-            upToInvestor: create,
-            upToManager: s1,
-          ),
-        },
+        body: {'cut': s2Cut},
       );
       await _receive(validator, [sale, s1, s2]);
 
@@ -266,17 +305,26 @@ void main() {
           type: 'sale',
           body: {'amount': 600},
         );
+        final s1Cut = cutUpTo(
+          investor,
+          manager,
+          upToInvestor: invest,
+          upToManager: sale,
+        );
+        expect(
+          invest.seq,
+          lessThanOrEqualTo(s1Cut[investor.key]!),
+          reason: 'the invest is inside S1\'s cut',
+        );
+        expect(
+          sale.seq,
+          lessThanOrEqualTo(s1Cut[manager.key]!),
+          reason: 'the sale is inside S1\'s cut',
+        );
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
-          body: {
-            'cut': cutUpTo(
-              investor,
-              manager,
-              upToInvestor: invest,
-              upToManager: sale,
-            ),
-          },
+          body: {'cut': s1Cut},
         );
         final approveS1 = await investor.next(
           partnership: partnershipId,

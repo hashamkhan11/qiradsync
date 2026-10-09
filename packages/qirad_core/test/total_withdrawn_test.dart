@@ -88,12 +88,26 @@ void main() {
           type: 'sale',
           body: {'amount': 600},
         );
+        final s1Cut = cutUpTo(
+          investor,
+          manager,
+          upToInvestor: withdraw1,
+          upToManager: sale,
+        );
+        expect(
+          withdraw1.seq,
+          lessThanOrEqualTo(s1Cut[investor.key]!),
+          reason: 'the withdrawal is inside the cut',
+        );
+        expect(
+          sale.seq,
+          lessThanOrEqualTo(s1Cut[manager.key]!),
+          reason: 'the sale is inside the cut',
+        );
         final s1 = await manager.next(
           partnership: partnershipId,
           type: settlementType,
-          body: {
-            'cut': cutUpTo(investor, manager, upToInvestor: withdraw1, upToManager: sale),
-          },
+          body: {'cut': s1Cut},
         );
         final approveS1 = await investor.next(
           partnership: partnershipId,
