@@ -48,7 +48,8 @@ class WriteResult {
       latestSettlement = null,
       latestWithdrawal = null,
       latestReversal = null,
-      latestBudget = null;
+      latestBudget = null,
+      latestRatio = null;
 
   const WriteResult.refused(
     WriteRefusal this.refusal, {
@@ -56,6 +57,7 @@ class WriteResult {
     this.latestWithdrawal,
     this.latestReversal,
     this.latestBudget,
+    this.latestRatio,
   }) : record = null;
 
   final Record? record;
@@ -74,6 +76,9 @@ class WriteResult {
 
   /// The current budget summary, set in the same cases as [latestSettlement].
   final BudgetConsent? latestBudget;
+
+  /// The current ratio summary, set in the same cases as [latestSettlement].
+  final RatioConsent? latestRatio;
 }
 
 /// The only code that writes this phone's own records (spec 7.4).
@@ -119,11 +124,12 @@ class RecordWriter {
   /// or when this key has already answered validly. An invalid earlier answer
   /// does not count, so a new valid answer is allowed (spec 6.7).
   ///
-  /// An approve of a settlement, withdrawal, reversal or budget proposal also
-  /// needs the summary the user saw ([shownSettlement], [shownWithdrawal],
-  /// [shownReversal] or [shownBudget]). The summary is recomputed inside the
-  /// write transaction. If it differs, nothing is written, and the result
-  /// carries the new numbers (spec 6.7, consent).
+  /// An approve of a settlement, withdrawal, reversal, budget or ratio
+  /// proposal also needs the summary the user saw ([shownSettlement],
+  /// [shownWithdrawal], [shownReversal], [shownBudget] or [shownRatio]). The
+  /// summary is recomputed inside the write transaction. If it differs,
+  /// nothing is written, and the result carries the new numbers (spec 6.7,
+  /// consent).
   Future<WriteResult> answer(
     String targetId, {
     required bool approve,
@@ -131,6 +137,7 @@ class RecordWriter {
     WithdrawalConsent? shownWithdrawal,
     ReversalConsent? shownReversal,
     BudgetConsent? shownBudget,
+    RatioConsent? shownRatio,
   }) async {
     // The gate reads the relay vector from the latest sync (spec 7.4, rule 2).
     final relayVector = await _store.relayVectorFor(partnership);
@@ -143,6 +150,7 @@ class RecordWriter {
     WithdrawalConsent? latestWithdrawal;
     ReversalConsent? latestReversal;
     BudgetConsent? latestBudget;
+    RatioConsent? latestRatio;
     final text = await _store.appendWith(partnership, (texts) async {
       final ledger = [
         for (final text in texts)
@@ -282,6 +290,22 @@ class RecordWriter {
         }
         if (refusal != null) return null;
       }
+      if (approve && current.target.type == 'ratio_proposal') {
+        final now = ratioConsent(
+          validator.usableRecords,
+          partnershipKeys: keys,
+          proposal: current.target,
+        );
+        latestRatio = now;
+        if (now == null) {
+          if (shownRatio != null) refusal = WriteRefusal.summaryChanged;
+        } else if (shownRatio == null) {
+          refusal = WriteRefusal.consentNotShown;
+        } else if (now != shownRatio) {
+          refusal = WriteRefusal.summaryChanged;
+        }
+        if (refusal != null) return null;
+      }
 
       // Every check has passed: this write will really happen. A test can
       // hold this open; a real run passes straight through.
@@ -298,6 +322,7 @@ class RecordWriter {
         latestWithdrawal: latestWithdrawal,
         latestReversal: latestReversal,
         latestBudget: latestBudget,
+        latestRatio: latestRatio,
       );
     }
     return WriteResult.written(

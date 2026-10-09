@@ -5,8 +5,8 @@ import '../dashboard/format.dart';
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
 import 'budget_confirm_screen.dart';
-import 'generic_confirm_screen.dart';
 import 'partnership_create_confirm_screen.dart';
+import 'ratio_confirm_screen.dart';
 import 'reversal_confirm_screen.dart';
 import 'settlement_confirm_screen.dart';
 import 'withdrawal_confirm_screen.dart';
@@ -138,10 +138,13 @@ class _InboxScreenState extends State<InboxScreen> {
             targetId: item.target.id,
             onSyncNow: widget.onSyncNow,
           ),
-          _ => GenericConfirmScreen(
+          InboxKind.ratio => RatioConfirmScreen(
+            store: widget.store,
             writer: widget.writer,
+            myKey: widget.myKey,
+            partnership: widget.partnership,
             targetId: item.target.id,
-            title: _titleFor(item),
+            onSyncNow: widget.onSyncNow,
           ),
         },
       ),
