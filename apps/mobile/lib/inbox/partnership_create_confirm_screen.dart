@@ -75,9 +75,14 @@ class _PartnershipCreateConfirmScreenState
     final managerKey = rawManager is String ? rawManager : null;
     final ratio = ratioOf(target);
 
-    // The body is already schema-checked before it reaches the chain, so this
-    // only guards against a record built by an older or broken version of
-    // the app (decision Q3b style: defensive, not expected in real use).
+    // Unreachable in practice, and unlike the withdrawal screen's defensive
+    // case, not even buildable as a hand-built test fixture: the schema step
+    // refuses a non-canonical investor/manager key before the record is ever
+    // accepted, and `partnershipKeys` (needed for this item to exist in the
+    // inbox at all) is only set by that same acceptance. No accepted create
+    // can carry a bad key, so this only guards a record built by a future,
+    // broken version of this check — the same class of defence-in-depth as
+    // the settlement screen's missing-summary case (2026-10-09 learning log).
     String? code;
     if (investorKey != null && managerKey != null) {
       try {
