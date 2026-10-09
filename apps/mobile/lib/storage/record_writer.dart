@@ -46,12 +46,14 @@ class WriteResult {
   const WriteResult.written(Record this.record)
     : refusal = null,
       latestSettlement = null,
-      latestWithdrawal = null;
+      latestWithdrawal = null,
+      latestReversal = null;
 
   const WriteResult.refused(
     WriteRefusal this.refusal, {
     this.latestSettlement,
     this.latestWithdrawal,
+    this.latestReversal,
   }) : record = null;
 
   final Record? record;
@@ -64,6 +66,9 @@ class WriteResult {
 
   /// The current withdrawal summary, set in the same cases as [latestSettlement].
   final WithdrawalConsent? latestWithdrawal;
+
+  /// The current reversal summary, set in the same cases as [latestSettlement].
+  final ReversalConsent? latestReversal;
 }
 
 /// The only code that writes this phone's own records (spec 7.4).
@@ -118,6 +123,7 @@ class RecordWriter {
     required bool approve,
     SettlementConsent? shownSettlement,
     WithdrawalConsent? shownWithdrawal,
+    ReversalConsent? shownReversal,
   }) async {
     // The gate reads the relay vector from the latest sync (spec 7.4, rule 2).
     final relayVector = await _store.relayVectorFor(partnership);
@@ -128,6 +134,7 @@ class RecordWriter {
     WriteRefusal? refusal;
     SettlementConsent? latestSettlement;
     WithdrawalConsent? latestWithdrawal;
+    ReversalConsent? latestReversal;
     final text = await _store.appendWith(partnership, (texts) async {
       final ledger = [
         for (final text in texts)
@@ -234,6 +241,23 @@ class RecordWriter {
         }
         if (refusal != null) return null;
       }
+      if (approve && current.target.type == 'reversal') {
+        final now = reversalConsent(
+          validator.usableRecords,
+          partnershipKeys: keys,
+          reversal: current.target,
+          answer: unsigned,
+        );
+        latestReversal = now;
+        if (now == null) {
+          if (shownReversal != null) refusal = WriteRefusal.summaryChanged;
+        } else if (shownReversal == null) {
+          refusal = WriteRefusal.consentNotShown;
+        } else if (now != shownReversal) {
+          refusal = WriteRefusal.summaryChanged;
+        }
+        if (refusal != null) return null;
+      }
 
       // Every check has passed: this write will really happen. A test can
       // hold this open; a real run passes straight through.
@@ -248,6 +272,7 @@ class RecordWriter {
         refusal!,
         latestSettlement: latestSettlement,
         latestWithdrawal: latestWithdrawal,
+        latestReversal: latestReversal,
       );
     }
     return WriteResult.written(

@@ -4,7 +4,7 @@ import '../storage/record_writer.dart';
 import 'refusal_text.dart';
 
 /// A plain approve/reject screen for any inbox kind that has no dedicated
-/// screen yet: currently budget, ratio and reversal. Settlement, withdrawal
+/// screen yet: currently budget and ratio. Settlement, withdrawal, reversal
 /// and partnership start already have their own screens, because spec 6.7
 /// requires a consent summary first. This one stays as the fallback so a
 /// kind is never silently unanswerable while its own screen is still being
