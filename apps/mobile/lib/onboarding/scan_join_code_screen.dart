@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-/// Scans a join code with the camera and returns its text, or `null` if the
+/// Scans a QR code with the camera and returns its text, or `null` if the
 /// user goes back.
 ///
-/// The camera is asked for only here, when the user taps "Scan" on the
-/// onboarding screen. The scanner starts, and the system asks for permission.
-/// If the user says no, the screen explains and offers to type the code.
-/// Nothing is pinned here: the caller shows the safety code first (spec 2.1).
+/// Used for both QR codes onboarding shows: the join code, and a partner's
+/// own public key (spec 2.1 names both as shared "by QR code or text"). The
+/// camera is asked for only here, when the user taps a "Scan" button. The
+/// scanner starts, and the system asks for permission. If the user says no,
+/// the screen explains and offers to type the value instead. Nothing is
+/// pinned here: the caller shows the safety code first (spec 2.1).
 class ScanJoinCodeScreen extends StatefulWidget {
-  const ScanJoinCodeScreen({super.key});
+  const ScanJoinCodeScreen({super.key, this.title = 'Scan join code'});
+
+  final String title;
 
   @override
   State<ScanJoinCodeScreen> createState() => _ScanJoinCodeScreenState();
@@ -30,7 +34,7 @@ class _ScanJoinCodeScreenState extends State<ScanJoinCodeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Scan join code')),
+      appBar: AppBar(title: Text(widget.title)),
       body: MobileScanner(
         onDetect: _onDetect,
         errorBuilder: (context, error) => _CameraProblem(error: error),

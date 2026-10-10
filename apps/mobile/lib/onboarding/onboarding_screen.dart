@@ -10,8 +10,8 @@ import 'safety_code_dialog.dart';
 import 'scan_join_code_screen.dart';
 
 /// The first screen on a new phone. The partner either starts a partnership
-/// (investor) or joins one (manager). Keys and codes are shared as text for
-/// now; the QR code comes in a later step.
+/// (investor) or joins one (manager). Every key and code here is shared both
+/// ways (spec 2.1): shown as a QR code to scan, and as text to copy or type.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     super.key,
@@ -137,7 +137,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         children: [
           Text('Your key', style: theme.textTheme.titleMedium),
           const SizedBox(height: 4),
-          const Text('Send this to your partner so they can pin it.'),
+          const Text(
+            'Send this to your partner so they can pin it — show the QR '
+            'code for them to scan, or copy the text.',
+          ),
+          const SizedBox(height: 8),
+          Center(
+            child: SizedBox(
+              width: 180,
+              height: 180,
+              child: PrettyQrView.data(data: widget.keys.publicKeyBase64Url),
+            ),
+          ),
           const SizedBox(height: 8),
           SelectableText(widget.keys.publicKeyBase64Url),
           TextButton.icon(
@@ -157,6 +168,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               labelText: "Manager's key",
               border: OutlineInputBorder(),
             ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _createdCode == null ? _scanManagerKey : null,
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text("Scan manager's key"),
           ),
           const SizedBox(height: 12),
           TextField(
@@ -238,6 +255,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (text == null || !mounted) return;
     _joinCode.text = text;
     await _join();
+  }
+
+  /// Scans the manager's own-key QR (the one shown under "Your key" on their
+  /// phone) straight into the field, instead of the manager reading out a
+  /// 43-character string to type by hand. Just fills the field: the key is
+  /// still checked, and the safety code still shown, in `_create`.
+  Future<void> _scanManagerKey() async {
+    final text = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (_) => const ScanJoinCodeScreen(title: "Scan manager's key"),
+      ),
+    );
+    if (text == null || !mounted) return;
+    setState(() => _managerKey.text = text);
   }
 
   void _copy(String text) {

@@ -41,10 +41,12 @@ void main() {
     );
   }
 
-  testWidgets('shows the phone key so the partner can pin it', (tester) async {
+  testWidgets('shows the phone key as text and as a QR, so the partner '
+      'can pin it either way', (tester) async {
     await pumpScreen(tester);
 
     expect(find.text(keys.publicKeyBase64Url), findsOneWidget);
+    expect(find.byType(PrettyQrView), findsOneWidget);
   });
 
   testWidgets('a bad manager key shows an error and saves nothing', (
@@ -175,6 +177,25 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(store.partnerships, hasLength(1));
-    expect(find.byType(PrettyQrView), findsOneWidget);
+    // One QR for this phone's own key (always shown) and one for the join
+    // code (shown once the partnership exists).
+    expect(find.byType(PrettyQrView), findsNWidgets(2));
+  });
+
+  testWidgets("tapping \"Scan manager's key\" opens its own scan screen", (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(find.text("Scan manager's key"));
+    await tester.tap(find.text("Scan manager's key"));
+    await tester.pumpAndSettle();
+    // The onboarding screen's button is now offstage; this is the scan
+    // screen's own app bar title, confirming the title reached it.
+    expect(find.text("Scan manager's key"), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, "Manager's key"), findsOneWidget);
   });
 }
