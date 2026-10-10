@@ -95,13 +95,17 @@ all tests pass, and its pull request is merged.
 
 ## Phase 7 — App screens
 
-- [ ] Onboarding: create keys, create or join partnership (share partnership id by QR code or text)
-- [ ] Dashboard: capital, cash balance, result, each partner's share, active ratio
-- [ ] Transactions list, and record detail showing author, signature status and links
-- [ ] Forms: invest, sale, expense (choose budget, optional receipt photo hash), withdraw, budget, ratio, reversal, settlement (cut from the phone's current vector, period result shown before proposing)
-- [ ] Approvals inbox: pending items with approve / reject
-- [ ] Warnings: over-budget, equivocation, chain problems
-- [ ] Sync status indicator and manual "sync now"
+- [x] Onboarding: create keys, create or join partnership (share partnership id and each partner's
+      key by QR code or text)
+- [x] Dashboard: capital, cash balance, result, each partner's share, active ratio
+- [x] Transactions list, and record detail showing author, signature status and links
+- [x] Forms: invest, sale, expense (choose budget), withdraw, budget, ratio, reversal, settlement
+      (cut from the phone's current vector, period result shown before proposing). The optional
+      receipt photo hash is deferred until a photo-capture step exists to hash (decision
+      2026-10-11) — there is no photo on the phone yet to hash for real.
+- [x] Approvals inbox: pending items with approve / reject
+- [x] Warnings: over-budget, equivocation, chain problems
+- [x] Sync status indicator and manual "sync now"
 
 **Done when:** a full Mudaraba month can be simulated on two phones (or emulators) end to end.
 

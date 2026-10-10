@@ -1003,3 +1003,64 @@ the budget has left, and writes nothing'`. The existing evidence-side behaviour 
 expense *received* from the other partner stays stored and flagged) was already covered by
 `packages/qirad_core/test/budgets_test.dart`, `record_status_test.dart` and `scenarios_test.dart`,
 and needed no change.
+
+---
+
+## 2026-10-11 — Phase 7 audit: receipt photo hash stays text-only, deferred past this phase
+
+**Finding:** The audit for Phase 7 found that `proposeExpense` (and the record body schema) already
+accept an optional `receiptHash`, but `ExpenseForm` has no field to supply one — a manager can only
+write an expense with no receipt hash at all.
+
+**Decision:** Deferred, not a gap to close now. The app has no photo capture or local file storage
+yet, so there is nothing on the phone to hash. Adding a bare text field for a hash with no photo
+behind it would invite a meaningless or fabricated value, which is worse than leaving the field
+out. Revisit when a photo-capture step exists to hash for real.
+
+**Reason:** "Store facts, calculate everything else" cuts both ways — a feature that cannot produce
+a real fact yet should not simulate one.
+
+**Tests:** none; no code changed.
+
+---
+
+## 2026-10-11 — Phase 7 audit: record detail gets a signature fact and a tappable `refersTo`
+
+**Finding:** The audit for Phase 7 found that the record detail screen showed the business
+`RecordStatus` and a plain-text `refersTo`, not the distinct "signature status" and link that
+plan.md's Phase 7 checklist names.
+
+**Decision:** Added both. `RecordDetailScreen` now shows a fixed "Signature: Valid — checked
+against the author's key on receipt" fact, separate from the business status — true for every
+record on this screen, since `Validator.receive()` hard-rejects (never stores) a record whose
+signature does not check (spec 6.1 step 2). `refersTo` is now a tappable link to that record's own
+detail screen when this phone already has it, falling back to the plain id when it does not (the
+target may simply not have arrived yet).
+
+**Reason:** The business status alone conflates "did this take effect" with "is this genuinely
+signed by its author" — two different questions the plan asks for separately.
+
+**Tests:** `apps/mobile/test/transactions_screen_test.dart`, `'detail screen shows a signature fact
+and a tappable link'`.
+
+---
+
+## 2026-10-11 — Phase 7 audit: onboarding's own-key QR completes the two-way exchange
+
+**Finding:** The audit for Phase 7 found that only one half of spec §2.1's QR exchange was built:
+the investor's join code rendered as a QR, but the key a partner must type into the "Manager's
+key" field (before any partnership exists) was text-only, with no QR and no scan button.
+
+**Decision:** `OnboardingScreen` now renders this phone's own key as a QR as well as text (under
+"Your key"), and offers a "Scan manager's key" button next to that field, reusing
+`ScanJoinCodeScreen` (now parameterised with a `title`, since it scans more than one kind of QR).
+Nothing is pinned by scanning alone — the safety code is still shown and must be confirmed before
+`_create` saves anything, exactly as for a typed key.
+
+**Reason:** Typing a 43-character base64url key by hand invites the one mistake the safety code
+step exists to catch after the fact; scanning avoids it in the first place for both keys, not just
+the join code.
+
+**Tests:** `apps/mobile/test/onboarding_screen_test.dart` — the existing "shows the phone key" test
+now also checks for the QR; a new test confirms the scan button opens a scan screen titled
+"Scan manager's key".
