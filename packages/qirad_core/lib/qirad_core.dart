@@ -2,6 +2,7 @@
 library;
 
 export 'src/active_ratio.dart';
+export 'src/authorization.dart';
 export 'src/dashboard.dart';
 export 'src/approvals.dart';
 export 'src/approvals_inbox.dart';
@@ -14,6 +15,7 @@ export 'src/effective.dart';
 export 'src/keys.dart';
 export 'src/money.dart';
 export 'src/ledger.dart';
+export 'src/money_input.dart';
 export 'src/ratio.dart';
 export 'src/record.dart';
 export 'src/record_builder.dart';

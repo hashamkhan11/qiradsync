@@ -107,7 +107,7 @@ type, not only `partnership_create`'s (see `docs/decisions.md`,
 
 | # | Rule | What was changed | Result | Test that catches it (or reason) |
 |---|---|---|---|---|
-| M20 | Spec section 5's "Allowed author" column (`_authorAllowedForType`) | Forced to always return `true` | Killed | `validator_author_table_test.dart`: every disallowed-author case in the table — manager-signed `invest`, investor-signed `sale`, investor-signed `expense`, investor-signed `settlement`, manager-signed `withdraw_request` with `kind: "capital"` |
+| M20 | Spec section 5's "Allowed author" column (`canAuthor`, moved from the validator's own `_authorAllowedForType` on 2026-10-10 — see below) | Forced to always return `true` | Killed | `validator_author_table_test.dart`: every disallowed-author case in the table — manager-signed `invest`, investor-signed `sale`, investor-signed `expense`, investor-signed `settlement`, manager-signed `withdraw_request` with `kind: "capital"` |
 
 ## Spec 6.7, cut rule 5: covers new business, not just bigger numbers (2026-10-10)
 
@@ -125,6 +125,21 @@ writer's `emptyCut` guard. One mutant, run in place directly on
 | # | Rule | What was changed | Result | Test that catches it (or reason) |
 |---|---|---|---|---|
 | M21 | Rule 5: covers new business (`coversNewBusiness`) | Forced to always return `true` | Killed | `settlement_test.dart`: "an empty cut is invalid and does not block the next one", "a second cut identical to the first is invalid", and the new "a settlement covering only the previous settlement and its approve is invalid" |
+
+## Spec section 5's "Allowed author" column, moved into one function (2026-10-10)
+
+**Purpose.** The rule used to be checked three separate ways: the validator's own
+`_authorAllowedForType`, a hand-written role comparison inside each
+`RecordWriter.propose*` method, and (about to exist) a UI allow-list for the
+"New" menu. Moved into one function, `canAuthor(type, author, parties, {kind})`
+in `packages/qirad_core/lib/src/authorization.dart`, called by all three, plus
+`allowedCreationActions` (used by the menu) which derives its answer from
+`canAuthor` alone. One mutant, run in place directly on that file (edit, test,
+revert).
+
+| # | Rule | What was changed | Result | Test that catches it (or reason) |
+|---|---|---|---|---|
+| M22 | `canAuthor` | Forced to always return `true` | Killed | `authorization_test.dart`'s whole table, plus `validator_author_table_test.dart` (core, 10 cases) and `record_writer_test.dart`'s `wrongRole` cases (mobile, 5 cases) — the same rule, caught at every layer that calls it |
 
 ## Weak spots left
 

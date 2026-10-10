@@ -408,7 +408,7 @@ class RecordWriter {
     type: 'invest',
     bodyOf: (_, _, _) => {'amount': amount},
     refusalOf: (_, _, parties) =>
-        _me == parties.investor ? null : WriteRefusal.wrongRole,
+        canAuthor('invest', _me, parties) ? null : WriteRefusal.wrongRole,
   );
 
   /// Proposes `sale`: adds income (spec section 5). Manager only.
@@ -416,7 +416,7 @@ class RecordWriter {
     type: 'sale',
     bodyOf: (_, _, _) => {'amount': amount},
     refusalOf: (_, _, parties) =>
-        _me == parties.manager ? null : WriteRefusal.wrongRole,
+        canAuthor('sale', _me, parties) ? null : WriteRefusal.wrongRole,
   );
 
   /// Proposes `expense`: removes money, drawn from [budgetId] (spec section
@@ -432,7 +432,7 @@ class RecordWriter {
     refersTo: budgetId,
     bodyOf: (_, _, _) => {'amount': amount, 'receiptHash': receiptHash},
     refusalOf: (_, validator, parties) {
-      if (_me != parties.manager) return WriteRefusal.wrongRole;
+      if (!canAuthor('expense', _me, parties)) return WriteRefusal.wrongRole;
       final budgets = effectiveBudgetsFor(
         validator.usableRecords,
         partnershipKeys: validator.partnershipKeys!,
@@ -455,7 +455,7 @@ class RecordWriter {
     type: 'withdraw_request',
     bodyOf: (_, _, _) => {'amount': amount, 'kind': kind},
     refusalOf: (_, _, parties) {
-      if (kind == 'capital' && _me != parties.investor) {
+      if (!canAuthor('withdraw_request', _me, parties, kind: kind)) {
         return WriteRefusal.wrongRole;
       }
       return null;
@@ -471,6 +471,9 @@ class RecordWriter {
   }) => _propose(
     type: 'budget_proposal',
     bodyOf: (_, _, _) => {'grantee': grantee, 'amount': amount},
+    refusalOf: (_, _, parties) => canAuthor('budget_proposal', _me, parties)
+        ? null
+        : WriteRefusal.wrongRole,
   );
 
   /// Proposes `ratio_proposal`: a new profit-share split, effective from
@@ -485,6 +488,9 @@ class RecordWriter {
       'ratio': {'investor': investorPercent, 'manager': managerPercent},
       'effectiveFrom': effectiveFrom,
     },
+    refusalOf: (_, _, parties) => canAuthor('ratio_proposal', _me, parties)
+        ? null
+        : WriteRefusal.wrongRole,
   );
 
   /// Proposes a `reversal` of [targetId] (spec section 5). Either partner.
@@ -495,7 +501,8 @@ class RecordWriter {
     type: 'reversal',
     refersTo: targetId,
     bodyOf: (_, _, _) => const {},
-    refusalOf: (ledger, _, _) {
+    refusalOf: (ledger, _, parties) {
+      if (!canAuthor('reversal', _me, parties)) return WriteRefusal.wrongRole;
       const reversible = {'invest', 'sale', 'expense', 'withdraw_request'};
       final target = ledger.where((r) => r.id == targetId);
       if (target.isEmpty || !reversible.contains(target.single.type)) {
@@ -515,7 +522,9 @@ class RecordWriter {
     type: 'settlement',
     bodyOf: (_, validator, _) => {'cut': _openCut(validator)},
     refusalOf: (_, validator, parties) {
-      if (_me != parties.manager) return WriteRefusal.wrongRole;
+      if (!canAuthor('settlement', _me, parties)) {
+        return WriteRefusal.wrongRole;
+      }
       final shares = periodShares(
         validator.usableRecords,
         partnershipKeys: validator.partnershipKeys!,

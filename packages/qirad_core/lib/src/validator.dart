@@ -3,12 +3,14 @@ import 'dart:convert';
 import 'package:meta/meta.dart';
 
 import 'amounts.dart';
+import 'authorization.dart';
 import 'canonical_json.dart';
 import 'keys.dart';
 import 'ledger.dart';
 import 'ratio.dart';
 import 'record.dart';
 import 'record_hash.dart';
+import 'settlement.dart';
 import 'signing.dart';
 
 /// What happened when a raw incoming record was run through [Validator.receiveText],
@@ -449,34 +451,16 @@ class Validator {
     // another partnership) is rejected here, so it is never stored.
     if (record.partnership != _partnershipId) return false;
     if (!_partnershipKeys!.contains(record.author)) return false;
-    return _authorAllowedForType(record, _investorKey!, _managerKey!);
-  }
-
-  /// Spec section 5's "Allowed author" column. Our threat model assumes the
-  /// other partner may be dishonest and can sign *any* record type with
-  /// their own valid key, without going through this app at all — so the
-  /// app's own menus (which only ever offer the actions a role may take)
-  /// are not a real restriction on their own. This is the one place that
-  /// restriction is actually enforced: a record from the wrong role for its
-  /// type is rejected on receive, the same as a record from an outside key.
-  bool _authorAllowedForType(Record record, String investor, String manager) {
-    switch (record.type) {
-      case 'partnership_create':
-      case 'invest':
-        return record.author == investor;
-      case 'sale':
-      case 'expense':
-      case 'settlement':
-        return record.author == manager;
-      case 'withdraw_request':
-        // The manager has no capital to withdraw (decision 2026-10-10).
-        // Profit withdrawals stay open to either partner.
-        if (record.body['kind'] == 'capital') return record.author == investor;
-        return true;
-      default:
-        // budget_proposal, ratio_proposal, reversal, approve, reject: either.
-        return true;
-    }
+    // Spec section 5's "Allowed author" column, decided once in canAuthor
+    // (see its own doc comment) and reused by RecordWriter.propose* and the
+    // "New" menu, so none of the three can drift from the others.
+    final kind = record.body['kind'];
+    return canAuthor(
+      record.type,
+      record.author,
+      Parties(investor: _investorKey!, manager: _managerKey!),
+      kind: kind is String ? kind : null,
+    );
   }
 
   /// A create must name the pinned keys, and be signed by the pinned
