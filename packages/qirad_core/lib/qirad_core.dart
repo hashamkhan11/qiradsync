@@ -5,6 +5,7 @@ export 'src/active_ratio.dart';
 export 'src/dashboard.dart';
 export 'src/approvals.dart';
 export 'src/approvals_inbox.dart';
+export 'src/budget_view.dart';
 export 'src/canonical_json.dart';
 export 'src/consent_summary.dart';
 export 'src/cut_view.dart';

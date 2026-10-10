@@ -23,5 +23,13 @@ String refusalText(WriteRefusal refusal) {
     case WriteRefusal.consentNotShown:
     case WriteRefusal.summaryChanged:
       return 'The numbers changed. Check them again before answering.';
+    case WriteRefusal.wrongRole:
+      return 'Your role cannot propose this.';
+    case WriteRefusal.noEffectiveBudget:
+      return 'Choose a budget that is approved and granted to you.';
+    case WriteRefusal.notReversible:
+      return 'This cannot be reversed.';
+    case WriteRefusal.emptyCut:
+      return 'Nothing new to settle since the last settlement.';
   }
 }

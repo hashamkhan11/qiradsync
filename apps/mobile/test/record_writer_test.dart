@@ -143,6 +143,12 @@ void main() {
     store: store,
   );
 
+  RecordWriter managerWriter() => RecordWriter.forTesting(
+    keys: manager,
+    partnership: partnership,
+    store: store,
+  );
+
   /// An unsaved investor approve of [targetId], built on the saved ledger.
   /// The screen builds the same kind of record to show its summary.
   Record previewApprove(String targetId) => buildRecord(
@@ -181,6 +187,19 @@ void main() {
       },
       request: request,
       answer: previewApprove(request.id),
+    );
+  }
+
+  /// The summary the user would be shown for budget [proposal] now.
+  BudgetConsent? previewBudget(Record proposal) {
+    final validator = store.validatorFor(partnership);
+    return budgetConsent(
+      validator.usableRecords,
+      partnershipKeys: {
+        investor.publicKeyBase64Url,
+        manager.publicKeyBase64Url,
+      },
+      proposal: proposal,
     );
   }
 
@@ -532,5 +551,292 @@ void main() {
       // create, approveCreate, invest, sale and S1: nothing new was saved.
       expect(await store.savedTexts(partnership), hasLength(5));
     });
+  });
+
+  group('RecordWriter.propose* creation forms (spec section 5)', () {
+    test('proposeInvest writes an invest record for the investor', () async {
+      await startWithCreate();
+      await syncedAs(investorSeq: 1, managerSeq: 1);
+
+      final result = await writer().proposeInvest(amount: 100000);
+
+      expect(result.record, isNotNull);
+      expect(result.record!.type, 'invest');
+      expect(result.record!.body['amount'], 100000);
+    });
+
+    test('proposeInvest refuses the manager: investor only', () async {
+      await startWithCreate();
+      await syncedAs(investorSeq: 1, managerSeq: 1);
+
+      final result = await managerWriter().proposeInvest(amount: 100000);
+
+      expect(result.refusal, WriteRefusal.wrongRole);
+      // create and approveCreate: nothing new was saved.
+      expect(await store.savedTexts(partnership), hasLength(2));
+    });
+
+    test('proposeSale writes a sale record for the manager', () async {
+      await startWithCreate();
+      await syncedAs(investorSeq: 1, managerSeq: 1);
+
+      final result = await managerWriter().proposeSale(amount: 50000);
+
+      expect(result.record, isNotNull);
+      expect(result.record!.type, 'sale');
+      expect(result.record!.body['amount'], 50000);
+    });
+
+    test('proposeSale refuses the investor: manager only', () async {
+      await startWithCreate();
+      await syncedAs(investorSeq: 1, managerSeq: 1);
+
+      final result = await writer().proposeSale(amount: 50000);
+
+      expect(result.refusal, WriteRefusal.wrongRole);
+    });
+
+    test(
+      'proposeExpense writes an expense against a budget granted to this key',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+        final budget = await writer().proposeBudget(
+          amount: 100000,
+          grantee: manager.publicKeyBase64Url,
+        );
+        await syncedAs(investorSeq: 2, managerSeq: 1);
+        final approveBudget = await managerWriter().answer(
+          budget.record!.id,
+          approve: true,
+          shownBudget: previewBudget(budget.record!),
+        );
+        expect(approveBudget.record, isNotNull);
+        await syncedAs(investorSeq: 2, managerSeq: 2);
+
+        final result = await managerWriter().proposeExpense(
+          amount: 20000,
+          budgetId: budget.record!.id,
+        );
+
+        expect(result.record, isNotNull);
+        expect(result.record!.type, 'expense');
+        expect(result.record!.refersTo, budget.record!.id);
+      },
+    );
+
+    test('proposeExpense refuses the investor: manager only', () async {
+      await startWithCreate();
+      await syncedAs(investorSeq: 1, managerSeq: 1);
+
+      final result = await writer().proposeExpense(
+        amount: 1,
+        budgetId: testId('no-such-budget'),
+      );
+
+      expect(result.refusal, WriteRefusal.wrongRole);
+    });
+
+    test(
+      'proposeExpense refuses a budget this key is not granted, or that does '
+      'not exist',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+
+        final result = await managerWriter().proposeExpense(
+          amount: 1,
+          budgetId: testId('no-such-budget'),
+        );
+
+        expect(result.refusal, WriteRefusal.noEffectiveBudget);
+      },
+    );
+
+    test(
+      'proposeWithdrawal of kind capital is investor only',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+
+        final fromInvestor = await writer().proposeWithdrawal(
+          amount: 100,
+          kind: 'capital',
+        );
+        expect(fromInvestor.record, isNotNull);
+        expect(fromInvestor.record!.type, 'withdraw_request');
+
+        final fromManager = await managerWriter().proposeWithdrawal(
+          amount: 100,
+          kind: 'capital',
+        );
+        expect(fromManager.refusal, WriteRefusal.wrongRole);
+      },
+    );
+
+    test(
+      'proposeWithdrawal of kind profit is open to either partner',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+
+        final fromInvestor = await writer().proposeWithdrawal(
+          amount: 100,
+          kind: 'profit',
+        );
+        expect(fromInvestor.record, isNotNull);
+        await syncedAs(investorSeq: 2, managerSeq: 1);
+
+        final fromManager = await managerWriter().proposeWithdrawal(
+          amount: 100,
+          kind: 'profit',
+        );
+        expect(fromManager.record, isNotNull);
+      },
+    );
+
+    test('proposeBudget is open to either partner', () async {
+      await startWithCreate();
+      await syncedAs(investorSeq: 1, managerSeq: 1);
+
+      final result = await managerWriter().proposeBudget(
+        amount: 1000,
+        grantee: investor.publicKeyBase64Url,
+      );
+
+      expect(result.record, isNotNull);
+      expect(result.record!.type, 'budget_proposal');
+      expect(result.record!.body['grantee'], investor.publicKeyBase64Url);
+    });
+
+    test('proposeRatio is open to either partner', () async {
+      await startWithCreate();
+      await syncedAs(investorSeq: 1, managerSeq: 1);
+
+      final result = await managerWriter().proposeRatio(
+        investorPercent: 50,
+        managerPercent: 50,
+        effectiveFrom: '2026-11-01',
+      );
+
+      expect(result.record, isNotNull);
+      expect(result.record!.type, 'ratio_proposal');
+      expect(result.record!.body['ratio'], {'investor': 50, 'manager': 50});
+    });
+
+    test('proposeReversal reverses a record held on this phone', () async {
+      await startWithCreate();
+      await syncedAs(investorSeq: 1, managerSeq: 1);
+      final invest = await writer().proposeInvest(amount: 100000);
+      await syncedAs(investorSeq: 2, managerSeq: 1);
+
+      final result = await writer().proposeReversal(
+        targetId: invest.record!.id,
+      );
+
+      expect(result.record, isNotNull);
+      expect(result.record!.type, 'reversal');
+      expect(result.record!.refersTo, invest.record!.id);
+    });
+
+    test(
+      'proposeReversal refuses a target not held, or not a reversible type',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+
+        final notHeld = await writer().proposeReversal(
+          targetId: testId('no-such-record'),
+        );
+        expect(notHeld.refusal, WriteRefusal.notReversible);
+
+        // partnership_create is held, but it is not one of the reversible
+        // types (spec section 5: invest, sale, expense, withdraw_request).
+        final wrongType = await writer().proposeReversal(
+          targetId: testId('partnership'),
+        );
+        expect(wrongType.refusal, WriteRefusal.notReversible);
+      },
+    );
+
+    test(
+      'proposeSettlement writes a settlement covering real new business',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+        await writer().proposeInvest(amount: 100000);
+        await syncedAs(investorSeq: 2, managerSeq: 1);
+        await managerWriter().proposeSale(amount: 50000);
+        await syncedAs(investorSeq: 2, managerSeq: 2);
+
+        final result = await managerWriter().proposeSettlement();
+
+        expect(result.record, isNotNull);
+        expect(result.record!.type, 'settlement');
+      },
+    );
+
+    test('proposeSettlement refuses the investor: manager only', () async {
+      await startWithCreate();
+      await syncedAs(investorSeq: 1, managerSeq: 1);
+      await writer().proposeInvest(amount: 100000);
+      await syncedAs(investorSeq: 2, managerSeq: 1);
+      await managerWriter().proposeSale(amount: 50000);
+      await syncedAs(investorSeq: 2, managerSeq: 2);
+
+      final result = await writer().proposeSettlement();
+
+      expect(result.refusal, WriteRefusal.wrongRole);
+    });
+
+    test(
+      'proposeSettlement refuses a cut that covers nothing but the last '
+      'settlement and its approve, even though the raw cut grew (spec 6.7, '
+      'cut rule 5; decision 2026-10-10), and accepts the next real business',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+        await writer().proposeInvest(amount: 100000);
+        await syncedAs(investorSeq: 2, managerSeq: 1);
+        await managerWriter().proposeSale(amount: 50000);
+        await syncedAs(investorSeq: 2, managerSeq: 2);
+        final s1 = await managerWriter().proposeSettlement();
+        expect(s1.record, isNotNull);
+        await syncedAs(investorSeq: 2, managerSeq: 3);
+        final approveS1 = await writer().answer(
+          s1.record!.id,
+          approve: true,
+          shownSettlement: previewSettlement(s1.record!),
+        );
+        expect(approveS1.record, isNotNull);
+        await syncedAs(investorSeq: 3, managerSeq: 3);
+
+        final savedBefore = (await store.savedTexts(partnership)).length;
+        final s2 = await managerWriter().proposeSettlement();
+
+        expect(s2.refusal, WriteRefusal.emptyCut);
+        expect(await store.savedTexts(partnership), hasLength(savedBefore));
+
+        // A new sale after S1 is real business: now S2 is accepted.
+        await managerWriter().proposeSale(amount: 10000);
+        await syncedAs(investorSeq: 3, managerSeq: 4);
+
+        final s2Again = await managerWriter().proposeSettlement();
+        expect(s2Again.record, isNotNull);
+        expect(s2Again.record!.type, 'settlement');
+      },
+    );
+
+    test(
+      'a propose while the partnership is still pending is refused',
+      () async {
+        await startWithUnapprovedCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 0);
+
+        final result = await writer().proposeInvest(amount: 100000);
+
+        expect(result.refusal, WriteRefusal.partnershipNotActive);
+      },
+    );
   });
 }

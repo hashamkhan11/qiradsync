@@ -44,6 +44,28 @@ enum WriteRefusal {
   /// settlement effective. Nothing is written. The result carries the new
   /// summary, and the screen asks again.
   summaryChanged,
+
+  /// This key is not the role spec section 5 allows to author this record
+  /// type (for example the manager trying to `invest`, or either partner
+  /// trying to request a capital withdrawal when they are the manager). The
+  /// validator would refuse this record outright on receive, so the writer
+  /// refuses it here instead of ever signing it.
+  wrongRole,
+
+  /// An `expense`'s `refersTo` does not name a budget that is both approved
+  /// and granted to this key (spec section 5, 6.4). A budget proposed for
+  /// the other partner, or one still pending, is not spendable by this key.
+  noEffectiveBudget,
+
+  /// A `reversal`'s target is not one of the types spec section 5 allows to
+  /// be reversed (`invest`, `sale`, `expense`, `withdraw_request`), or the
+  /// target is not held on this phone at all.
+  notReversible,
+
+  /// A settlement's natural cut (the phone's current chain vector) would
+  /// equal the last effective settlement's cut: nothing has happened since
+  /// then for either partner, so there is nothing new to settle.
+  emptyCut,
 }
 
 /// The result of one write: the saved record, or the reason it was refused.
@@ -375,6 +397,237 @@ class RecordWriter {
         latestBudget: latestBudget,
         latestRatio: latestRatio,
       );
+    }
+    return WriteResult.written(
+      Record.fromJson(jsonDecode(text) as Map<String, dynamic>),
+    );
+  }
+
+  /// Proposes `invest`: adds capital (spec section 5). Investor only.
+  Future<WriteResult> proposeInvest({required int amount}) => _propose(
+    type: 'invest',
+    bodyOf: (_, _, _) => {'amount': amount},
+    refusalOf: (_, _, parties) =>
+        _me == parties.investor ? null : WriteRefusal.wrongRole,
+  );
+
+  /// Proposes `sale`: adds income (spec section 5). Manager only.
+  Future<WriteResult> proposeSale({required int amount}) => _propose(
+    type: 'sale',
+    bodyOf: (_, _, _) => {'amount': amount},
+    refusalOf: (_, _, parties) =>
+        _me == parties.manager ? null : WriteRefusal.wrongRole,
+  );
+
+  /// Proposes `expense`: removes money, drawn from [budgetId] (spec section
+  /// 5, 6.4). Manager only, and only from a budget this key is the grantee
+  /// of — the same list [effectiveBudgetsFor] offers the form, so a budget
+  /// the form never showed can never be chosen here either.
+  Future<WriteResult> proposeExpense({
+    required int amount,
+    required String budgetId,
+    String? receiptHash,
+  }) => _propose(
+    type: 'expense',
+    refersTo: budgetId,
+    bodyOf: (_, _, _) => {'amount': amount, 'receiptHash': receiptHash},
+    refusalOf: (_, validator, parties) {
+      if (_me != parties.manager) return WriteRefusal.wrongRole;
+      final budgets = effectiveBudgetsFor(
+        validator.usableRecords,
+        partnershipKeys: validator.partnershipKeys!,
+        grantee: _me,
+      );
+      return budgets.containsKey(budgetId)
+          ? null
+          : WriteRefusal.noEffectiveBudget;
+    },
+  );
+
+  /// Proposes `withdraw_request` (spec section 5). [kind] is `"capital"` or
+  /// `"profit"`. A capital withdrawal is investor only — the manager put in
+  /// no capital, so there is nothing for them to withdraw (decision
+  /// 2026-10-10). A profit withdrawal stays open to either partner.
+  Future<WriteResult> proposeWithdrawal({
+    required int amount,
+    required String kind,
+  }) => _propose(
+    type: 'withdraw_request',
+    bodyOf: (_, _, _) => {'amount': amount, 'kind': kind},
+    refusalOf: (_, _, parties) {
+      if (kind == 'capital' && _me != parties.investor) {
+        return WriteRefusal.wrongRole;
+      }
+      return null;
+    },
+  );
+
+  /// Proposes `budget_proposal`: a spending limit for [grantee] (spec
+  /// section 5). Either partner may propose a budget for either partner —
+  /// the grantee rule only limits who may later *spend* it ([proposeExpense]).
+  Future<WriteResult> proposeBudget({
+    required int amount,
+    required String grantee,
+  }) => _propose(
+    type: 'budget_proposal',
+    bodyOf: (_, _, _) => {'grantee': grantee, 'amount': amount},
+  );
+
+  /// Proposes `ratio_proposal`: a new profit-share split, effective from
+  /// [effectiveFrom] (`YYYY-MM-DD`, spec section 5). Either partner.
+  Future<WriteResult> proposeRatio({
+    required int investorPercent,
+    required int managerPercent,
+    required String effectiveFrom,
+  }) => _propose(
+    type: 'ratio_proposal',
+    bodyOf: (_, _, _) => {
+      'ratio': {'investor': investorPercent, 'manager': managerPercent},
+      'effectiveFrom': effectiveFrom,
+    },
+  );
+
+  /// Proposes a `reversal` of [targetId] (spec section 5). Either partner.
+  /// Refuses, without writing, when [targetId] is not held on this phone, or
+  /// is not one of the types spec section 5 allows to be reversed — the app
+  /// never writes a record it already knows is invalid.
+  Future<WriteResult> proposeReversal({required String targetId}) => _propose(
+    type: 'reversal',
+    refersTo: targetId,
+    bodyOf: (_, _, _) => const {},
+    refusalOf: (ledger, _, _) {
+      const reversible = {'invest', 'sale', 'expense', 'withdraw_request'};
+      final target = ledger.where((r) => r.id == targetId);
+      if (target.isEmpty || !reversible.contains(target.single.type)) {
+        return WriteRefusal.notReversible;
+      }
+      return null;
+    },
+  );
+
+  /// Proposes a `settlement` closing the open period at this phone's current
+  /// chain vector (spec section 6.7; plan.md: "cut from the phone's current
+  /// vector"). Manager only. Refuses with [WriteRefusal.emptyCut] when,
+  /// beyond the last effective settlement's cut, the vector covers nothing
+  /// but settlement bookkeeping (spec 6.7, cut rule 5; [coversNewBusiness]) —
+  /// nothing has really happened for either partner since then.
+  Future<WriteResult> proposeSettlement() => _propose(
+    type: 'settlement',
+    bodyOf: (_, validator, _) => {'cut': _openCut(validator)},
+    refusalOf: (_, validator, parties) {
+      if (_me != parties.manager) return WriteRefusal.wrongRole;
+      final shares = periodShares(
+        validator.usableRecords,
+        partnershipKeys: validator.partnershipKeys!,
+      );
+      final candidate = _openCut(validator);
+      final previous = shares.length >= 2
+          ? shares[shares.length - 2].closingCut
+          : {parties.investor: 0, parties.manager: 0};
+      final coversNew = coversNewBusiness(
+        previous,
+        candidate,
+        validator.usableRecords,
+      );
+      return coversNew ? null : WriteRefusal.emptyCut;
+    },
+  );
+
+  /// The open period's closing cut: each partner's highest seq currently
+  /// held on this phone. This is always the last entry `periodShares` returns
+  /// (the open period uses the whole ledger).
+  Map<String, int> _openCut(Validator validator) => periodShares(
+    validator.usableRecords,
+    partnershipKeys: validator.partnershipKeys!,
+  ).last.closingCut;
+
+  /// Shared gate and write transaction for every creation form above (spec
+  /// 7.4), mirroring [answer]'s structure: refuse, without writing, when this
+  /// install is not known to be synced or caught up, or when the partnership
+  /// is not active yet. [refusalOf] runs after that and before anything is
+  /// built, so a type's own rule (its author's role, a budget's grantee, an
+  /// empty settlement cut) can refuse too. [bodyOf] and [refusalOf] both see
+  /// the partnership's roles, read from the same accepted create.
+  Future<WriteResult> _propose({
+    required String type,
+    String? refersTo,
+    required Map<String, dynamic> Function(
+      List<Record> ledger,
+      Validator validator,
+      Parties parties,
+    )
+    bodyOf,
+    WriteRefusal? Function(
+      List<Record> ledger,
+      Validator validator,
+      Parties parties,
+    )?
+    refusalOf,
+  }) async {
+    // The gate reads the relay vector from the latest sync (spec 7.4, rule 2).
+    final relayVector = await _store.relayVectorFor(partnership);
+    if (relayVector == null) {
+      return const WriteResult.refused(WriteRefusal.notSynced);
+    }
+
+    WriteRefusal? refusal;
+    final text = await _store.appendWith(partnership, (texts) async {
+      final ledger = [
+        for (final text in texts)
+          Record.fromJson(jsonDecode(text) as Map<String, dynamic>),
+      ];
+
+      final localTop = ledger
+          .where((r) => r.author == _me)
+          .fold<int>(0, (top, r) => r.seq > top ? r.seq : top);
+      if ((relayVector[_me] ?? 0) > localTop) {
+        refusal = WriteRefusal.chainBehindRelay;
+        return null;
+      }
+
+      final validator = _store.validatorFor(partnership);
+      final keys = validator.partnershipKeys ?? const <String>{};
+      final decisions = decideApprovals(
+        validator.usableRecords,
+        partnershipKeys: keys,
+      );
+
+      // Spec section 5: until the create is active, the only record anyone
+      // may write is the manager's own answer to it (handled in [answer]).
+      // Every creation form in this class comes after that bootstrap.
+      if (partnershipStatus(decisions) != DecisionStatus.active) {
+        refusal = WriteRefusal.partnershipNotActive;
+        return null;
+      }
+      // Active means a well-formed create was accepted, so the roles exist.
+      final parties = proposedParties(validator.usableRecords)!;
+
+      refusal = refusalOf?.call(ledger, validator, parties);
+      if (refusal != null) return null;
+
+      // The builder reads my chain from [ledger], so the seq and prevHash
+      // come from the saved records, never from the screen.
+      final unsigned = buildRecord(
+        ledger: ledger,
+        author: _me,
+        partnership: partnership,
+        id: _newId(),
+        type: type,
+        body: bodyOf(ledger, validator, parties),
+        time: _timeText(_now()),
+        refersTo: refersTo,
+      );
+
+      // Every check has passed: this write will really happen. A test can
+      // hold this open; a real run passes straight through.
+      await _beforeSign();
+
+      final signed = await signRecord(unsigned, _keys);
+      return canonicalJson(signed.toJson());
+    });
+
+    if (text == null) {
+      return WriteResult.refused(refusal!);
     }
     return WriteResult.written(
       Record.fromJson(jsonDecode(text) as Map<String, dynamic>),
