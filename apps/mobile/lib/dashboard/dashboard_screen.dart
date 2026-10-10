@@ -5,6 +5,7 @@ import '../create/new_menu_screen.dart';
 import '../inbox/inbox_screen.dart';
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
+import '../transactions/transactions_screen.dart';
 import 'format.dart';
 
 /// The home screen for one partnership: the money totals and each partner's
@@ -110,6 +111,16 @@ class DashboardScreen extends StatelessWidget {
                   partnership: partnership,
                   onSyncNow: onSyncNow,
                 ),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.receipt_long),
+            tooltip: 'Transactions',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) =>
+                    TransactionsScreen(store: store, partnership: partnership),
               ),
             ),
           ),
@@ -274,9 +285,14 @@ List<String> _integrityMessages(Validator validator, Parties? parties) {
 /// Names the author of a flagged record, for the integrity banner above.
 /// Falls back to "a partner" before the create names who is who.
 String _partnerLabel(String key, Parties? parties) {
-  if (parties != null && key == parties.investor) return 'the investor';
-  if (parties != null && key == parties.manager) return 'the manager';
-  return 'a partner';
+  switch (partnerRole(key, parties)) {
+    case 'investor':
+      return 'the investor';
+    case 'manager':
+      return 'the manager';
+    default:
+      return 'a partner';
+  }
 }
 
 class _Figure extends StatelessWidget {

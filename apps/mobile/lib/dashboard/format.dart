@@ -32,3 +32,42 @@ String formatRatio(ActiveRatio active) {
       ? '$ratio (from the start)'
       : '$ratio (agreed to start $start)';
 }
+
+/// Which of the two roles [key] belongs to, spec section 5. "unknown" before
+/// the create names who is who, or for a key that matches neither.
+///
+/// One shared place for this lookup, so the dashboard banner and the
+/// transactions list cannot drift into naming roles differently.
+String partnerRole(String key, Parties? parties) {
+  if (parties != null && key == parties.investor) return 'investor';
+  if (parties != null && key == parties.manager) return 'manager';
+  return 'unknown';
+}
+
+/// [RecordStatus] as text for the transactions list and detail screen
+/// (spec 6.1, 6.3, 6.4, 6.7). Purely cosmetic: the status itself is decided
+/// by `recordStatuses` in qirad_core, never re-derived here.
+String statusLabel(RecordStatus status) {
+  switch (status) {
+    case RecordStatus.effective:
+      return 'Effective';
+    case RecordStatus.pendingApproval:
+      return 'Pending approval';
+    case RecordStatus.rejected:
+      return 'Rejected';
+    case RecordStatus.cancelledByReversal:
+      return 'Cancelled by reversal';
+    case RecordStatus.overBudget:
+      return 'Over budget';
+    case RecordStatus.invalidResponse:
+      return 'Invalid response (evidence)';
+    case RecordStatus.ignoredResponse:
+      return 'Ignored (later response)';
+    case RecordStatus.chainInvalid:
+      return 'Chain-invalid';
+    case RecordStatus.equivocating:
+      return 'Equivocating';
+    case RecordStatus.notCounted:
+      return 'Not counted';
+  }
+}
