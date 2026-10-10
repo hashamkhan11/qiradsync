@@ -20,6 +20,7 @@ export 'src/ratio.dart';
 export 'src/record.dart';
 export 'src/record_builder.dart';
 export 'src/record_hash.dart';
+export 'src/record_status.dart';
 export 'src/safety_code.dart';
 export 'src/settlement.dart';
 export 'src/settlement_states.dart';
