@@ -654,6 +654,49 @@ void main() {
     );
 
     test(
+      'proposeExpense refuses an amount more than the budget has left, and '
+      'writes nothing (decision 2026-10-11)',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+        final budget = await writer().proposeBudget(
+          amount: 100000,
+          grantee: manager.publicKeyBase64Url,
+        );
+        await syncedAs(investorSeq: 2, managerSeq: 1);
+        final approveBudget = await managerWriter().answer(
+          budget.record!.id,
+          approve: true,
+          shownBudget: previewBudget(budget.record!),
+        );
+        expect(approveBudget.record, isNotNull);
+        await syncedAs(investorSeq: 2, managerSeq: 2);
+        final spent = await managerWriter().proposeExpense(
+          amount: 60000,
+          budgetId: budget.record!.id,
+        );
+        expect(spent.record, isNotNull);
+        await syncedAs(investorSeq: 2, managerSeq: 3);
+        final before = store.validatorFor(partnership).usableRecords.length;
+
+        // 100000 granted, 60000 already spent: 40000 left. 50000 is refused.
+        final result = await managerWriter().proposeExpense(
+          amount: 50000,
+          budgetId: budget.record!.id,
+        );
+
+        expect(result.record, isNull);
+        expect(result.refusal, WriteRefusal.overBudget);
+        expect(result.budgetLeft, 40000);
+        expect(
+          store.validatorFor(partnership).usableRecords.length,
+          before,
+          reason: 'a refused expense is never written',
+        );
+      },
+    );
+
+    test(
       'proposeWithdrawal of kind capital is investor only',
       () async {
         await startWithCreate();

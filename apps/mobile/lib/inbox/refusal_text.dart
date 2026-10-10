@@ -31,5 +31,10 @@ String refusalText(WriteRefusal refusal) {
       return 'This cannot be reversed.';
     case WriteRefusal.emptyCut:
       return 'Nothing new to settle since the last settlement.';
+    case WriteRefusal.overBudget:
+      // The amount-specific text ("Over budget: X left") is built where
+      // `result.budgetLeft` is in scope (create_widgets.dart); this is only
+      // the generic fallback.
+      return 'Over budget.';
   }
 }

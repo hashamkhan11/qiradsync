@@ -586,6 +586,12 @@ A phone writes its own records (an answer, a proposal, a sale) only through one 
 4. **Keys stay on the device.** The private key is held only by the writer. It is never shown, copied
    or exported. One device holds one key in version 1. Supporting several devices for one partner is
    future work and needs its own design.
+5. **No expense beyond the budget left.** Before writing an `expense`, the phone recomputes the
+   budget's remaining amount from its own saved records (the same figure the expense form shows) and
+   refuses the write if the amount is more than that. The app never writes a record it already knows
+   is invalid. This is different from section 6.4's "flagged and excluded": that rule is for an
+   over-budget expense *received* from the other partner, whose own writer had no say in what this
+   phone later learns about its budget (decision 2026-10-11).
 
 ---
 

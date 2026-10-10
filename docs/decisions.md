@@ -970,3 +970,36 @@ still settleable.
 
 **Mutation check:** M21, `coversNewBusiness` forced to always return `true` — killed by 3 tests in
 `settlement_test.dart`. See `docs/mutation-testing.md`.
+
+---
+
+## 2026-10-11 — `proposeExpense` refuses an amount more than the budget has left; §6.4's flagging is only for received records
+
+**Finding:** `RecordWriter.proposeExpense` checked that the chosen budget exists and is approved and
+granted to this key (`effectiveBudgetsFor(...).containsKey(budgetId)`), but never compared the
+requested `amount` against how much that budget actually has left. An over-budget expense this
+phone itself created was therefore written and only flagged afterwards (`RecordStatus.overBudget`),
+the same treatment spec §6.4 describes for an over-budget expense *received* from the other
+partner. Caught while building the Phase 7 "full month" integration test, whose scenario expected
+an 80,000 expense against a 50,000-left budget to be refused outright by the writer.
+
+**Decision:** `proposeExpense` now recomputes the budget's remaining amount with
+`effectiveBudgetsFor` inside the same write transaction that will build the record — the identical
+figure the expense form already shows as "Budget left" — and refuses with a new
+`WriteRefusal.overBudget` if `amount` is more than that. `WriteResult` gained a `budgetLeft` field,
+set only for this refusal, so the screen can say "Over budget: X left" without recomputing anything
+itself. Spec §7.4 gained a fifth writer rule stating this, and a note that §6.4's "flagged and
+excluded" rule is specifically for a record received from the other partner, whose own writer had
+no say in what this phone later learns about its budget — not for a record this phone creates.
+
+**Reason:** "The app never writes a record it already knows is invalid" (already the standing rule
+behind `answerEarlierFirst`, decided 2026-10-08) applies here for the same reason: this phone can
+always tell, before signing, whether its own expense would exceed the budget it can see. Writing it
+anyway and flagging it after the fact is the right behaviour only for records this phone had no
+control over — never for its own.
+
+**Tests:** `apps/mobile/test/record_writer_test.dart`, `'proposeExpense refuses an amount more than
+the budget has left, and writes nothing'`. The existing evidence-side behaviour (an over-budget
+expense *received* from the other partner stays stored and flagged) was already covered by
+`packages/qirad_core/test/budgets_test.dart`, `record_status_test.dart` and `scenarios_test.dart`,
+and needed no change.

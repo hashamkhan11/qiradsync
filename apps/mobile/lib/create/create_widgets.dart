@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:qirad_core/qirad_core.dart';
 
+import '../dashboard/format.dart';
 import '../inbox/confirm_widgets.dart';
 import '../inbox/refusal_text.dart';
 import '../storage/record_writer.dart';
@@ -150,6 +151,12 @@ class _CreateScaffoldState extends State<CreateScaffold> {
       case WriteRefusal.notSynced:
       case WriteRefusal.chainBehindRelay:
         setState(() => _needsSync = true);
+        break;
+      case WriteRefusal.overBudget:
+        setState(
+          () => _message =
+              'Over budget: ${formatPaisa(result.budgetLeft!)} left.',
+        );
         break;
       default:
         setState(() => _message = refusalText(refusal));

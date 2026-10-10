@@ -66,6 +66,13 @@ enum WriteRefusal {
   /// equal the last effective settlement's cut: nothing has happened since
   /// then for either partner, so there is nothing new to settle.
   emptyCut,
+
+  /// An `expense`'s amount is more than this key's budget has left right
+  /// now (spec 7.4, decision 2026-10-11). Spec 6.4's "flagged and excluded"
+  /// rule is for an over-budget expense *received* from the other partner —
+  /// this phone never creates one, so [proposeExpense] refuses it here
+  /// instead. [WriteResult.budgetLeft] carries the amount actually left.
+  overBudget,
 }
 
 /// The result of one write: the saved record, or the reason it was refused.
@@ -76,7 +83,8 @@ class WriteResult {
       latestWithdrawal = null,
       latestReversal = null,
       latestBudget = null,
-      latestRatio = null;
+      latestRatio = null,
+      budgetLeft = null;
 
   const WriteResult.refused(
     WriteRefusal this.refusal, {
@@ -85,6 +93,7 @@ class WriteResult {
     this.latestReversal,
     this.latestBudget,
     this.latestRatio,
+    this.budgetLeft,
   }) : record = null;
 
   final Record? record;
@@ -106,6 +115,11 @@ class WriteResult {
 
   /// The current ratio summary, set in the same cases as [latestSettlement].
   final RatioConsent? latestRatio;
+
+  /// The amount actually left in the budget, set only for
+  /// [WriteRefusal.overBudget]. The screen can show "Over budget: X left"
+  /// without recomputing it itself.
+  final int? budgetLeft;
 }
 
 /// The only code that writes this phone's own records (spec 7.4).
@@ -427,26 +441,49 @@ class RecordWriter {
   /// 5, 6.4). Manager only, and only from a budget this key is the grantee
   /// of — the same list [effectiveBudgetsFor] offers the form, so a budget
   /// the form never showed can never be chosen here either.
+  ///
+  /// Also refuses when [amount] is more than that budget's remaining amount,
+  /// recomputed from [effectiveBudgetsFor] inside this same write transaction
+  /// (decision 2026-10-11): the app never writes a record it already knows
+  /// is invalid, so an over-budget expense is never created here. Spec 6.4's
+  /// "flagged and excluded" rule covers one received from the other
+  /// partner instead (that phone's own writer had no say in it).
   Future<WriteResult> proposeExpense({
     required int amount,
     required String budgetId,
     String? receiptHash,
-  }) => _propose(
-    type: 'expense',
-    refersTo: budgetId,
-    bodyOf: (_, _, _) => {'amount': amount, 'receiptHash': receiptHash},
-    refusalOf: (_, validator, parties) {
-      if (!canAuthor('expense', _me, parties)) return WriteRefusal.wrongRole;
-      final budgets = effectiveBudgetsFor(
-        validator.usableRecords,
-        partnershipKeys: validator.partnershipKeys!,
-        grantee: _me,
+  }) async {
+    int? budgetLeft;
+    final result = await _propose(
+      type: 'expense',
+      refersTo: budgetId,
+      bodyOf: (_, _, _) => {'amount': amount, 'receiptHash': receiptHash},
+      refusalOf: (_, validator, parties) {
+        if (!canAuthor('expense', _me, parties)) {
+          return WriteRefusal.wrongRole;
+        }
+        final budgets = effectiveBudgetsFor(
+          validator.usableRecords,
+          partnershipKeys: validator.partnershipKeys!,
+          grantee: _me,
+        );
+        final left = budgets[budgetId];
+        if (left == null) return WriteRefusal.noEffectiveBudget;
+        if (amount > left) {
+          budgetLeft = left;
+          return WriteRefusal.overBudget;
+        }
+        return null;
+      },
+    );
+    if (result.refusal == WriteRefusal.overBudget) {
+      return WriteResult.refused(
+        WriteRefusal.overBudget,
+        budgetLeft: budgetLeft,
       );
-      return budgets.containsKey(budgetId)
-          ? null
-          : WriteRefusal.noEffectiveBudget;
-    },
-  );
+    }
+    return result;
+  }
 
   /// Proposes `withdraw_request` (spec section 5). [kind] is `"capital"` or
   /// `"profit"`. A capital withdrawal is investor only — the manager put in
