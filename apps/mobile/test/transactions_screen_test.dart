@@ -194,4 +194,40 @@ void main() {
     expect(find.text('Id'), findsOneWidget);
     expect(find.text('Seq'), findsOneWidget);
   });
+
+  testWidgets('detail screen shows a signature fact and a tappable link', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      final create = await createPartnership();
+      await receive(
+        await write(
+          manager,
+          managerChain,
+          id: 'approve-create',
+          type: 'approve',
+          refersTo: create.id,
+        ),
+      );
+    });
+    await pump(tester);
+
+    // Every stored record passed signature verification on receipt (spec
+    // 6.1 step 2), so this fact is the same on every detail screen.
+    await tester.tap(find.text('partnership create'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Valid'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    // The approve's "Refers to" is a link to the create it answers, since
+    // this phone has that record.
+    await tester.tap(find.text('approve'));
+    await tester.pumpAndSettle();
+    expect(find.text('partnership create (${testId('partnership')})'), findsOneWidget);
+
+    await tester.tap(find.text('partnership create (${testId('partnership')})'));
+    await tester.pumpAndSettle();
+    expect(find.text('partnership create'), findsWidgets);
+  });
 }

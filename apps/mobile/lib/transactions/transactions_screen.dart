@@ -43,6 +43,7 @@ class TransactionsScreen extends StatelessWidget {
         final byAuthor = a.author.compareTo(b.author);
         return byAuthor != 0 ? byAuthor : a.seq.compareTo(b.seq);
       });
+    final byId = {for (final record in records) record.id: record};
 
     return Scaffold(
       appBar: AppBar(title: const Text('Transactions')),
@@ -67,6 +68,10 @@ class TransactionsScreen extends StatelessWidget {
                         record: record,
                         status: status,
                         authorLabel: _roleLabel(record.author, parties),
+                        findRecord: (id) => byId[id],
+                        statusOf: (id) => statuses[id]!,
+                        authorLabelOf: (author) =>
+                            _roleLabel(author, parties),
                       ),
                     ),
                   ),
