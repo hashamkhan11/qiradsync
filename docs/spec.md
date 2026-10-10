@@ -311,7 +311,10 @@ order.
    in this period. Its approval counts in the period where the approval falls (see "Prior-period adjustments").
 4. The cut **dominates** the previous effective settlement's cut: each value is at least that cut's value for
    the same key (0 if there is none).
-5. The cut is **not empty**: at least one value is larger than the previous cut's value.
+5. The cut **covers new business**: beyond the previous cut, it covers at least one record that is not
+   settlement bookkeeping. Settlement bookkeeping is a `settlement` record, or an `approve`/`reject` whose
+   target is a settlement. A cut can grow by exactly that bookkeeping (the settlement that just became
+   effective, plus the investor's approve of it) and still cover nothing new (decision 2026-10-10).
 
 **The phone must hold the cut.** A record is covered by the cut when its `seq` is at or below the cut's value for
 its author. Chains have no gaps (Section 7.1), so holding the record at value `v` means holding all earlier records

@@ -565,6 +565,179 @@ void main() {
       expect(s2Status.reason, 'covers nothing new');
     });
 
+    test(
+      'a settlement covering only the previous settlement and its approve is '
+      'invalid: settlement bookkeeping is not new business (decision '
+      '2026-10-10)',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 100},
+        );
+        final sale = await manager.next(
+          partnership: partnershipId,
+          type: 'sale',
+          body: {'amount': 50},
+        );
+        // S1's cut reaches both the invest and the sale, so nothing from
+        // either partner's business is left over for S2 to pick up.
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: invest,
+              upToManager: sale,
+            ),
+          },
+        );
+        final approveS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s1.id,
+        );
+        // S2's cut reaches S1's own approve (investor) and S1 itself
+        // (manager): the raw numbers grow, but nothing beyond that
+        // bookkeeping happened for either partner.
+        final s2 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: approveS1,
+              upToManager: s1,
+            ),
+          },
+        );
+        final approveS2 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s2.id,
+        );
+        await _receive(validator, [
+          invest,
+          sale,
+          s1,
+          approveS1,
+          s2,
+          approveS2,
+        ]);
+
+        expect(_statusOf(validator, s1).state, SettlementState.effective);
+        final s2Status = _statusOf(validator, s2);
+        expect(s2Status.state, SettlementState.invalid);
+        expect(s2Status.reason, 'covers nothing new');
+      },
+    );
+
+    test(
+      'a sale and an equal expense still count as new business (rule 5 is '
+      'about records, not net money)',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final budget = await investor.next(
+          partnership: partnershipId,
+          type: 'budget_proposal',
+          body: {'grantee': manager.key, 'amount': 10000},
+        );
+        final approveBudget = await manager.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: budget.id,
+        );
+        final sale = await manager.next(
+          partnership: partnershipId,
+          type: 'sale',
+          body: {'amount': 10000},
+        );
+        final expense = await manager.next(
+          partnership: partnershipId,
+          type: 'expense',
+          body: {'amount': 10000, 'receiptHash': null},
+          refersTo: budget.id,
+        );
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: budget,
+              upToManager: expense,
+            ),
+          },
+        );
+        final approveS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s1.id,
+        );
+        await _receive(validator, [
+          budget,
+          approveBudget,
+          sale,
+          expense,
+          s1,
+          approveS1,
+        ]);
+
+        expect(_statusOf(validator, s1).state, SettlementState.effective);
+      },
+    );
+
+    test(
+      'a period whose only new record is an approved withdrawal is still '
+      'settleable: the approve itself is real business, not bookkeeping',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpPartnership();
+        final request = await manager.next(
+          partnership: partnershipId,
+          type: 'withdraw_request',
+          body: {'amount': 500, 'kind': 'profit'},
+        );
+        final approveRequest = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: request.id,
+        );
+        final s1 = await manager.next(
+          partnership: partnershipId,
+          type: settlementType,
+          body: {
+            'cut': cutUpTo(
+              investor,
+              manager,
+              upToInvestor: approveRequest,
+              upToManager: request,
+            ),
+          },
+        );
+        final approveS1 = await investor.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: s1.id,
+        );
+        await _receive(validator, [
+          request,
+          approveRequest,
+          s1,
+          approveS1,
+        ]);
+
+        expect(_statusOf(validator, s1).state, SettlementState.effective);
+      },
+    );
+
     test('a rejected S1 does not block S2', () async {
       final (validator, investor, manager, partnershipId) =
           await setUpPartnership();

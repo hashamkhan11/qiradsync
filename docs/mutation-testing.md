@@ -109,6 +109,23 @@ type, not only `partnership_create`'s (see `docs/decisions.md`,
 |---|---|---|---|---|
 | M20 | Spec section 5's "Allowed author" column (`_authorAllowedForType`) | Forced to always return `true` | Killed | `validator_author_table_test.dart`: every disallowed-author case in the table — manager-signed `invest`, investor-signed `sale`, investor-signed `expense`, investor-signed `settlement`, manager-signed `withdraw_request` with `kind: "capital"` |
 
+## Spec 6.7, cut rule 5: covers new business, not just bigger numbers (2026-10-10)
+
+**Purpose.** While building `RecordWriter.proposeSettlement`'s `emptyCut`
+guard, rule 5 as originally written ("at least one value is larger than the
+previous cut's") turned out to be unreachable in its intended case: finalising
+a settlement always adds one record per partner (the settlement itself, and
+the investor's approve of it), so the raw cut always grows by that much even
+when no real business happened. Rule 5 was redefined in terms of records, not
+raw numbers (`docs/decisions.md`, 2026-10-10), in one shared function,
+`coversNewBusiness`, used by both `cutProblem` (the validator's rule) and the
+writer's `emptyCut` guard. One mutant, run in place directly on
+`packages/qirad_core/lib/src/settlement.dart` (edit, test, revert).
+
+| # | Rule | What was changed | Result | Test that catches it (or reason) |
+|---|---|---|---|---|
+| M21 | Rule 5: covers new business (`coversNewBusiness`) | Forced to always return `true` | Killed | `settlement_test.dart`: "an empty cut is invalid and does not block the next one", "a second cut identical to the first is invalid", and the new "a settlement covering only the previous settlement and its approve is invalid" |
+
 ## Weak spots left
 
 - The mutants were run one at a time. Two broken rules at once were not tested.

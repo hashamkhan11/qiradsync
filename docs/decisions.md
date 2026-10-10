@@ -936,3 +936,37 @@ settlement tests now bypass `receive()` directly).
 **Mutation check:** M20, `_authorAllowedForType` forced to always return `true` — killed by
 `validator_author_table_test.dart` (every disallowed-author case in the table failed). See
 `docs/mutation-testing.md`.
+
+---
+
+## 2026-10-10 — Settlement cut rule 5 is about records, not raw numbers
+
+**Decision:** Spec §6.7 cut rule 5 ("not empty") is redefined: a cut is valid only if, beyond the
+previous effective cut, it covers at least one record that is **not settlement bookkeeping**.
+Settlement bookkeeping is a `settlement` record itself, or an `approve`/`reject` whose target is a
+settlement. Implemented as one function, `coversNewBusiness(previous, cut, records)`, in
+`packages/qirad_core/lib/src/settlement.dart`, used by both `cutProblem` (the validator's rule,
+spec 6.1/6.7) and `RecordWriter.proposeSettlement`'s `emptyCut` guard (apps/mobile), so the two can
+never disagree.
+
+**Reason:** The old rule 5 compared raw cut numbers ("at least one value is larger than the
+previous cut's"). While writing the test for the writer's `emptyCut` refusal, this turned out to be
+unreachable in the case it exists for: finalising any settlement always adds exactly one new record
+per partner — the settlement itself (bumps the manager's seq) and the investor's approve of it
+(bumps the investor's seq) — and both land in the *open* period, strictly after the cut they just
+closed (the cut is fixed at proposal time, before the approve exists). So the raw numbers always
+grow by that fixed overhead, even when nothing financial happened, and a manager could propose an
+endless chain of settlements that only ever "settle" the previous settlement's own bookkeeping.
+Comparing record *content*, not just the numbers, closes that gap without over-correcting: a period
+can still net to zero money (a sale and an equal expense) and remain settleable, because both
+records are real business; and an approve of a `withdraw_request` or any other proposal counts as
+new business too — only an approve/reject *of a settlement* is bookkeeping, since that is the one
+record type this rule itself creates as a side effect of becoming effective.
+
+**Tests:** `packages/qirad_core/test/settlement_test.dart` — three new cases: a settlement covering
+only the previous settlement and its approve is invalid ("covers nothing new"); a sale and an equal
+expense still count as new business; a period whose only new record is an approved withdrawal is
+still settleable.
+
+**Mutation check:** M21, `coversNewBusiness` forced to always return `true` — killed by 3 tests in
+`settlement_test.dart`. See `docs/mutation-testing.md`.

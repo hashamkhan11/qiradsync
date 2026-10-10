@@ -98,6 +98,40 @@ bool cutIsHeld(Iterable<Record> records, Map<String, int> cut) {
   return true;
 }
 
+/// True when [cut] covers at least one record, beyond [previous], that is not
+/// settlement bookkeeping (spec 6.7, cut rule 5).
+///
+/// Settlement bookkeeping is a `settlement` record itself, or an
+/// `approve`/`reject` whose target is a settlement. Finalising a settlement
+/// always adds exactly one such record for each partner (the settlement for
+/// its author, the investor's answer for the investor), so the raw cut always
+/// grows by that much even when nothing else happened. Comparing the numbers
+/// alone would let a manager "settle" an empty period over and over, each
+/// settlement's cut just covering the previous settlement and its own
+/// approve. This is the one place that rule is decided, so [cutProblem] (the
+/// validator's rule) and `RecordWriter.proposeSettlement` (the app's own
+/// guard, before it ever signs anything) can never disagree.
+bool coversNewBusiness(
+  Map<String, int> previous,
+  Map<String, int> cut,
+  Iterable<Record> records,
+) {
+  final byId = {for (final r in records) r.id: r};
+  bool isSettlementBookkeeping(Record r) {
+    if (r.type == settlementType) return true;
+    if (r.type != 'approve' && r.type != 'reject') return false;
+    return byId[r.refersTo]?.type == settlementType;
+  }
+
+  for (final record in records) {
+    final limit = cut[record.author];
+    if (limit == null || record.seq > limit) continue;
+    if (record.seq <= (previous[record.author] ?? 0)) continue;
+    if (!isSettlementBookkeeping(record)) return true;
+  }
+  return false;
+}
+
 /// The first reason the [cut] fails a check, or `null` if it passes (spec 6.7,
 /// cut rules 3 to 5). Only call this when [cutIsHeld] is true.
 ///
@@ -111,7 +145,7 @@ bool cutIsHeld(Iterable<Record> records, Map<String, int> cut) {
 ///   undecided request inside a cut has no effect in that period, and its
 ///   approval counts in the period where the approval falls (spec 6.7).
 /// - Dominating (rule 4): each value is at least the previous effective cut's.
-/// - Not empty (rule 5): at least one value is larger than the previous cut's.
+/// - Covers new business (rule 5): see [coversNewBusiness].
 String? cutProblem(
   Iterable<Record> records,
   Parties parties,
@@ -136,11 +170,7 @@ String? cutProblem(
     if (cut[key]! < previous[key]!) return 'does not cover the previous cut';
   }
 
-  final grows = [
-    parties.investor,
-    parties.manager,
-  ].any((key) => cut[key]! > previous[key]!);
-  if (!grows) return 'covers nothing new';
+  if (!coversNewBusiness(previous, cut, records)) return 'covers nothing new';
 
   return null;
 }
