@@ -3,6 +3,7 @@ import 'package:test/test.dart';
 
 import 'support/cut_helper.dart';
 import 'support/partnership_fixture.dart';
+import 'support/test_ids.dart';
 
 Effectiveness _effective(Validator validator) => computeEffective(
   validator.usableRecords,
@@ -22,6 +23,36 @@ Future<void> _receive(Validator validator, Iterable<Record> records) async {
   for (final record in records) {
     await validator.receiveText(canonicalJson(record.toJson()));
   }
+}
+
+/// A settlement the validator's own membership rule now refuses outright
+/// (spec section 5: only the manager may author one) — a real device can
+/// never get this record stored, since `receiveText` rejects it at step 3.
+/// Added straight to the ledger, bypassing `receive()` entirely, so the
+/// tests below can still check the business-layer rule (`settlementCut`'s
+/// own author check, and the ordering rule) as defense in depth, the same
+/// "redundant guard stays tested" pattern as the 2026-10-06 mutation check.
+Future<Record> _handBuiltSettlement(
+  ChainAuthor author, {
+  required String partnership,
+  required Map<String, dynamic> body,
+  required String name,
+}) async {
+  final unsigned = Record(
+    v: 1,
+    id: testId(name),
+    partnership: partnership,
+    author: author.key,
+    seq: 500,
+    prevHash: '0' * 64,
+    type: settlementType,
+    body: body,
+    refersTo: null,
+    note: '',
+    time: '2026-10-05T09:00:00Z',
+    sig: '',
+  );
+  return signRecord(unsigned, author.keyPair);
 }
 
 Record _createOf(Validator validator) =>
@@ -65,17 +96,19 @@ void main() {
         final (validator, investor, manager, partnershipId) =
             await setUpPartnership();
         final create = _createOf(validator);
-        final settlement = await investor.next(
+        final settlement = await _handBuiltSettlement(
+          investor,
           partnership: partnershipId,
-          type: settlementType,
           body: {'cut': cutUpTo(investor, manager, upToInvestor: create)},
+          name: 'investor-authored-settlement-1',
         );
+        validator.ledger.add(settlement);
         final approve = await manager.next(
           partnership: partnershipId,
           type: 'approve',
           refersTo: settlement.id,
         );
-        await _receive(validator, [settlement, approve]);
+        await _receive(validator, [approve]);
 
         // The manager's approval is valid, so the decision is active. The record
         // is still not effective, because only the manager may propose (6.7).
@@ -274,19 +307,21 @@ void main() {
         // The investor writes a settlement of their own. It is not a proposal,
         // so it must not count in the ordering rule. Its cut covers nothing
         // from either side, on purpose.
-        final investorOwn = await investor.next(
+        final investorOwn = await _handBuiltSettlement(
+          investor,
           partnership: partnershipId,
-          type: settlementType,
           body: {
             'cut': {investor.key: 0, manager.key: 0},
           },
+          name: 'investor-authored-settlement-2',
         );
+        validator.ledger.add(investorOwn);
         final approveS1 = await investor.next(
           partnership: partnershipId,
           type: 'approve',
           refersTo: s1.id,
         );
-        await _receive(validator, [s1, investorOwn, approveS1]);
+        await _receive(validator, [s1, approveS1]);
 
         expect(_effective(validator).isEffective(s1), isTrue);
         expect(_effective(validator).isEffective(investorOwn), isFalse);

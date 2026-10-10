@@ -166,9 +166,11 @@ void main() {
       test(
         '$type: refersTo must be null, amount must be a positive integer',
         () async {
-          final (validator, investor, _, partnershipId) =
+          final (validator, investor, manager, partnershipId) =
               await setUpPartnership();
-          final good = await investor.next(
+          // invest is investor-only, sale is manager-only (spec section 5).
+          final author = type == 'invest' ? investor : manager;
+          final good = await author.next(
             partnership: partnershipId,
             type: type,
             body: {'amount': 1000},

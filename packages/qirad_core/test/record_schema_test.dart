@@ -76,18 +76,15 @@ void main() {
       });
 
       test('the keys a type allows are accepted', () async {
-        final (validator, investor, _, partnershipId) =
+        final (validator, _, manager, partnershipId) =
             await setUpPartnership();
-        final expense = await investor.next(
+        final expense = await manager.next(
           partnership: partnershipId,
           type: 'expense',
           body: {'amount': 500, 'receiptHash': null},
           refersTo: testId('dummy-budget'),
         );
 
-        // The investor cannot write an expense (spec 5), but step 1 only checks
-        // shape. The record is stored as evidence, and the rules in Phase 4 make
-        // it have no effect.
         expect(
           await validator.receiveText(canonicalJson(expense.toJson())),
           ReceiveOutcome.accepted,

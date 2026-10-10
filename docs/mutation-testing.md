@@ -97,11 +97,24 @@ built to catch for the settlement rules; it took running the mutant to see it
 for this rule too, since "the code is there" and "a test depends on the code
 being there" are different claims.
 
+## Spec section 5: the allowed-author rule (2026-10-10)
+
+**Purpose.** Same method again: the validator's membership step (spec 6.1
+step 3) now checks spec section 5's "Allowed author" column for every record
+type, not only `partnership_create`'s (see `docs/decisions.md`,
+2026-10-10). One mutant, run in place directly on
+`packages/qirad_core/lib/src/validator.dart` (edit, test, revert).
+
+| # | Rule | What was changed | Result | Test that catches it (or reason) |
+|---|---|---|---|---|
+| M20 | Spec section 5's "Allowed author" column (`_authorAllowedForType`) | Forced to always return `true` | Killed | `validator_author_table_test.dart`: every disallowed-author case in the table — manager-signed `invest`, investor-signed `sale`, investor-signed `expense`, investor-signed `settlement`, manager-signed `withdraw_request` with `kind: "capital"` |
+
 ## Weak spots left
 
 - The mutants were run one at a time. Two broken rules at once were not tested.
 - The scratch copies used for the M1-M17 runs are deleted. The method above
-  lists the steps so the run can be repeated. M18 and M19 were run in place
-  (edit, test, revert) and are reproducible the same way, directly on
-  `packages/qirad_core/lib/src/effective.dart` and
-  `apps/mobile/lib/storage/record_writer.dart`.
+  lists the steps so the run can be repeated. M18, M19 and M20 were run in
+  place (edit, test, revert) and are reproducible the same way, directly on
+  `packages/qirad_core/lib/src/effective.dart`,
+  `apps/mobile/lib/storage/record_writer.dart`, and
+  `packages/qirad_core/lib/src/validator.dart`.

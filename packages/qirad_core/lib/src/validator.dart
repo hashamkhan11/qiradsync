@@ -26,8 +26,10 @@ enum ReceiveOutcome {
   /// Step 2 failed: `sig` does not verify against `author`. Not stored.
   rejectedSignature,
 
-  /// Step 3 failed: `author` is not one of the partnership's two keys
-  /// (and this is not the bootstrap `partnership_create`). Not stored.
+  /// Step 3 failed: `author` is not one of the partnership's two keys (and
+  /// this is not the bootstrap `partnership_create`), or `author` is one of
+  /// the two keys but is not the role spec section 5 allows for this record
+  /// type (for example a manager-signed `invest`). Not stored.
   rejectedMembership,
 
   /// Step 4: this author's `seq - 1` record has not been seen yet. Buffered
@@ -340,6 +342,14 @@ class Validator {
   /// records naming any other partnership are rejected (spec 6.1, step 3).
   String? _partnershipId;
 
+  /// Which of the two partnership keys is which, learned at the same time as
+  /// [_partnershipKeys]. [_partnershipKeys] alone says "one of the two," which
+  /// is enough for the old membership check, but not for the per-type author
+  /// rule below, which needs to know *which* key is the investor and which is
+  /// the manager.
+  String? _investorKey;
+  String? _managerKey;
+
   final Map<String, Map<int, Record>> _pending = {};
   final Map<String, Map<int, Record>> _acceptedBySeq = {};
   final Map<String, Record> _chainHead = {};
@@ -423,6 +433,8 @@ class Validator {
       if (investor is String && manager is String) {
         _partnershipKeys = {investor, manager};
         _partnershipId = record.partnership;
+        _investorKey = investor;
+        _managerKey = manager;
       }
     }
 
@@ -436,7 +448,35 @@ class Validator {
     // Only one partnership per ledger. A second create (or any record for
     // another partnership) is rejected here, so it is never stored.
     if (record.partnership != _partnershipId) return false;
-    return _partnershipKeys!.contains(record.author);
+    if (!_partnershipKeys!.contains(record.author)) return false;
+    return _authorAllowedForType(record, _investorKey!, _managerKey!);
+  }
+
+  /// Spec section 5's "Allowed author" column. Our threat model assumes the
+  /// other partner may be dishonest and can sign *any* record type with
+  /// their own valid key, without going through this app at all — so the
+  /// app's own menus (which only ever offer the actions a role may take)
+  /// are not a real restriction on their own. This is the one place that
+  /// restriction is actually enforced: a record from the wrong role for its
+  /// type is rejected on receive, the same as a record from an outside key.
+  bool _authorAllowedForType(Record record, String investor, String manager) {
+    switch (record.type) {
+      case 'partnership_create':
+      case 'invest':
+        return record.author == investor;
+      case 'sale':
+      case 'expense':
+      case 'settlement':
+        return record.author == manager;
+      case 'withdraw_request':
+        // The manager has no capital to withdraw (decision 2026-10-10).
+        // Profit withdrawals stay open to either partner.
+        if (record.body['kind'] == 'capital') return record.author == investor;
+        return true;
+      default:
+        // budget_proposal, ratio_proposal, reversal, approve, reject: either.
+        return true;
+    }
   }
 
   /// A create must name the pinned keys, and be signed by the pinned

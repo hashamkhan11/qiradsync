@@ -891,3 +891,48 @@ manager's approve), since a fixture that left the create unapproved now gets an 
 unwritable one. `inbox_screen_test.dart` in particular failed not through the write gate (its fixture only calls
 `receive()`) but through the effectiveness gate alone — proof the two are genuinely independent checks, not one
 rule enforced twice.
+
+---
+
+## 2026-10-10 — The validator rejects a record from the wrong role for its type, not only from an outside key
+
+**Decision:** `Validator._passesMembership` (spec 6.1 step 3) now checks spec section 5's "Allowed author" column
+for every record type, not only `partnership_create`'s. A record signed by one of the partnership's two keys, but
+the wrong one for that type (for example a manager-signed `invest`, or an investor-signed `sale`), is rejected with
+`ReceiveOutcome.rejectedMembership` — the same outcome already used for a record from an outside key, now
+documented to cover both cases. The check lives in one place, a small `_authorAllowedForType` function, fed by two
+new fields (`_investorKey`, `_managerKey`) recording which of the two partnership keys is which, learned at the
+same time as the existing `_partnershipKeys` set.
+
+**Also decided (same commit):** `withdraw_request` with `kind: "capital"` is investor-only — the manager has no
+capital to withdraw, so there is nothing for them to request back. A `profit` withdrawal stays open to either
+partner. Enforced by the same `_authorAllowedForType` function, and spec section 5's `withdraw_request` row is
+updated to say so.
+
+**Reason:** Our threat model assumes the other partner may be dishonest and can sign *any* record type with their
+own valid key, without going through this app at all. Before this, only `partnership_create`'s author was checked
+against a role — every other type only checked "is this key one of the partnership's two," never "is it the right
+one for this type." The app's own menus (which already only offer each role the actions spec section 5 allows)
+gave no real protection against this, since a dishonest partner is not bound by this app's UI. Concretely: a
+manager-signed `invest` would have been silently counted as capital on the investor's phone — money that was
+never actually invested. Deny-by-default belongs in the validator, the one place every device agrees on, not only
+in the UI.
+
+**Consequence:** Two tests that built an investor-authored `settlement` to exercise the business-layer rule in
+`settlement.dart` (`settlementCut` already checked `record.author != parties.manager`, as defense in depth) could
+no longer reach that rule through `receive()` — the record is now refused one step earlier. Rewritten to add the
+hand-built record straight to `Validator.ledger`, bypassing `receive()`, the same "redundant guard stays tested"
+pattern already used for M9/M10 (2026-10-06 mutation check) and the bad-ratio-create test in `period_safety_test.dart`
+(2026-10-09). One pre-existing test bug was found and fixed while adding the table: the schema test for `sale` had
+signed it with the investor (nothing enforced the role before, so it passed); it now signs `sale` with the manager,
+matching spec section 5.
+
+**Tests:** `packages/qirad_core/test/validator_author_table_test.dart` (new; one test per type, both authors, plus
+the two `withdraw_request` kinds), `packages/qirad_core/test/validator_schema_table_test.dart` (sale signed by the
+manager), `packages/qirad_core/test/record_schema_test.dart` (the "keys a type allows are accepted" fixture now
+signs its expense with the manager), `packages/qirad_core/test/settlement_test.dart` (the two investor-authored-
+settlement tests now bypass `receive()` directly).
+
+**Mutation check:** M20, `_authorAllowedForType` forced to always return `true` — killed by
+`validator_author_table_test.dart` (every disallowed-author case in the table failed). See
+`docs/mutation-testing.md`.
