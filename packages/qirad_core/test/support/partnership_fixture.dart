@@ -46,10 +46,16 @@ class ChainAuthor {
   }
 }
 
-/// A validator with a partnership already bootstrapped: the investor's
-/// `partnership_create` (seq 1) has been accepted, so `partnershipKeys`
-/// is known and both partners can author further records.
-Future<(Validator, ChainAuthor, ChainAuthor, String)> setUpPartnership() async {
+/// A validator with a partnership bootstrapped but not approved yet: the
+/// investor's `partnership_create` (seq 1) has been accepted, so
+/// `partnershipKeys` is known, but the manager has not answered it.
+///
+/// Spec section 5: until the create is active, nothing else is effective,
+/// and this app refuses to write anything else. Use this fixture only for
+/// tests about that pending (or, after a reject, dead) state itself — every
+/// other test wants [setUpPartnership], a real active partnership.
+Future<(Validator, ChainAuthor, ChainAuthor, String)>
+setUpUnapprovedPartnership() async {
   final investor = ChainAuthor(await generateEd25519KeyPair());
   final manager = ChainAuthor(await generateEd25519KeyPair());
   final partnershipId = testId('partnership-1');
@@ -67,6 +73,24 @@ Future<(Validator, ChainAuthor, ChainAuthor, String)> setUpPartnership() async {
     },
   );
   expect(await validator.receiveText(canonicalJson(create.toJson())), ReceiveOutcome.accepted);
+
+  return (validator, investor, manager, partnershipId);
+}
+
+/// A validator with a real, active partnership: the investor's
+/// `partnership_create` (seq 1), plus the manager's `approve` of it (seq 1
+/// on the manager's own chain). `partnershipKeys` is known and both
+/// partners' other records can take effect (spec section 5).
+Future<(Validator, ChainAuthor, ChainAuthor, String)> setUpPartnership() async {
+  final (validator, investor, manager, partnershipId) =
+      await setUpUnapprovedPartnership();
+
+  final approve = await manager.next(
+    partnership: partnershipId,
+    type: 'approve',
+    refersTo: partnershipId,
+  );
+  expect(await validator.receiveText(canonicalJson(approve.toJson())), ReceiveOutcome.accepted);
 
   return (validator, investor, manager, partnershipId);
 }

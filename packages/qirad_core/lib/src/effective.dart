@@ -2,6 +2,8 @@ import 'approvals.dart';
 import 'amounts.dart';
 import 'ratio.dart';
 import 'record.dart';
+import 'settlement.dart';
+import 'settlement_states.dart';
 
 /// Record types a `reversal` may cancel in v1 (spec section 5). Reversing any
 /// other type is invalid: it is flagged, shown in the UI, and has no effect.
@@ -41,12 +43,28 @@ class Effectiveness {
   /// calculated value for display only; it is recomputed every time.
   final Map<String, int> budgetUsed;
 
+  /// Response id -> why it does not count, for responses that break the
+  /// settlement ordering rule (spec 6.7). Shown to both partners as evidence.
+  final Map<String, String> invalidResponses;
+
+  /// The state of every settlement proposal, in manager seq order (spec 6.7).
+  final List<SettlementStatus> settlements;
+
+  /// The `partnership_create`'s own decision (spec section 5): `pending`
+  /// while the manager has not answered, `active` once approved, `dead` if
+  /// rejected, or `null` if there is no create at all. Nothing but the
+  /// create is in [effectiveIds] unless this is `active`.
+  final DecisionStatus? partnershipStatus;
+
   const Effectiveness({
     required this.effectiveIds,
     required this.cancelledIds,
     required this.invalidReversals,
     required this.expenseStatus,
     required this.budgetUsed,
+    required this.invalidResponses,
+    required this.settlements,
+    required this.partnershipStatus,
   });
 
   bool isEffective(Record record) => effectiveIds.contains(record.id);
@@ -74,6 +92,21 @@ Effectiveness computeEffective(
   final blockedIds = {
     for (final d in decisions)
       if (d.status != DecisionStatus.active) d.target.id,
+  };
+
+  final parties = proposedParties(records);
+  final invalidResponses = <String, String>{
+    for (final d in decisions)
+      for (final response in d.invalidResponses)
+        response.id: _invalidResponseReason(response, d.target, parties),
+  };
+
+  final settlements = parties == null
+      ? <SettlementStatus>[]
+      : settlementStatuses(records, parties: parties, decisions: decisions);
+  final settlementEffectiveIds = {
+    for (final s in settlements)
+      if (s.state == SettlementState.effective) s.record.id,
   };
 
   // Reversals do not depend on budgets, so they are worked out first.
@@ -174,14 +207,28 @@ Effectiveness computeEffective(
     expenseStatus.putIfAbsent(record.id, () => ExpenseStatus.noEffectiveBudget);
   }
 
+  // Spec section 5: until the create is active, nothing else is effective —
+  // not even a record made before the create existed, since this is a pure
+  // function of the current set, with no notion of "before" or "after"
+  // (hard rule 3, no clock-based ordering). A create whose own ratio is
+  // broken (so it could never give a real split) also activates nothing.
+  final status = partnershipStatus(decisions);
+  final create = records.where((r) => r.type == 'partnership_create').toList();
+  final partnershipActive =
+      status == DecisionStatus.active &&
+      create.isNotEmpty &&
+      ratioOf(create.single) != null;
+
   final effectiveIds = {
     for (final record in records)
       if (!blockedIds.contains(record.id) &&
+          (record.type == 'partnership_create' || partnershipActive) &&
           _isEffective(
             record,
             effectiveReversalIds,
             cancelledIds,
             expenseStatus,
+            settlementEffectiveIds,
           ))
         record.id,
   };
@@ -192,7 +239,25 @@ Effectiveness computeEffective(
     invalidReversals: invalidReversals,
     expenseStatus: expenseStatus,
     budgetUsed: budgetUsed,
+    invalidResponses: invalidResponses,
+    settlements: settlements,
+    partnershipStatus: status,
   );
+}
+
+/// Why [response] to [target] does not count (spec 6.7). Shown to both partners.
+String _invalidResponseReason(
+  Record response,
+  Record target,
+  Parties? parties,
+) {
+  if (parties != null) {
+    final cut = settlementCut(target, parties);
+    if (cut != null && approveNamesFutureRecords(response, cut, parties)) {
+      return 'approves a cut that covers investor records it cannot have seen (spec 6.7)';
+    }
+  }
+  return 'answered a settlement before answering an earlier one (spec 6.7)';
 }
 
 class _BudgetEvent {
@@ -207,11 +272,16 @@ bool _isEffective(
   Set<String> effectiveReversalIds,
   Set<String> cancelledIds,
   Map<String, ExpenseStatus> expenseStatus,
+  Set<String> settlementEffectiveIds,
 ) {
   if (record.type == 'reversal') {
     return effectiveReversalIds.contains(record.id);
   }
   if (cancelledIds.contains(record.id)) return false;
+  // A settlement is effective only when its state is `effective` (spec 6.7).
+  if (record.type == settlementType) {
+    return settlementEffectiveIds.contains(record.id);
+  }
   if (record.type == 'expense') {
     return expenseStatus[record.id] == ExpenseStatus.valid;
   }

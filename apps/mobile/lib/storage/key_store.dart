@@ -45,4 +45,16 @@ class KeyStore {
     if (text == null) return null;
     return ed25519KeyPairFromSeed(decodeBase64UrlNoPadding(text));
   }
+
+  /// Returns the phone's key pair, making and saving one on the first run.
+  ///
+  /// Each phone has one key for its life. Making a second key here would
+  /// give the partner a new identity that no pinned partnership knows.
+  Future<Ed25519KeyPair> loadOrCreate() async {
+    final existing = await load();
+    if (existing != null) return existing;
+    final pair = await generateEd25519KeyPair();
+    await save(pair);
+    return pair;
+  }
 }

@@ -20,9 +20,6 @@ class JoinCode {
   /// Bump this when the format changes, so an old app can refuse a new code.
   static const version = 1;
 
-  /// An Ed25519 public key is 32 bytes: 43 characters in base64url, no padding.
-  static const _keyLength = 43;
-
   final String partnership;
   final String investorKey;
 
@@ -55,23 +52,10 @@ class JoinCode {
       throw const FormatException('the join code has no partnership id');
     }
     final investor = json['investor'];
-    if (investor is! String || !_isPublicKey(investor)) {
+    if (investor is! String || !isCanonicalPublicKey(investor)) {
       throw const FormatException('the join code has no valid investor key');
     }
     return JoinCode(partnership: partnership, investorKey: investor);
-  }
-
-  /// True only for the canonical spelling of a 32-byte key. Re-encoding must
-  /// give back the same text: two spellings of one key would make the pin
-  /// refuse every real create, since records use the canonical spelling.
-  static bool _isPublicKey(String text) {
-    if (text.length != _keyLength) return false;
-    try {
-      final bytes = decodeBase64UrlNoPadding(text);
-      return bytes.length == 32 && encodeBase64UrlNoPadding(bytes) == text;
-    } on FormatException {
-      return false;
-    }
   }
 }
 

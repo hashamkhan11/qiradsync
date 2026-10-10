@@ -51,6 +51,21 @@ String encodeBase64UrlNoPadding(List<int> bytes) {
   return base64Url.encode(bytes).replaceAll('=', '');
 }
 
+/// True only for the canonical spelling of a 32-byte public key (spec 2).
+///
+/// Re-encoding must give back the same text. Two spellings of one key would
+/// make a pin refuse every real record, because records always use the
+/// canonical spelling.
+bool isCanonicalPublicKey(String text) {
+  if (text.length != 43) return false;
+  try {
+    final bytes = decodeBase64UrlNoPadding(text);
+    return bytes.length == 32 && encodeBase64UrlNoPadding(bytes) == text;
+  } on FormatException {
+    return false;
+  }
+}
+
 /// Reverses [encodeBase64UrlNoPadding] by restoring the padding
 /// `base64Url.decode` requires (a length that's a multiple of 4).
 List<int> decodeBase64UrlNoPadding(String value) {

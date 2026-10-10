@@ -37,4 +37,39 @@ void main() {
       );
     });
   });
+
+  group('isCanonicalPublicKey', () {
+    test('accepts the canonical spelling of a 32-byte key', () async {
+      final pair = await ed25519KeyPairFromSeed(List<int>.filled(32, 7));
+      expect(isCanonicalPublicKey(pair.publicKeyBase64Url), isTrue);
+    });
+
+    test('refuses a key of the wrong length', () {
+      expect(isCanonicalPublicKey('abc'), isFalse);
+      expect(isCanonicalPublicKey('A' * 44), isFalse);
+    });
+
+    test('refuses characters that are not base64url', () {
+      expect(isCanonicalPublicKey('+' * 43), isFalse);
+      expect(isCanonicalPublicKey('=' * 43), isFalse);
+    });
+
+    test('refuses a non-canonical spelling of a real key', () async {
+      // 43 characters carry 258 bits, but a key has only 256. The last
+      // character's 2 spare low bits must be zero. A letter with those bits
+      // set decodes to the same bytes, so it would be a second spelling of
+      // the same key, and it must be refused.
+      const alphabet =
+          'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+      final pair = await ed25519KeyPairFromSeed(List<int>.filled(32, 7));
+      final prefix = pair.publicKeyBase64Url.substring(0, 42);
+      final spare = [
+        for (var i = 0; i < 64; i++)
+          if (i % 4 != 0) alphabet[i],
+      ];
+      for (final last in spare) {
+        expect(isCanonicalPublicKey(prefix + last), isFalse, reason: last);
+      }
+    });
+  });
 }

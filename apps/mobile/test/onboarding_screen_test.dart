@@ -1,0 +1,201 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mobile/join/join_code.dart';
+import 'package:mobile/onboarding/onboarding_screen.dart';
+import 'package:mobile/storage/record_store.dart';
+import 'package:pretty_qr_code/pretty_qr_code.dart';
+import 'package:path/path.dart' as p;
+import 'package:qirad_core/qirad_core.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+void main() {
+  setUpAll(sqfliteFfiInit);
+
+  late Directory dir;
+  late RecordStore store;
+  late Ed25519KeyPair keys;
+
+  setUp(() async {
+    dir = await Directory.systemTemp.createTemp('qirad_onboarding_test');
+    store = await RecordStore.open(
+      factory: databaseFactoryFfi,
+      path: p.join(dir.path, 'records.db'),
+    );
+    keys = await generateEd25519KeyPair();
+  });
+
+  tearDown(() async {
+    await store.close();
+    await dir.delete(recursive: true);
+  });
+
+  Future<void> pumpScreen(WidgetTester tester) async {
+    // A tall window, so the error text at the bottom of the list is built.
+    await tester.binding.setSurfaceSize(const Size(800, 2400));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OnboardingScreen(store: store, keys: keys, onReady: (_) {}),
+      ),
+    );
+  }
+
+  testWidgets('shows the phone key as text and as a QR, so the partner '
+      'can pin it either way', (tester) async {
+    await pumpScreen(tester);
+
+    expect(find.text(keys.publicKeyBase64Url), findsOneWidget);
+    expect(find.byType(PrettyQrView), findsOneWidget);
+  });
+
+  testWidgets('a bad manager key shows an error and saves nothing', (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, "Manager's key"),
+      'oops',
+    );
+    await tester.ensureVisible(find.text('Create partnership'));
+    await tester.tap(find.text('Create partnership'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('not a valid key'), findsOneWidget);
+    expect(store.partnerships, isEmpty);
+  });
+
+  testWidgets('a join code that does not parse shows an error', (tester) async {
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Join code from the investor'),
+      'not-a-code',
+    );
+    await tester.ensureVisible(find.text('Join partnership'));
+    await tester.tap(find.text('Join partnership'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('not a join code'), findsOneWidget);
+    expect(store.partnerships, isEmpty);
+  });
+
+  testWidgets('cancelling the code on create saves nothing', (tester) async {
+    final managerKey = (await tester.runAsync(
+      () => generateEd25519KeyPair(),
+    ))!.publicKeyBase64Url;
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, "Manager's key"),
+      managerKey,
+    );
+    await tester.ensureVisible(find.text('Create partnership'));
+    await tester.tap(find.text('Create partnership'));
+    await tester.pumpAndSettle();
+    expect(find.text('Check the safety code'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(store.partnerships, isEmpty);
+    expect(find.text('Send this join code to your partner:'), findsNothing);
+  });
+
+  testWidgets('cancelling the code on join saves nothing', (tester) async {
+    final investor = (await tester.runAsync(() => generateEd25519KeyPair()))!;
+    final code = JoinCode(
+      partnership: 'some-partnership',
+      investorKey: investor.publicKeyBase64Url,
+    ).encode();
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Join code from the investor'),
+      code,
+    );
+    await tester.ensureVisible(find.text('Join partnership'));
+    await tester.tap(find.text('Join partnership'));
+    await tester.pumpAndSettle();
+    expect(find.text('Check the safety code'), findsOneWidget);
+
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(store.partnerships, isEmpty);
+  });
+
+  testWidgets('a join code made from this phone key is refused', (
+    tester,
+  ) async {
+    final code = JoinCode(
+      partnership: 'some-partnership',
+      investorKey: keys.publicKeyBase64Url,
+    ).encode();
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Join code from the investor'),
+      code,
+    );
+    await tester.ensureVisible(find.text('Join partnership'));
+    await tester.tap(find.text('Join partnership'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Check the safety code'), findsNothing);
+    expect(
+      find.text('this is your own key; use the investor phone'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('after the code is confirmed, the join code is shown as a QR', (
+    tester,
+  ) async {
+    final managerKey = (await tester.runAsync(
+      () => generateEd25519KeyPair(),
+    ))!.publicKeyBase64Url;
+    await pumpScreen(tester);
+
+    await tester.enterText(
+      find.widgetWithText(TextField, "Manager's key"),
+      managerKey,
+    );
+    await tester.ensureVisible(find.text('Create partnership'));
+    await tester.tap(find.text('Create partnership'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Codes match'));
+    await tester.pump();
+    // The save talks to SQLite, which needs real time, not the fake clock.
+    for (var i = 0; i < 20 && store.partnerships.isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+
+    expect(store.partnerships, hasLength(1));
+    // One QR for this phone's own key (always shown) and one for the join
+    // code (shown once the partnership exists).
+    expect(find.byType(PrettyQrView), findsNWidgets(2));
+  });
+
+  testWidgets("tapping \"Scan manager's key\" opens its own scan screen", (
+    tester,
+  ) async {
+    await pumpScreen(tester);
+
+    await tester.ensureVisible(find.text("Scan manager's key"));
+    await tester.tap(find.text("Scan manager's key"));
+    await tester.pumpAndSettle();
+    // The onboarding screen's button is now offstage; this is the scan
+    // screen's own app bar title, confirming the title reached it.
+    expect(find.text("Scan manager's key"), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, "Manager's key"), findsOneWidget);
+  });
+}

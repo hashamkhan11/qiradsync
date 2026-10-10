@@ -1,122 +1,184 @@
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart';
 
-void main() {
-  runApp(const MyApp());
+import 'app_dependencies.dart';
+import 'dashboard/dashboard_screen.dart';
+import 'onboarding/onboarding_screen.dart';
+import 'storage/key_store.dart';
+import 'storage/record_store.dart';
+import 'sync/relay_url.dart';
+
+/// Set at build time: `flutter run --dart-define=RELAY_URL=https://...`
+/// (spec 7.2). Never hard-coded, so the same build cannot point at the wrong
+/// server by accident.
+const _relayUrl = String.fromEnvironment('RELAY_URL');
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final store = await RecordStore.open(
+    factory: databaseFactory,
+    path: p.join(await getDatabasesPath(), 'qirad.db'),
+  );
+  final secrets = PlatformSecretStore();
+  final keys = await KeyStore(secrets).loadOrCreate();
+
+  try {
+    final deps = AppDependencies.create(
+      relayUrl: _relayUrl,
+      debug: kDebugMode,
+      store: store,
+      keys: keys,
+      secrets: secrets,
+    );
+    runApp(QiradApp(deps: deps));
+  } on RelayUrlError catch (e) {
+    // Show the problem instead of throwing before runApp: a blank crash
+    // screen tells the developer nothing, and this can only happen from how
+    // the app was built, never from anything the user did.
+    runApp(ConfigErrorApp(message: e.message));
+  }
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+/// Shown instead of the app when the relay address is missing or not
+/// allowed (spec 7.2).
+class ConfigErrorApp extends StatelessWidget {
+  const ConfigErrorApp({super.key, required this.message});
 
-  // This widget is the root of your application.
+  final String message;
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              'QiradSync cannot start.\n\n$message',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
       ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+/// The app root. It shows onboarding until this phone has a partnership.
+class QiradApp extends StatefulWidget {
+  const QiradApp({super.key, required this.deps});
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+  final AppDependencies deps;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<QiradApp> createState() => _QiradAppState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _QiradAppState extends State<QiradApp> {
+  late bool _hasPartnership = widget.deps.store.partnerships.isNotEmpty;
+  String? _partnership;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'QiradSync',
+      theme: ThemeData(colorScheme: .fromSeed(seedColor: Colors.teal)),
+      home: _hasPartnership
+          ? _Home(
+              deps: widget.deps,
+              partnership: _partnership ?? widget.deps.store.partnerships.first,
+            )
+          : OnboardingScreen(
+              store: widget.deps.store,
+              keys: widget.deps.keys,
+              onReady: (id) => setState(() {
+                _hasPartnership = true;
+                _partnership = id;
+              }),
+            ),
+    );
+  }
+}
+
+/// The signed-in home. Syncs once as soon as it appears — so a brand-new
+/// phone (just onboarded) already has the create record and a relay vector
+/// before it tries to write anything, and never meets `notSynced` on its
+/// first attempt — then shows the dashboard (spec 7.3, 7.4).
+///
+/// No timer anywhere: the only three sync triggers are this `initState`,
+/// a successful write (handled inside `InboxScreen`, which also calls
+/// `onSyncNow`), and the dashboard's own "Sync now" button, all sharing
+/// this one `_sync` method so the badge is recomputed the same way after
+/// each of them.
+class _Home extends StatefulWidget {
+  const _Home({required this.deps, required this.partnership});
+
+  final AppDependencies deps;
+  final String partnership;
+
+  @override
+  State<_Home> createState() => _HomeState();
+}
+
+class _HomeState extends State<_Home> {
+  bool _syncing = false;
+
+  /// Whether the most recent sync attempt in this session reached a
+  /// complete result (spec 7.3): the relay's vector matched ours for every
+  /// author, with no repair round left unresolved. `false` before any
+  /// attempt has finished, by design: a phone that has not synced this
+  /// session has nothing to call "Synced" yet.
+  bool _lastSyncSucceeded = false;
+
+  /// The relay's vector from the latest sync reply, re-read after every
+  /// attempt (success or failure: an earlier round inside the same attempt
+  /// may already have saved a newer one). `null` until the first read.
+  Map<String, int>? _relayVector;
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  Future<void> _sync() async {
+    setState(() => _syncing = true);
+    var succeeded = false;
+    try {
+      final result = await widget.deps.syncRunner.run(widget.partnership);
+      succeeded = result.complete;
+    } catch (_) {
+      // Best-effort only: a screen whose write actually needs a fresh sync
+      // (RecordWriter's notSynced/chainBehindRelay refusals) shows its own
+      // banner with its own retry, so this background attempt does not
+      // need to surface an error of its own.
+    } finally {
+      final relayVector = await widget.deps.store.relayVectorFor(
+        widget.partnership,
+      );
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+          _lastSyncSucceeded = succeeded;
+          _relayVector = relayVector;
+        });
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
-          children: [
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ),
+    return DashboardScreen(
+      store: widget.deps.store,
+      partnership: widget.partnership,
+      myKey: widget.deps.keys.publicKeyBase64Url,
+      writer: widget.deps.writerFor(widget.partnership),
+      syncing: _syncing,
+      onSyncNow: _sync,
+      lastSyncSucceeded: _lastSyncSucceeded,
+      relayVector: _relayVector,
     );
   }
 }

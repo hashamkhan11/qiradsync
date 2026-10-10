@@ -1,0 +1,80 @@
+import 'package:qirad_core/qirad_core.dart';
+import 'package:uuid/uuid.dart';
+
+import '../storage/record_store.dart';
+
+/// Starts a new partnership on the investor's phone (spec 2.1, steps 1 and 2).
+///
+/// The phone makes a random partnership id, pins both keys, then writes and
+/// stores the `partnership_create`. Returns the id, which the join code carries.
+///
+/// The create is the first record, so it has seq 1 and a prev_hash of 64 zeros.
+Future<String> createPartnership({
+  required Ed25519KeyPair investorKeys,
+  required String managerKey,
+  required int investorPercent,
+  required RecordStore store,
+}) async {
+  final investorKey = investorKeys.publicKeyBase64Url;
+  checkNewPartnership(
+    investorKey: investorKey,
+    managerKey: managerKey,
+    investorPercent: investorPercent,
+  );
+
+  final id = const Uuid().v4();
+
+  // The builder gives seq 1 and a prevHash of 64 zeros, because the investor
+  // has no records yet. Every record in the app is built this one way.
+  final unsigned = buildRecord(
+    ledger: const [],
+    author: investorKey,
+    partnership: id,
+    id: id,
+    type: 'partnership_create',
+    body: {
+      'investor': investorKey,
+      'manager': managerKey,
+      'ratio': {'investor': investorPercent, 'manager': 100 - investorPercent},
+      'currency': 'PKR',
+    },
+    // Display only (spec 3). Whole seconds, UTC, as the spec's example shows.
+    time: '${DateTime.now().toUtc().toIso8601String().split('.').first}Z',
+  );
+  final signed = await signRecord(unsigned, investorKeys);
+  // Pins and create are saved together, or not at all (see startPartnership).
+  final outcome = await store.startPartnership(
+    id: id,
+    investorKey: investorKey,
+    managerKey: managerKey,
+    createText: canonicalJson(signed.toJson()),
+  );
+  if (outcome != ReceiveOutcome.accepted) {
+    throw StateError('the new partnership was refused: $outcome');
+  }
+  return id;
+}
+
+/// Refuses bad input for a new partnership, before anything is shown or saved.
+/// The screen calls it before the safety code, so a bad key never gets a code.
+void checkNewPartnership({
+  required String investorKey,
+  required String managerKey,
+  required int investorPercent,
+}) {
+  // A key typed by hand must be the one the manager shows. A wrong spelling
+  // would pin a key that never signs, so the partnership would stall.
+  if (!isCanonicalPublicKey(managerKey)) {
+    throw ArgumentError.value(managerKey, 'managerKey', 'not a valid key');
+  }
+  if (managerKey == investorKey) {
+    throw ArgumentError.value(
+      managerKey,
+      'managerKey',
+      'this is your own key; the manager must use another phone',
+    );
+  }
+  // Both partners share in the profit, so each share is 1 to 99 (spec 5).
+  // The manager's share is the rest, which keeps the sum at 100.
+  RangeError.checkValueInInterval(investorPercent, 1, 99, 'investorPercent');
+}

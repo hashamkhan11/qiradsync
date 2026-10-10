@@ -2,6 +2,7 @@ import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
 import 'support/partnership_fixture.dart';
+import 'support/test_ids.dart';
 
 Future<Effectiveness> _effective(Validator validator) async => computeEffective(
   validator.usableRecords,
@@ -62,6 +63,10 @@ Future<(Record, ChainAuthor)> _targetOfType(
         partnership: partnershipId,
         type: 'expense',
         body: {'amount': 4000, 'receiptHash': null},
+        // The refersTo only needs to be a well-formed id here (spec section
+        // 3); whether it resolves to a real, approved budget is a business-
+        // layer question this test does not depend on.
+        refersTo: testId('dummy-budget'),
       );
       final reversal = await investor.next(
         partnership: partnershipId,
@@ -76,6 +81,88 @@ Future<(Record, ChainAuthor)> _targetOfType(
 }
 
 void main() {
+  group('partnership activation (spec section 5)', () {
+    test(
+      'before approval, nothing but the create is effective, not even a '
+      'money record written while it waits',
+      () async {
+        final (validator, investor, _, partnershipId) =
+            await setUpUnapprovedPartnership();
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 1000000},
+        );
+        await validator.receiveText(canonicalJson(invest.toJson()));
+
+        final effective = await _effective(validator);
+        expect(effective.partnershipStatus, DecisionStatus.pending);
+        expect(effective.isEffective(invest), isFalse);
+      },
+    );
+
+    test(
+      'a rejected create means nothing else ever takes effect, including '
+      'the create itself',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpUnapprovedPartnership();
+        final create = validator.usableRecords.singleWhere(
+          (r) => r.type == 'partnership_create',
+        );
+        final reject = await manager.next(
+          partnership: partnershipId,
+          type: 'reject',
+          refersTo: partnershipId,
+        );
+        // Written after the reject, to prove a dead create blocks the
+        // future too, not just records already waiting at reject time.
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 1000000},
+        );
+        await validator.receiveText(canonicalJson(reject.toJson()));
+        await validator.receiveText(canonicalJson(invest.toJson()));
+
+        final effective = await _effective(validator);
+        expect(effective.partnershipStatus, DecisionStatus.dead);
+        expect(effective.isEffective(create), isFalse);
+        expect(effective.isEffective(invest), isFalse);
+      },
+    );
+
+    test(
+      'a record written before the create is approved takes effect once '
+      'it is approved, with no need to be written again',
+      () async {
+        final (validator, investor, manager, partnershipId) =
+            await setUpUnapprovedPartnership();
+        final invest = await investor.next(
+          partnership: partnershipId,
+          type: 'invest',
+          body: {'amount': 1000000},
+        );
+        await validator.receiveText(canonicalJson(invest.toJson()));
+        expect((await _effective(validator)).isEffective(invest), isFalse);
+
+        final approve = await manager.next(
+          partnership: partnershipId,
+          type: 'approve',
+          refersTo: partnershipId,
+        );
+        await validator.receiveText(canonicalJson(approve.toJson()));
+
+        // Same invest record, never rewritten: effectiveness is a pure
+        // function of the current record set, with no notion of "it
+        // arrived before approval" (hard rule 3, no clock-based ordering).
+        final effective = await _effective(validator);
+        expect(effective.partnershipStatus, DecisionStatus.active);
+        expect(effective.isEffective(invest), isTrue);
+      },
+    );
+  });
+
   group('own reversal (spec section 6.3)', () {
     test(
       'a partner reversing their own expense cancels it with no approval',
@@ -85,6 +172,7 @@ void main() {
           partnership: partnershipId,
           type: 'expense',
           body: {'amount': 4000, 'receiptHash': null},
+          refersTo: testId('dummy-budget'),
         );
         final reversal = await manager.next(
           partnership: partnershipId,
@@ -249,6 +337,9 @@ void main() {
           partnership: partnershipId,
           type: type,
           body: body,
+          // expense is the only one of these types that needs a refersTo
+          // (spec section 3); a well-formed id is enough for this test.
+          refersTo: type == 'expense' ? testId('dummy-budget') : null,
         );
         final reversal = await author.next(
           partnership: partnershipId,
@@ -276,6 +367,7 @@ void main() {
           partnership: partnershipId,
           type: 'expense',
           body: {'amount': 4000, 'receiptHash': null},
+          refersTo: testId('dummy-budget'),
         );
         final reversal = await investor.next(
           partnership: partnershipId,
@@ -292,8 +384,12 @@ void main() {
         final create = first.usableRecords.singleWhere(
           (r) => r.type == 'partnership_create',
         );
+        final approveCreate = first.usableRecords.singleWhere(
+          (r) => r.type == 'approve' && r.refersTo == create.id,
+        );
         final validator = Validator.unpinnedForTesting();
         await validator.receiveText(canonicalJson(create.toJson()));
+        await validator.receiveText(canonicalJson(approveCreate.toJson()));
 
         // The reversal is accepted first; its target is still missing.
         expect(
@@ -321,10 +417,14 @@ void main() {
         final create = first.usableRecords.singleWhere(
           (r) => r.type == 'partnership_create',
         );
+        final approveCreate = first.usableRecords.singleWhere(
+          (r) => r.type == 'approve' && r.refersTo == create.id,
+        );
         final expense = await manager.next(
           partnership: partnershipId,
           type: 'expense',
           body: {'amount': 4000, 'receiptHash': null},
+          refersTo: testId('dummy-budget'),
         );
         final reversal = await investor.next(
           partnership: partnershipId,
@@ -347,6 +447,7 @@ void main() {
         for (final order in orders) {
           final validator = Validator.unpinnedForTesting();
           await validator.receiveText(canonicalJson(create.toJson()));
+          await validator.receiveText(canonicalJson(approveCreate.toJson()));
           for (final record in order) {
             await validator.receiveText(canonicalJson(record.toJson()));
           }

@@ -252,11 +252,7 @@ class Phone {
       },
     );
     final money = computeMoney(usable, effectiveness: effectiveness);
-    final ratio = activeRatio(
-      usable,
-      effectiveness: effectiveness,
-      date: '2026-10-03',
-    )!;
+    final ratio = activeRatio(usable, effectiveness: effectiveness)!.ratio;
     final shares = splitResult(
       money.result,
       investorPercent: ratio.investor,

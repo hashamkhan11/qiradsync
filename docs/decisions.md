@@ -302,3 +302,765 @@ direction, and the partners can check it without trusting the relay.
 
 **Why 24 digits:** A short code (for example 6 digits) could be matched by searching for a key with the same code.
 About 80 bits makes that search infeasible.
+
+---
+
+## 2026-10-04 — A partnership's pins and create are saved in one transaction
+
+**Decision:** The investor's phone checks the `partnership_create` on a candidate validator that holds the new pins,
+and saves the pins and the create together in one database transaction. A refused create rolls the transaction back.
+The phone registers the partnership in memory only after the commit.
+
+**Reason:** Pins saved before the create was checked could stay behind after a refusal, with no create to explain
+them. An all-or-nothing save means a refused start leaves no partnership, no pins and no record. The tests reopen
+the database to check what is on disk.
+
+---
+
+## 2026-10-04 — Each partner's share is 1 to 99 percent
+
+**Decision:** A `ratio` in `partnership_create` or `ratio_proposal` must have each share as a whole number from 1 to 99.
+The validator refuses 0 and 100 in its schema step (spec section 5). The app refuses them when the investor types them.
+
+**Reason:** A Mudaraba is a profit-sharing partnership, so both parties must share in the profit. A 0 percent share
+would be unpaid work or a loan, not a Mudaraba. The rule is in the validator, not only in the app, so a create from
+another app is refused the same way.
+
+
+---
+
+## 2026-10-05 — Open issue: a ratio change re-splits profit already earned
+
+**Status:** Open. Design decided on 2026-10-05 (see the settlement entries below). Fixed when the settlement step is built. The dashboard warns about it until then.
+
+**Problem:** Spec section 6.6 says a new ratio applies from its `effectiveFrom` date. Profit earned before the change
+should keep the old ratio. But `buildDashboard` splits the whole result by the ratio active on one date, so the
+old profit is re-split at the new ratio.
+
+**Example:** 200,000 is earned at 60/40 (manager 80,000). Then a 50/50 change takes effect. The dashboard shows the
+manager 100,000 for the same 200,000. The contract says 80,000.
+
+**Why dates cannot fix it:** Record times come from phone clocks, so they are never used to decide anything (hard
+rule 3). A date on a ratio change says when it should start, but not which earned profit it covers.
+
+**Direction (agreed 2026-10-05):** A `settlement` record that needs the other partner's approval.
+When it is effective, it freezes the result up to that point in the ledger and splits that result at the ratio active
+then. A new ratio applies only to results after a settlement. The change is anchored to a point of consent, not a date.
+
+**Until then:** The dashboard shows a note whenever a ratio change has taken effect, saying the split uses the current
+ratio and may not match the contract until settlement is built. A core test documents the current behaviour and is
+marked as a known issue. It must be updated when settlement is built.
+
+---
+
+## 2026-10-05 — The active ratio is picked by record order, not by date
+
+**Status:** Decided. Option 1 from the open question was chosen by the developer.
+
+**Decision:** The active ratio is the last effective `ratio_proposal` in `(effectiveFrom, author, seq)` order.
+If there is none, it is the ratio in the approved `partnership_create`. No clock is used. The `effectiveFrom`
+date is a sort key and display text only. The dashboard shows the ratio as text, for example
+`50/50 (agreed to start 2026-11-01)`.
+
+**Reason:** The date chose the ratio, and the ratio sets the shares people act on. A phone with a wrong clock
+would show a different split. That broke hard rule 3, which says clock time must not decide anything. The
+"display label only" framing was wrong, because the date still changed the numbers.
+
+**Consequence:** A ratio change with a future `effectiveFrom` applies to all the current result at once. It does
+not wait for its date. This is the same kind of problem as the open settlement issue above, and it is recorded
+there. Spec 6.6 is updated to match.
+
+---
+
+## 2026-10-05 — Settlement: only the manager proposes, and proposals are decided in order
+
+**Status:** Decided. Built in a later step.
+
+**Decision:** Only the manager authors a `settlement`. The investor approves or rejects it. Settlement proposals are
+decided in order: the investor's response to S_k is valid only if the investor has already responded to every earlier
+settlement, at a lower investor `seq`.
+
+**Reason:** If both partners can propose, two proposals can be approved at the same time from the same starting point.
+Each approval is a valid record, so a grow-only ledger cannot undo either one. Any later winner would change an
+already settled period, which breaks monotonicity. One author gives one chain, and the ordering rule keeps the
+responses in order.
+
+**Limitation:** In the app, the investor cannot force a settlement. Documented in spec 6.7. Future work.
+
+**Test that must exist:** The investor approves S_2 before S_1 → the response is invalid and flagged.
+
+---
+
+## 2026-10-05 — First valid response wins; invalid responses never count
+
+**Status:** Decided by the developer on 2026-10-05. Built in step 4a.
+
+**Decision:** The first response rule (spec 5) picks the lowest-seq response among the valid ones. An invalid
+response (such as an early answer to S_2) is kept as evidence and never counts. A later valid answer to S_2 decides
+it.
+
+**Reason:** Without this, one early mistake would lock S_2 for ever. The validity of a response depends only on
+records that are already fixed: the investor's chain below that response, and the manager's settlement chain
+below the proposal, which has no gaps. So a response never changes from valid to invalid, or back, and the result
+is the same in any arrival order.
+
+**Malformed and investor-authored settlements:** neither takes part in the ordering rule. Only well-formed manager
+proposals do (spec 6.7).
+
+**Tests that exist:** `packages/qirad_core/test/settlement_test.dart`. An early invalid answer to S_2, then answers to
+S_1 and S_2: the S_2 decision is the later valid answer. Replaying the same records in other orders gives the same
+result. An investor-authored settlement does not block the investor's answers. A malformed settlement does not block
+the next proposal.
+
+---
+
+## 2026-10-05 — Settlement: the cut is closed, dominating and not empty
+
+**Status:** Decided. Built in a later step.
+
+**Decision:** A settlement's cut must be closed under references and under approvals. It must dominate the previous
+effective cut, and it must cover at least one new record. The manager's value in the cut must be lower than the
+settlement's own `seq`. The settlement body stores no totals.
+
+**Reason:** Without closure, an approval outside the cut could change a settled period later. Without domination, a
+later cut could move backward. Empty settlements only add noise. Storing a total would break hard rule 4.
+
+---
+
+## 2026-10-05 — Ratio changes take effect at the next settlement
+
+**Status:** Decided and confirmed by the developer on 2026-10-05. Built in a later step.
+
+**Decision:** Period 1 uses the create ratio. Period k uses the last effective `ratio_proposal` approved inside the cut
+of period k−1. If there is none, it uses the previous period's ratio. The open period uses the same rule with the last
+cut. A change approved inside a period applies to the next period, not to the current one.
+
+**Consequence:** Until a settlement is effective, an approved change does not apply to any result. The dashboard shows
+the old ratio and a note that a change is waiting for settlement.
+
+**Confirmed:** A change approved during period k applies from period k+1. Before the first effective settlement, an approved change applies to nothing, and the dashboard shows the old ratio with a note.
+---
+
+## 2026-10-05 — Losses are carried forward before any profit is shared
+
+**Status:** Decided. Built in a later step.
+
+**Decision:** Keep a deficit across periods. A loss is added to the deficit and the investor bears it. In a profitable
+period, the deficit is covered first (capital is restored first). Only the rest is split at that period's ratio.
+
+**Limitation (documented, future work):** Provisional profit distributions made before a later loss are not clawed
+back. The app shows them as provisional.
+
+---
+
+## 2026-10-05 — Corrections after settlement: one rule, recalculate one period and book the difference later
+
+**Status:** Decided. Built in a later step.
+
+**Decision:** A reversal of a record in an earlier period recalculates only the period that contains the reversed
+record, as if the reversal had been there. The difference is booked in the period where the reversal becomes effective.
+The difference has two parts:
+
+- **Share change:** the change in the period's distributable amount, split at that period's ratio. It cannot make a
+  share negative beyond what that period gave, because the new distributable amount is never below zero.
+- **Deficit change:** the change in the period's carried deficit, added to the current carried deficit.
+
+Later settled periods are never recalculated. The adjustment is shown as a separate line, "correction from an earlier
+period".
+
+**Reason:** One rule covers every case, and no special case is needed for a loss period. Recalculating the whole ledger
+would change settled periods, which breaks monotonicity.
+
+**Limitation:** If an adjustment removes profit a partner already withdrew, the excess is shown as an amount owed back.
+The app does not collect it.
+
+**Tests that must exist:**
+
+1. Profit period with a small correction: only that period's shares change.
+2. Loss period: the deficit grows, and the manager's share stays zero.
+3. Profit period that becomes a loss: its shares go to zero and a deficit appears.
+
+---
+
+---
+
+## 2026-10-05 — Rounding is per period
+
+**Status:** Decided. Built in a later step.
+
+**Decision:** Each period is split on its own with `splitResult`. Summed shares can differ from one split of the whole
+result by up to one paisa per period. This is deterministic.
+
+---
+
+## 2026-10-05 — Profit withdrawals are not capped in v1
+
+**Status:** Decided.
+
+**Decision:** Profit withdrawals are not capped by settled shares. The approval screen shows the ratio-change warning
+and each partner's settled share for reference.
+
+**Reason:** A cap needs settlement to exist first. The warning is the protection until then.
+
+---
+
+## 2026-10-05 — Closure covers references only, not decisions
+
+**Status:** Decided. Built in step 4b.
+
+**Decision:** Cut rule 3 (closed) checks only that every record inside the cut refers to a record inside the cut.
+Approval decisions are not part of closure. An unanswered request inside a cut has no effect in that period. Its
+approval counts in the period where the approval falls.
+
+**Reason:** If decisions had to be inside the cut, one unanswered request could block every later settlement
+forever (liveness).
+
+---
+
+## 2026-10-05 — Phone-holds-cut, final once held, chained rule, permanent invalidity
+
+**Status:** Decided. Built in step 4b.
+
+**Decision:**
+- A cut is checked only when the phone holds every record it covers. Until then the settlement is waiting.
+- Once the phone holds the whole cut, rules 1 to 5 give a final answer. A settlement that fails a check is
+  permanently invalid.
+- Settlements are decided in manager seq order. A waiting settlement blocks later ones. A rejected or
+  permanently invalid settlement is done and does not block.
+
+**Reason:** A failed check must never be retried later with different records, or the result would depend on
+arrival order. A permanently invalid settlement must not block the next one forever.
+
+**Note on the chained flip:** A cut that is approved but not held cannot happen in a normal ledger. The investor
+approves only after the settlement exists, and the manager's cut only covers records written before that. So the
+phone holds the cut when it holds the approval (chains have no gaps). The waiting state covers only a cut that names
+records the phone has not received.
+
+---
+
+## 2026-10-05 — A settled period is a pure function of its cut
+
+**Status:** Decided. Built in step 4b.
+
+**Decision:** A settled period's view (result and budget statuses) is calculated only from the records inside its
+cut. Later effects, such as a late budget consent, are booked as a difference in the period where they become
+effective. No snapshot is stored.
+
+**Reason:** A fixed set of records always gives the same view, so a settled period never changes and hard rule 4
+(store facts, calculate the rest) holds.
+
+---
+
+## 2026-10-05 — Late budget consent is booked where the budget becomes effective
+
+**Status:** Decided. Built in step 4b.
+
+**Decision:** If the grantee approves a budget after a cut, the budget (and any expense under it) is counted in the
+period where it becomes effective, using the adjustment difference rule.
+
+**Reason:** It keeps the principle above. The settled view stays the same, and the money shows up once, in the
+current period.
+
+---
+
+## 2026-10-05 — Approve rule: an approve must come after its cut
+
+**Status:** Decided. Built in step 4b (follow-up).
+
+**Decision:** An investor `approve` of a settlement is valid only if the cut's investor value is below the approve's
+own `seq`. Otherwise the approve is invalid, kept as evidence, and never counts. A `reject` is not affected. A
+settlement whose cut names records that do not exist waits until the investor rejects it. Rejected counts as done,
+so later settlements continue.
+
+**Reason:** Phones cannot tell, when they see a cut that names investor records 41 to 99, whether those records
+do not exist or have not arrived yet. So the rule must not make a settlement invalid right away. Instead it makes
+the approve impossible to count. Then "a valid approve means the cut is held" is a rule that holds even with a
+malicious manager, not an honesty assumption. The investor always has a way out: reject.
+
+**Consequence:** An approve of a settlement can never be inside that settlement's own cut, because its seq is above
+the cut's investor value. Closure still checks approves like any other reference.
+
+## 2026-10-05 — Profit withdrawals belong to their author; owed back vs withdrawn ahead
+
+**Status:** Decided. To be built in step 4d.
+
+**Decision:** A profit withdrawal is paid to the partner who records it (its author). Each partner's excess is split
+into two labels that always add up to the excess:
+- **Withdrawn ahead of settled profit:** the part of the excess that already existed before any correction. It
+  comes from withdrawals made before settlement. It is neutral, not a debt.
+- **Owed back:** the part of the excess caused by a correction that reduced an already-settled share (spec 6.7,
+  point 5). This is the only case shown as money owed. The app does not collect it.
+
+**Reason:** The spec does not tie a withdrawal to a partner, so the author is the simplest rule and needs no change
+to the record format. Two labels are needed because a withdrawal made before settlement is normal. Calling it a debt
+would mislead people.
+
+**Consequence:** The split is computed, not stored (hard rule 4). With `W` = the partner's effective profit
+withdrawals, `own` = their profit shares from each period's own result, and `settled` = their profit shares with
+corrections applied: `excessBefore = max(0, W − own)`, `excessNow = max(0, W − settled)`, `owedBack =
+max(0, excessNow − excessBefore)`, `aheadOfSettled = excessNow − owedBack`.
+
+## 2026-10-05 — Owed back uses closed periods only
+
+**Status:** Decided. To be built in step 4d.
+
+**Decision:** The withdrawn, own and settled figures all come from the same set: the closed periods (those before
+the last effective cut). A correction that becomes effective in the open period does not change owed back until
+that period is settled. The open period is shown on the dashboard as provisional.
+
+**Reason:** If own and settled came from different sets, the subtraction would mix provisional and final numbers.
+Nothing provisional should ever create a debt.
+
+**Consequence:** Owed back can appear late, only after the period that caused it is settled. This is accepted.
+A withdrawal made before any settlement is "ahead" only after the period that contains it is closed.
+
+## 2026-10-05 — Audit follow-ups: create rule, total withdrawn, investor silence
+
+**Decision (create body):** The validator refuses a `partnership_create` whose ratio does not sum to 100, whose
+shares are not 1 to 99, or whose two party keys are missing or equal. Ratio proposals keep the old rule, where a bad
+sum only means "no ratio".
+
+**Reason:** A create has no earlier ratio to fall back on. A bad create would leave every period without a ratio.
+
+**Decision (period code):** `periodShares` returns no periods, instead of throwing, when the create's ratio is not
+valid. This only matters for records that did not come through the validator.
+
+**Decision (total profit withdrawn):** Two separate values. `totalProfitWithdrawn` is each partner's sum of all
+effective profit withdrawals on the whole ledger. The owed back and ahead split is calculated from closed periods only.
+The dashboard shows the total from the first withdrawal. Until the first settlement it is labelled "not yet compared to
+settled profit" and no split is shown.
+
+**Reason:** A total that waited for a settlement would show 0 for a partner who has already withdrawn money. The split
+still needs closed periods, so provisional numbers never create a debt.
+
+**Decision (investor silence):** Kept as a rule. A settlement waits for the investor's answer, and the rules use no
+clock, so there is no timeout. An investor who never answers is a dispute, resolved outside the app. The approvals
+inbox shows "Settlement S_k is waiting for the investor's answer." This is listed under the v1 limitations in spec 6.7.
+
+**Reason:** A timeout would need a clock or a new rule, and the spec forbids clock time in decisions. Silence is the
+same case as a manager who never proposes.
+
+**Mutation check (2026-10-06), result for the rules that no test can fail:** Removing the cut-held check (`cutIsHeld`)
+or the chained rule (`settlement_states.dart`) changes nothing in a ledger the validator stores. A valid investor
+approve already means the investor's chain up to that approve is held. Chains have no gaps (spec 7.1), so the
+manager's cut is held too. The chained rule is covered by the ordering rule, which already requires the investor to
+answer every earlier proposal. These checks are kept as a defence, and no test can fail without a ledger the validator
+would never store.
+
+**Decision (write gate, 2026-10-06):** A phone writes its own record only when its own chain is complete. It must
+have synced the partnership on this install, and the relay's vector for its key must not be higher than its own
+highest saved seq. Otherwise the write is refused and the phone syncs first (spec 7.4, rule 2).
+
+**Reason:** A phone with an empty or partly restored store would otherwise reuse a seq the relay already holds. Two
+different records with one seq is a fork that the relay can never repair.
+
+**Decision (valid answer, 2026-10-06):** "Already answered" means a valid response only. An invalid early answer
+(spec 6.7 ordering rule) does not stop the investor from answering again. A second valid answer is refused.
+
+**Reason:** An invalid answer never counts, so it must not block the correct one. This follows spec 5, where invalid
+responses never decide anything.
+
+**Decision (one device per key, 2026-10-06):** Version 1 supports one device per key. The private key is never
+exported or copied. Supporting several devices per partner is future work with its own design.
+
+**Reason:** A second device with the same key would write its own records with seqs the first device does not know.
+That is the same fork risk as above, so the relay vector gate cannot protect it.
+
+**Finding (waiting-for-records state, 2026-10-06):** The approvals inbox state "Waiting for records to sync" cannot
+happen from a stored ledger. The validator buffers a settlement until its earlier seqs arrive. The branch is kept as
+defence in depth and is tested with hand-built records, the same approach as M9 in the mutation check.
+
+**Decision (the writer never creates a record it knows is invalid, 2026-10-08):** "Kept as evidence" (spec 6.1, 6.7)
+describes what the validator does with a record it *received* from the other partner. It does not mean this app's own
+writer may knowingly build one. Before signing an approve or reject of a settlement, `RecordWriter` re-runs the
+settlement ordering rule with the candidate added, and refuses with `answerEarlierFirst` if the candidate would land
+in `invalidResponses`. Nothing is written.
+
+**Reason:** A device can always tell, before writing, whether its own answer would be invalid. Writing it anyway only
+creates a record that is already known to decide nothing, and it is harder to recover from a mistake already on the
+chain than to refuse to make it. The rule that an invalid early answer does not block a later valid one still holds —
+it now covers a record that reached the ledger some other way (an older app version, a different client), proved
+with a hand-built record in the test.
+
+---
+
+## 2026-10-09 — Schema step enforces every type's body shape and `refersTo` use (spec 6.1 step 1, spec section 5)
+
+**Decision:** `parseRecordSchema` now checks, for every record type, exactly what spec section 5 says that type's
+body must contain and what `refersTo` must be — not just the top-level field shapes it already checked. Added:
+
+- `time` must be `YYYY-MM-DDTHH:MM:SSZ` and parse as a real date (`_isValidTime`). `sig` must be a 64-byte Ed25519
+  signature in canonical base64url-no-padding, round-tripped the same way `isCanonicalPublicKey` already checks a
+  public key (`_isValidSig`). `prevHash` is checked as 64 lowercase hex characters by regex, not just length.
+- A new `_matchesTypeRules` switch, one case per type: `invest`/`sale` need a positive amount and no `refersTo`;
+  `budget_proposal` needs a positive amount and a canonical grantee key; `expense` needs a `refersTo` that is a
+  UUID v4, a positive amount, and an optional `receiptHash` that is 64 hex characters; `withdraw_request` needs a
+  positive amount and `kind` of `capital` or `profit`; `ratio_proposal` needs a valid 1–99 ratio whose shares sum
+  to 100, and an ISO date `effectiveFrom`; `reversal`/`approve`/`reject` need a `refersTo` UUID v4 and an empty body;
+  `settlement` needs no `refersTo` and a `cut` that is a `Map` (the deeper shape of `cut` stays a business-layer
+  check in `settlementCut`, since it needs the partnership's two keys, which schema parsing does not have). A type
+  with no case is refused by default, not silently accepted.
+- `partnership_create`'s body check (`_isValidCreateBody`) now also requires `currency == 'PKR'` and that `investor`
+  and `manager` are each a canonical public key (not just "a String, and the two differ").
+- Removed the old sum asymmetry: a `ratio_proposal` whose shares don't sum to 100 is now refused at the schema step,
+  the same as a bad `partnership_create` ratio, instead of being silently stored and only later ignored by `ratioOf`.
+
+**Reason:** Before this, a `withdraw_request` with no `amount` or `kind`, a `settlement` with a `refersTo`, or an
+`expense` with a non-UUID `refersTo` were all accepted and stored, because the schema step only checked that body
+keys were a subset of the type's allowed keys — not that the required ones were present and well-formed. Business-
+layer code (the inbox, the consent screens) then had to treat "missing/malformed required field" as a reachable
+runtime state, which is the wrong layer: spec 6.1 step 1 is specifically the step that checks "every field a type
+needs, with the right shape," before any business rule runs.
+
+**Consequence found while verifying this:** the withdrawal screen's "no numbers to show yet" (missing-summary)
+state is no longer reachable through the inbox in ordinary use, because every `withdraw_request` the schema now
+accepts already has a valid `amount` and `kind`. Its test was kept as a labelled defensive test, built by hand with
+`Ledger.add` bypassing `receive()` on purpose, per the "redundant protections are fine, untested ones are not"
+principle already used for M9/M10 (see the 2026-10-06 mutation-check entry above). The equivalent settlement-screen
+state, by contrast, turned out to still be real: see the next entry.
+
+**Tests:** `packages/qirad_core/test/validator_schema_table_test.dart` (one table-driven test per type/field rule
+above), plus updates to `record_schema_test.dart`, `active_ratio_test.dart`, `money_test.dart`, `settlement_test.dart`,
+`budgets_test.dart`. `apps/mobile/test/withdrawal_confirm_screen_test.dart`'s defensive fixture.
+
+**Known limitation, not fixed:** `_isValidTime` accepts some calendar-invalid-looking strings as valid whenever
+`DateTime.tryParse` normalizes them (for example a day-of-month rollover). `time` is display-only (hard rule 3), so
+this cannot affect any calculation; documented here rather than guarded against, to avoid adding code whose only
+job is to reject a display string more strictly than Dart's own date parser does.
+
+---
+
+## 2026-10-09 — A settlement with an all-zero cut is a real reachable state, not a defensive-only one
+
+**Finding:** While restoring the settlement screen's missing-summary test in the same defensive form as the
+withdrawal one above, checking first showed this state is *not* defensive-only for settlements. `approvalsInbox`'s
+settlement block (`_settlementBlock`) checks the cut's shape, that any earlier settlement is already answered, the
+investor-approve seq bound, and `cutIsHeld` — it does not call `cutProblem`, which is where cut rules 3–5 (closed,
+dominating, **not empty**) live (spec 6.7). So the manager's very first settlement, proposing a cut of
+`{investor: 0, manager: 0}`, is a genuine, schema-valid, `receive()`-accepted record that reaches the inbox as
+`canApprove: true, blockedReason: null` — the same as an ordinary settlement — yet never becomes
+`SettlementState.effective` (`cutProblem` flags it as empty), so `settlementConsent` returns `null` and the
+confirm screen has no numbers to show.
+
+**Decision:** The settlement screen's missing-summary test uses this real empty-cut scenario, built the normal way
+through `receive()`, rather than a hand-built bypass. It is still labelled and still guards the same rule (the
+Approve button is never shown without numbers, for informed consent) as the withdrawal screen's defensive test, so
+the two screens stay consistently tested — but this one needs no `Ledger.add` trick, because the state is reachable
+in the real app.
+
+**Reason:** Using the real scenario is a strictly better test than a hand-built one where a real example exists:
+it proves the screen's guard against an input the validator genuinely accepts, not only against one invented for
+the test. No code change was made to `_settlementBlock` itself (it is not wrong — it just doesn't duplicate a check
+`cutProblem` already makes one layer in); flagged here as an optional future improvement, not acted on, since the
+screen already refuses to show Approve without numbers either way.
+
+**Test:** `apps/mobile/test/settlement_confirm_screen_test.dart`, `'no Approve when the settlement cut is empty'`.
+
+**Superseded below (same day):** this entry's last paragraph called `_settlementBlock` not duplicating `cutProblem`
+"not wrong." On review, the disagreement it causes — the inbox says approvable, the rules say the settlement can
+never become effective — is a bug, not an accepted gap. See "approvalsInbox now reuses cutProblem" below, which
+fixes it; that entry's fixture replaces this one's.
+
+---
+
+## 2026-10-09 — A cancelled request tells the other partner it was cancelled, not that it was "already answered"
+
+**Decision:** The withdrawal confirm screen now tells the two "this request is gone from the inbox" cases apart.
+If the request was reversed by its own author before being answered (spec section 5: a partner may reverse their
+own pending record at any time, with no approval needed) the screen says "This request was cancelled by the
+requester." Otherwise (a real approve/reject already decided it) it still says "This was already answered."
+`approvalsInbox` already stopped listing a cancelled request (a 2026-10-08 fix to `approvals_inbox.dart`, using
+`computeEffective(...).cancelledIds`); this is the matching screen-level message for the same case.
+
+**Reason:** "Already answered" is misleading when nobody answered — the other partner would wrongly think a
+decision was made, when the request was simply withdrawn before anyone had the chance to look at it.
+
+**Test:** `apps/mobile/test/withdrawal_confirm_screen_test.dart`,
+`'a request the requester cancelled says so, not "already answered"'`.
+
+---
+
+## 2026-10-09 — `approvalsInbox` now reuses `cutProblem`; the all-zero cut was a real bug
+
+**Finding:** The previous entry's conclusion was wrong. `approvalsInbox`'s settlement block
+(`_settlementBlock`) checked the cut's shape, that any earlier settlement was already answered, the investor-
+approve seq bound, and `cutIsHeld` — but never `cutProblem`, which is where cut rules 3-5 (closed, dominating,
+**not empty**, spec 6.7) live. That is not a harmless gap: it means the inbox and the effectiveness rules could
+disagree. A settlement that can never become effective (an empty cut, one that moves backward, or one that
+refers outside itself) was shown to the investor as an ordinary, approvable item, with nothing to tell them
+Approve would do nothing.
+
+**Decision:** `_settlementBlock` gained a fourth check, after `cutIsHeld`: it computes the cut before this
+proposal (the last *effective* one, or `{0, 0}` if none yet — the same starting point `settlementStatuses`
+tracks) and calls `cutProblem(records, parties, cut, previous)` — the exact function `settlementStatuses` already
+calls once a settlement is approved, not a reimplementation of its rules. A non-null result blocks approve with a
+plain-English reason, Reject highlighted, one message per rule:
+
+- *covers nothing new* → "This settlement covers nothing new. Reject it."
+- *does not cover the previous cut* → "This settlement moves the cut backward. Reject it."
+- *refers to a record outside the cut* → "This settlement refers to a record outside its own cut. Reject it."
+
+Reusing `cutProblem` instead of writing a second check means the inbox can never disagree with what
+`settlementStatuses` decides later — one function owns cut rules 3-5, called from both places.
+
+**A further finding, while restoring the settlement screen's defensive test:** unlike the withdrawal screen's
+missing-summary test, there is no way to rebuild the equivalent "approvable but nothing to show" settlement state
+by hand (`Ledger.add`, bypassing `receive()`). The only remaining path to `settlementConsent` returning `null` on
+an otherwise-clean cut is a `partnership_create` with a ratio that does not sum to 100 (`periods.dart`'s decision
+Q3b short-circuit) — but `Validator._partnershipKeys` (which the screen needs just to open) is set only inside
+`receive()`'s success branch, right after the create passes the ratio-sum schema check. A bad-ratio create and a
+populated `partnershipKeys` can never exist on the same validator, through any public call. So, for settlements,
+this fix closes the gap completely — not only in ordinary use (true before this fix too) but by hand as well.
+
+**Decision (test strategy, three parts):**
+1. `packages/qirad_core/test/approvals_inbox_test.dart` — three new tests, one per `cutProblem` rule (empty,
+   backward, outside-cut), each expecting its message and `canApprove: false`.
+2. The settlement screen's missing-summary test is **not** restored as a widget-level fixture (there is none to
+   build). Instead, `packages/qirad_core/test/period_safety_test.dart` gained a `settlementConsent`-level test:
+   a hand-built bad-ratio create plus an otherwise ordinary settlement and preview approve still comes back
+   `null`, not a crash — proving the function itself stays safe, even though no widget test can reach it. Same
+   principle as M9/M10 (2026-10-06 mutation check): a redundant guard stays tested even when unreachable.
+3. The Approve-button decision itself (`!blocked && !needsSync && summary != null`) was duplicated, slightly
+   differently, in both confirm screens. Pulled out into one pure function, `canShowApprove` (new file
+   `apps/mobile/lib/inbox/approve_gate.dart`), used by both: `summary == null`, or any non-null `blockedReason`,
+   or `needsSync` — each alone hides Approve (deny-by-default, same spirit as `cutProblem` reuse). Both screens
+   now call it instead of repeating the condition. Unit-tested directly in
+   `apps/mobile/test/approve_gate_test.dart` (null summary, blocked reason, needs sync, all clear).
+4. `emptyCutSettlementReady()`'s test in `apps/mobile/test/settlement_confirm_screen_test.dart` is updated to
+   match: the all-zero cut is now blocked in the inbox itself ("This settlement covers nothing new. Reject it."),
+   with Reject highlighted (`FilledButton`), not a plain `OutlinedButton` with "No numbers to show yet."
+
+**Reason:** The spec's informed-consent rule (6.7) means Approve must never be offered for a settlement that can
+never do anything. Discovering this only after the fact (the settlement goes `invalid`, silently, once answered)
+is worse than refusing it up front, the same framing already used for the other three `_settlementBlock` checks.
+
+**Tests:** `packages/qirad_core/test/approvals_inbox_test.dart`, `packages/qirad_core/test/period_safety_test.dart`,
+`apps/mobile/test/approve_gate_test.dart`, `apps/mobile/test/settlement_confirm_screen_test.dart`.
+
+---
+
+## 2026-10-09 — Until the create is approved, nothing else is effective, and nothing else can be written
+
+**Finding:** Spec section 5 said only the create and the manager's answer to it were "valid" before approval,
+but nothing enforced that as a single rule. `computeEffective` applied its ordinary effectiveness checks
+(signature, schema, reference) to every record regardless of the create's own decision, so a proposal written
+while the create was still pending — by either partner, since nothing stopped it — could already be effective,
+with downstream code (periods, withdrawals, the dashboard) none the wiser that the partnership had never
+actually started.
+
+**Decision:** The rule is now carried as one shared value, `partnershipStatus` (new in `approvals.dart`): the
+create's own `Decision.status` — `pending`, `active`, `dead`, or `null` if there is no create at all — read
+once and passed everywhere "is the partnership actually active" matters, instead of each caller re-deriving it.
+
+- `effective.dart`: `computeEffective` now exposes `partnershipStatus` and gates `effectiveIds` with a new
+  `partnershipActive` check (`status == active && create.isNotEmpty && ratioOf(create.single) != null`) —
+  `record.type == 'partnership_create' || partnershipActive` must hold before a record's ordinary effectiveness
+  rules are even considered. This keeps the rule a pure function of the current record set (hard rule 3): no
+  clock, no arrival order, just "is there an active create right now."
+- `record_writer.dart`: `RecordWriter.answer()` gained the matching write-side refusal, `partnershipNotActive` —
+  until `partnershipStatus(decisions) == active`, the only record this app will write is the create itself (every
+  other proposal and every answer, including the manager's own approve/reject of the create, goes through this
+  one method). This is enforcement at the point of writing, not just display; a record built by hand and pushed
+  straight through `receive()` still goes nowhere, per the effectiveness gate above.
+- `approvals_inbox.dart`: reuses the same `effectiveness.partnershipStatus` (already computed) to drop every
+  non-create pending item from the inbox while the partnership is pending — one answer, not a second check that
+  could disagree with `computeEffective`.
+- `dashboard.dart` / `dashboard_screen.dart`: the dashboard now tells "waiting for the manager," "the manager
+  declined," and "approved but no active ratio" apart, instead of one message for all three.
+- `settlement.dart`: `partiesOf` is renamed `proposedParties` — it still just reads the create's body with no
+  approval check (the roles are proposed as soon as the create exists), but the old name invited callers to treat
+  "parties exist" as "the partnership is active," which is exactly the bug above. Every caller that also needs
+  "actually active" now checks `partnershipStatus` alongside it.
+- `docs/spec.md` section 5 is reworded from "valid" to "effective," and spells out that a record written before
+  *or after* the create's approval is equally not effective until the create itself goes active, and that a
+  reject kills everything else for good.
+
+**Reason:** "Store facts, calculate everything else" (hard rule 4) only works if effectiveness is one function
+every reader agrees on. Letting records become effective independently of the create's own approval made that
+false for exactly the one case the spec calls out by name (section 5's bootstrap window) — and the fix is cheap
+and central (one shared `partnershipStatus`, two call sites that gate on it) precisely because nothing else in
+the system needs to know *why* a record is or is not effective, only that `computeEffective` already decided.
+
+**Tests:** `packages/qirad_core/test/effective_test.dart`, `packages/qirad_core/test/approvals_inbox_test.dart`,
+`packages/qirad_core/test/dashboard_test.dart`, `apps/mobile/test/record_writer_test.dart`, and every mobile
+confirm-screen test whose fixture starts a partnership (`budget_confirm_screen_test.dart`,
+`reversal_confirm_screen_test.dart`, `settlement_confirm_screen_test.dart`, `withdrawal_confirm_screen_test.dart`,
+`inbox_screen_test.dart`) — each needed its shared `startWithCreate()` helper split into
+`startWithUnapprovedCreate()` (the pending state, for tests that need it) and `startWithCreate()` (that, plus the
+manager's approve), since a fixture that left the create unapproved now gets an inactive partnership, not just an
+unwritable one. `inbox_screen_test.dart` in particular failed not through the write gate (its fixture only calls
+`receive()`) but through the effectiveness gate alone — proof the two are genuinely independent checks, not one
+rule enforced twice.
+
+---
+
+## 2026-10-10 — The validator rejects a record from the wrong role for its type, not only from an outside key
+
+**Decision:** `Validator._passesMembership` (spec 6.1 step 3) now checks spec section 5's "Allowed author" column
+for every record type, not only `partnership_create`'s. A record signed by one of the partnership's two keys, but
+the wrong one for that type (for example a manager-signed `invest`, or an investor-signed `sale`), is rejected with
+`ReceiveOutcome.rejectedMembership` — the same outcome already used for a record from an outside key, now
+documented to cover both cases. The check lives in one place, a small `_authorAllowedForType` function, fed by two
+new fields (`_investorKey`, `_managerKey`) recording which of the two partnership keys is which, learned at the
+same time as the existing `_partnershipKeys` set.
+
+**Also decided (same commit):** `withdraw_request` with `kind: "capital"` is investor-only — the manager has no
+capital to withdraw, so there is nothing for them to request back. A `profit` withdrawal stays open to either
+partner. Enforced by the same `_authorAllowedForType` function, and spec section 5's `withdraw_request` row is
+updated to say so.
+
+**Reason:** Our threat model assumes the other partner may be dishonest and can sign *any* record type with their
+own valid key, without going through this app at all. Before this, only `partnership_create`'s author was checked
+against a role — every other type only checked "is this key one of the partnership's two," never "is it the right
+one for this type." The app's own menus (which already only offer each role the actions spec section 5 allows)
+gave no real protection against this, since a dishonest partner is not bound by this app's UI. Concretely: a
+manager-signed `invest` would have been silently counted as capital on the investor's phone — money that was
+never actually invested. Deny-by-default belongs in the validator, the one place every device agrees on, not only
+in the UI.
+
+**Consequence:** Two tests that built an investor-authored `settlement` to exercise the business-layer rule in
+`settlement.dart` (`settlementCut` already checked `record.author != parties.manager`, as defense in depth) could
+no longer reach that rule through `receive()` — the record is now refused one step earlier. Rewritten to add the
+hand-built record straight to `Validator.ledger`, bypassing `receive()`, the same "redundant guard stays tested"
+pattern already used for M9/M10 (2026-10-06 mutation check) and the bad-ratio-create test in `period_safety_test.dart`
+(2026-10-09). One pre-existing test bug was found and fixed while adding the table: the schema test for `sale` had
+signed it with the investor (nothing enforced the role before, so it passed); it now signs `sale` with the manager,
+matching spec section 5.
+
+**Tests:** `packages/qirad_core/test/validator_author_table_test.dart` (new; one test per type, both authors, plus
+the two `withdraw_request` kinds), `packages/qirad_core/test/validator_schema_table_test.dart` (sale signed by the
+manager), `packages/qirad_core/test/record_schema_test.dart` (the "keys a type allows are accepted" fixture now
+signs its expense with the manager), `packages/qirad_core/test/settlement_test.dart` (the two investor-authored-
+settlement tests now bypass `receive()` directly).
+
+**Mutation check:** M20, `_authorAllowedForType` forced to always return `true` — killed by
+`validator_author_table_test.dart` (every disallowed-author case in the table failed). See
+`docs/mutation-testing.md`.
+
+---
+
+## 2026-10-10 — Settlement cut rule 5 is about records, not raw numbers
+
+**Decision:** Spec §6.7 cut rule 5 ("not empty") is redefined: a cut is valid only if, beyond the
+previous effective cut, it covers at least one record that is **not settlement bookkeeping**.
+Settlement bookkeeping is a `settlement` record itself, or an `approve`/`reject` whose target is a
+settlement. Implemented as one function, `coversNewBusiness(previous, cut, records)`, in
+`packages/qirad_core/lib/src/settlement.dart`, used by both `cutProblem` (the validator's rule,
+spec 6.1/6.7) and `RecordWriter.proposeSettlement`'s `emptyCut` guard (apps/mobile), so the two can
+never disagree.
+
+**Reason:** The old rule 5 compared raw cut numbers ("at least one value is larger than the
+previous cut's"). While writing the test for the writer's `emptyCut` refusal, this turned out to be
+unreachable in the case it exists for: finalising any settlement always adds exactly one new record
+per partner — the settlement itself (bumps the manager's seq) and the investor's approve of it
+(bumps the investor's seq) — and both land in the *open* period, strictly after the cut they just
+closed (the cut is fixed at proposal time, before the approve exists). So the raw numbers always
+grow by that fixed overhead, even when nothing financial happened, and a manager could propose an
+endless chain of settlements that only ever "settle" the previous settlement's own bookkeeping.
+Comparing record *content*, not just the numbers, closes that gap without over-correcting: a period
+can still net to zero money (a sale and an equal expense) and remain settleable, because both
+records are real business; and an approve of a `withdraw_request` or any other proposal counts as
+new business too — only an approve/reject *of a settlement* is bookkeeping, since that is the one
+record type this rule itself creates as a side effect of becoming effective.
+
+**Tests:** `packages/qirad_core/test/settlement_test.dart` — three new cases: a settlement covering
+only the previous settlement and its approve is invalid ("covers nothing new"); a sale and an equal
+expense still count as new business; a period whose only new record is an approved withdrawal is
+still settleable.
+
+**Mutation check:** M21, `coversNewBusiness` forced to always return `true` — killed by 3 tests in
+`settlement_test.dart`. See `docs/mutation-testing.md`.
+
+---
+
+## 2026-10-11 — `proposeExpense` refuses an amount more than the budget has left; §6.4's flagging is only for received records
+
+**Finding:** `RecordWriter.proposeExpense` checked that the chosen budget exists and is approved and
+granted to this key (`effectiveBudgetsFor(...).containsKey(budgetId)`), but never compared the
+requested `amount` against how much that budget actually has left. An over-budget expense this
+phone itself created was therefore written and only flagged afterwards (`RecordStatus.overBudget`),
+the same treatment spec §6.4 describes for an over-budget expense *received* from the other
+partner. Caught while building the Phase 7 "full month" integration test, whose scenario expected
+an 80,000 expense against a 50,000-left budget to be refused outright by the writer.
+
+**Decision:** `proposeExpense` now recomputes the budget's remaining amount with
+`effectiveBudgetsFor` inside the same write transaction that will build the record — the identical
+figure the expense form already shows as "Budget left" — and refuses with a new
+`WriteRefusal.overBudget` if `amount` is more than that. `WriteResult` gained a `budgetLeft` field,
+set only for this refusal, so the screen can say "Over budget: X left" without recomputing anything
+itself. Spec §7.4 gained a fifth writer rule stating this, and a note that §6.4's "flagged and
+excluded" rule is specifically for a record received from the other partner, whose own writer had
+no say in what this phone later learns about its budget — not for a record this phone creates.
+
+**Reason:** "The app never writes a record it already knows is invalid" (already the standing rule
+behind `answerEarlierFirst`, decided 2026-10-08) applies here for the same reason: this phone can
+always tell, before signing, whether its own expense would exceed the budget it can see. Writing it
+anyway and flagging it after the fact is the right behaviour only for records this phone had no
+control over — never for its own.
+
+**Tests:** `apps/mobile/test/record_writer_test.dart`, `'proposeExpense refuses an amount more than
+the budget has left, and writes nothing'`. The existing evidence-side behaviour (an over-budget
+expense *received* from the other partner stays stored and flagged) was already covered by
+`packages/qirad_core/test/budgets_test.dart`, `record_status_test.dart` and `scenarios_test.dart`,
+and needed no change.
+
+---
+
+## 2026-10-11 — Phase 7 audit: receipt photo hash stays text-only, deferred past this phase
+
+**Finding:** The audit for Phase 7 found that `proposeExpense` (and the record body schema) already
+accept an optional `receiptHash`, but `ExpenseForm` has no field to supply one — a manager can only
+write an expense with no receipt hash at all.
+
+**Decision:** Deferred, not a gap to close now. The app has no photo capture or local file storage
+yet, so there is nothing on the phone to hash. Adding a bare text field for a hash with no photo
+behind it would invite a meaningless or fabricated value, which is worse than leaving the field
+out. Revisit when a photo-capture step exists to hash for real.
+
+**Reason:** "Store facts, calculate everything else" cuts both ways — a feature that cannot produce
+a real fact yet should not simulate one.
+
+**Tests:** none; no code changed.
+
+---
+
+## 2026-10-11 — Phase 7 audit: record detail gets a signature fact and a tappable `refersTo`
+
+**Finding:** The audit for Phase 7 found that the record detail screen showed the business
+`RecordStatus` and a plain-text `refersTo`, not the distinct "signature status" and link that
+plan.md's Phase 7 checklist names.
+
+**Decision:** Added both. `RecordDetailScreen` now shows a fixed "Signature: Valid — checked
+against the author's key on receipt" fact, separate from the business status — true for every
+record on this screen, since `Validator.receive()` hard-rejects (never stores) a record whose
+signature does not check (spec 6.1 step 2). `refersTo` is now a tappable link to that record's own
+detail screen when this phone already has it, falling back to the plain id when it does not (the
+target may simply not have arrived yet).
+
+**Reason:** The business status alone conflates "did this take effect" with "is this genuinely
+signed by its author" — two different questions the plan asks for separately.
+
+**Tests:** `apps/mobile/test/transactions_screen_test.dart`, `'detail screen shows a signature fact
+and a tappable link'`.
+
+---
+
+## 2026-10-11 — Phase 7 audit: onboarding's own-key QR completes the two-way exchange
+
+**Finding:** The audit for Phase 7 found that only one half of spec §2.1's QR exchange was built:
+the investor's join code rendered as a QR, but the key a partner must type into the "Manager's
+key" field (before any partnership exists) was text-only, with no QR and no scan button.
+
+**Decision:** `OnboardingScreen` now renders this phone's own key as a QR as well as text (under
+"Your key"), and offers a "Scan manager's key" button next to that field, reusing
+`ScanJoinCodeScreen` (now parameterised with a `title`, since it scans more than one kind of QR).
+Nothing is pinned by scanning alone — the safety code is still shown and must be confirmed before
+`_create` saves anything, exactly as for a typed key.
+
+**Reason:** Typing a 43-character base64url key by hand invites the one mistake the safety code
+step exists to catch after the fact; scanning avoids it in the first place for both keys, not just
+the join code.
+
+**Tests:** `apps/mobile/test/onboarding_screen_test.dart` — the existing "shows the phone key" test
+now also checks for the QR; a new test confirms the scan button opens a scan screen titled
+"Scan manager's key".

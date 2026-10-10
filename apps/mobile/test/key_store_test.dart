@@ -42,6 +42,17 @@ void main() {
     expect(loaded!.publicKeyBase64Url, second.publicKeyBase64Url);
   });
 
+  test(
+    'loadOrCreate makes a key once, then gives the same key again',
+    () async {
+      final first = await store.loadOrCreate();
+      final second = await store.loadOrCreate();
+
+      expect(second.publicKeyBase64Url, first.publicKeyBase64Url);
+      expect(secrets.values.length, 1);
+    },
+  );
+
   test('only the seed is written, under one name', () async {
     final pair = await generateEd25519KeyPair();
     await store.save(pair);

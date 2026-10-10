@@ -45,5 +45,7 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>The camera scans the join code from your partner's phone. Nothing is recorded.</string>
 </dict>
 </plist>

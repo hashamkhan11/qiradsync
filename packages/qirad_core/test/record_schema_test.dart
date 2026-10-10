@@ -2,6 +2,7 @@ import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
 import 'support/partnership_fixture.dart';
+import 'support/test_ids.dart';
 
 void main() {
   group(
@@ -75,17 +76,15 @@ void main() {
       });
 
       test('the keys a type allows are accepted', () async {
-        final (validator, investor, _, partnershipId) =
+        final (validator, _, manager, partnershipId) =
             await setUpPartnership();
-        final expense = await investor.next(
+        final expense = await manager.next(
           partnership: partnershipId,
           type: 'expense',
           body: {'amount': 500, 'receiptHash': null},
+          refersTo: testId('dummy-budget'),
         );
 
-        // The investor cannot write an expense (spec 5), but step 1 only checks
-        // shape. The record is stored as evidence, and the rules in Phase 4 make
-        // it have no effect.
         expect(
           await validator.receiveText(canonicalJson(expense.toJson())),
           ReceiveOutcome.accepted,
@@ -93,6 +92,31 @@ void main() {
       });
     },
   );
+
+  group('each ratio share is 1 to 99 (spec section 5)', () {
+    Future<ReceiveOutcome> proposeRatio(int investor, int manager) async {
+      final (validator, author, _, partnershipId) = await setUpPartnership();
+      final proposal = await author.next(
+        partnership: partnershipId,
+        type: 'ratio_proposal',
+        body: {
+          'ratio': {'investor': investor, 'manager': manager},
+          'effectiveFrom': '2026-11-01',
+        },
+      );
+      return validator.receiveText(canonicalJson(proposal.toJson()));
+    }
+
+    test('0 and 100 are refused, as a share for either partner', () async {
+      expect(await proposeRatio(0, 100), ReceiveOutcome.rejectedSchema);
+      expect(await proposeRatio(100, 0), ReceiveOutcome.rejectedSchema);
+    });
+
+    test('1 and 99 are the smallest and largest allowed shares', () async {
+      expect(await proposeRatio(1, 99), isNot(ReceiveOutcome.rejectedSchema));
+      expect(await proposeRatio(99, 1), isNot(ReceiveOutcome.rejectedSchema));
+    });
+  });
 
   group('record id must be a lowercase UUID v4 (spec section 3)', () {
     Future<ReceiveOutcome> receiveWithId(String id) async {
