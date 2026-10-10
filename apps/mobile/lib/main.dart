@@ -125,6 +125,18 @@ class _Home extends StatefulWidget {
 class _HomeState extends State<_Home> {
   bool _syncing = false;
 
+  /// Whether the most recent sync attempt in this session reached a
+  /// complete result (spec 7.3): the relay's vector matched ours for every
+  /// author, with no repair round left unresolved. `false` before any
+  /// attempt has finished, by design: a phone that has not synced this
+  /// session has nothing to call "Synced" yet.
+  bool _lastSyncSucceeded = false;
+
+  /// The relay's vector from the latest sync reply, re-read after every
+  /// attempt (success or failure: an earlier round inside the same attempt
+  /// may already have saved a newer one). `null` until the first read.
+  Map<String, int>? _relayVector;
+
   @override
   void initState() {
     super.initState();
@@ -133,15 +145,26 @@ class _HomeState extends State<_Home> {
 
   Future<void> _sync() async {
     setState(() => _syncing = true);
+    var succeeded = false;
     try {
-      await widget.deps.syncRunner.run(widget.partnership);
+      final result = await widget.deps.syncRunner.run(widget.partnership);
+      succeeded = result.complete;
     } catch (_) {
       // Best-effort only: a screen whose write actually needs a fresh sync
       // (RecordWriter's notSynced/chainBehindRelay refusals) shows its own
       // banner with its own retry, so this background attempt does not
       // need to surface an error of its own.
     } finally {
-      if (mounted) setState(() => _syncing = false);
+      final relayVector = await widget.deps.store.relayVectorFor(
+        widget.partnership,
+      );
+      if (mounted) {
+        setState(() {
+          _syncing = false;
+          _lastSyncSucceeded = succeeded;
+          _relayVector = relayVector;
+        });
+      }
     }
   }
 
@@ -154,6 +177,8 @@ class _HomeState extends State<_Home> {
       writer: widget.deps.writerFor(widget.partnership),
       syncing: _syncing,
       onSyncNow: _sync,
+      lastSyncSucceeded: _lastSyncSucceeded,
+      relayVector: _relayVector,
     );
   }
 }

@@ -221,7 +221,11 @@ class RecordWriter {
       final localTop = ledger
           .where((r) => r.author == _me)
           .fold<int>(0, (top, r) => r.seq > top ? r.seq : top);
-      if ((relayVector[_me] ?? 0) > localTop) {
+      if (!_store.isCaughtUpWithRelay(
+        relayVector: relayVector,
+        me: _me,
+        localTop: localTop,
+      )) {
         refusal = WriteRefusal.chainBehindRelay;
         return null;
       }
@@ -589,7 +593,11 @@ class RecordWriter {
       final localTop = ledger
           .where((r) => r.author == _me)
           .fold<int>(0, (top, r) => r.seq > top ? r.seq : top);
-      if ((relayVector[_me] ?? 0) > localTop) {
+      if (!_store.isCaughtUpWithRelay(
+        relayVector: relayVector,
+        me: _me,
+        localTop: localTop,
+      )) {
         refusal = WriteRefusal.chainBehindRelay;
         return null;
       }

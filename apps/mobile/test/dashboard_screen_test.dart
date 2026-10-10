@@ -37,7 +37,15 @@ void main() {
 
   // The investor's own phone views the dashboard in these tests; the
   // writer and key are needed by the constructor but not exercised here.
-  Future<void> pumpDashboard(WidgetTester tester, String id) async {
+  // Sync state defaults to "a session that has not synced", since most of
+  // these tests are about the money figures and banners, not the sync
+  // badge; the dedicated sync tests below pass their own values.
+  Future<void> pumpDashboard(
+    WidgetTester tester,
+    String id, {
+    bool lastSyncSucceeded = false,
+    Map<String, int>? relayVector,
+  }) async {
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     await tester.pumpWidget(
       MaterialApp(
@@ -52,6 +60,8 @@ void main() {
           ),
           syncing: false,
           onSyncNow: () async {},
+          lastSyncSucceeded: lastSyncSucceeded,
+          relayVector: relayVector,
         ),
       ),
     );
@@ -312,4 +322,41 @@ void main() {
       );
     },
   );
+
+  testWidgets('shows Synced only when the last sync succeeded and caught up', (
+    tester,
+  ) async {
+    final id = await tester.runAsync(
+      () => createPartnership(
+        investorKeys: investor,
+        managerKey: manager.publicKeyBase64Url,
+        investorPercent: 60,
+        store: store,
+      ),
+    );
+
+    // No sync attempt yet this session.
+    await pumpDashboard(tester, id!);
+    expect(find.text('Not synced'), findsOneWidget);
+
+    // The attempt completed, and the relay already has everything this
+    // phone has (the investor's own chain is just the create, seq 1).
+    await pumpDashboard(
+      tester,
+      id,
+      lastSyncSucceeded: true,
+      relayVector: {investor.publicKeyBase64Url: 1},
+    );
+    expect(find.text('Synced'), findsOneWidget);
+
+    // The attempt completed, but the relay holds a higher seq for the
+    // investor than this phone does: still behind, so still not synced.
+    await pumpDashboard(
+      tester,
+      id,
+      lastSyncSucceeded: true,
+      relayVector: {investor.publicKeyBase64Url: 2},
+    );
+    expect(find.text('Not synced'), findsOneWidget);
+  });
 }

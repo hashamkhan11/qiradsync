@@ -197,6 +197,23 @@ class RecordStore {
     };
   }
 
+  /// Whether this phone's own chain has nothing the relay already holds
+  /// that this phone has not also saved (spec 7.4 rule 2). `null` for
+  /// [relayVector] means this phone has never synced, so it is never
+  /// caught up.
+  ///
+  /// One shared place for this comparison, so the write gate
+  /// (`RecordWriter.answer`/`_propose`) and the dashboard's "Synced"
+  /// indicator read the relay vector the same way.
+  bool isCaughtUpWithRelay({
+    required Map<String, int>? relayVector,
+    required String me,
+    required int localTop,
+  }) {
+    if (relayVector == null) return false;
+    return (relayVector[me] ?? 0) <= localTop;
+  }
+
   /// Saves the relay's vector from a sync reply (spec 7.2, 7.3 step 3).
   ///
   /// It goes through the same queue as writes, so a vector update can never

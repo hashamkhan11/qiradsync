@@ -25,6 +25,8 @@ class DashboardScreen extends StatelessWidget {
     required this.writer,
     required this.syncing,
     required this.onSyncNow,
+    required this.lastSyncSucceeded,
+    required this.relayVector,
   });
 
   final RecordStore store;
@@ -33,6 +35,14 @@ class DashboardScreen extends StatelessWidget {
   final RecordWriter writer;
   final bool syncing;
   final Future<void> Function() onSyncNow;
+
+  /// Whether the most recent sync attempt in this session reached a
+  /// complete result (spec 7.3, 7.4 rule 2).
+  final bool lastSyncSucceeded;
+
+  /// The relay's vector as of the last sync reply, or `null` before this
+  /// session's first one.
+  final Map<String, int>? relayVector;
 
   @override
   Widget build(BuildContext context) {
@@ -53,6 +63,19 @@ class DashboardScreen extends StatelessWidget {
     final withdrawn = totalProfitWithdrawn(usable, partnershipKeys: keys);
     final periods = periodShares(usable, partnershipKeys: keys);
     final integrityMessages = _integrityMessages(validator, parties);
+    // "Synced" needs both: this session's own last attempt must have
+    // completed, and this phone's own chain must still match what that
+    // attempt last saw from the relay (spec 7.4 rule 2) — the same
+    // comparison the write gate uses, so the badge never promises a write
+    // the gate would then refuse.
+    final localTop = validator.ledger.versionVector()[myKey] ?? 0;
+    final synced =
+        lastSyncSucceeded &&
+        store.isCaughtUpWithRelay(
+          relayVector: relayVector,
+          me: myKey,
+          localTop: localTop,
+        );
     // Spec 6.7: "owed back" only counts closed periods, so before the first
     // settlement there is nothing settled to compare withdrawals against.
     final beforeFirstSettlement = periods.every((p) => p.open);
@@ -129,6 +152,13 @@ class DashboardScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          Text(
+            synced ? 'Synced' : 'Not synced',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: synced ? Colors.green : theme.colorScheme.error,
+            ),
+          ),
+          const SizedBox(height: 12),
           for (final message in integrityMessages) ...[
             Card(
               color: theme.colorScheme.errorContainer,
