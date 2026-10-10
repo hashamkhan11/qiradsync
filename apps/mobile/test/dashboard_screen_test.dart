@@ -230,4 +230,86 @@ void main() {
     );
     expect(find.textContaining('may not match the contract'), findsOneWidget);
   });
+
+  testWidgets(
+    'two different signed records at the investor\'s seq 2 name the investor, '
+    'not accuse',
+    (tester) async {
+      final id = await tester.runAsync(() async {
+        final partnershipId = await createPartnership(
+          investorKeys: investor,
+          managerKey: manager.publicKeyBase64Url,
+          investorPercent: 60,
+          store: store,
+        );
+        final createText = (await store.savedTexts(partnershipId)).single;
+        final createHash = recordHash(
+          jsonDecode(createText) as Map<String, dynamic>,
+        );
+
+        final first = await signed(
+          investor,
+          partnership: partnershipId,
+          seq: 2,
+          prevHash: createHash,
+          type: 'invest',
+          body: const {'amount': 10000},
+        );
+        expect(await store.receive(first), ReceiveOutcome.accepted);
+
+        final second = await signed(
+          investor,
+          partnership: partnershipId,
+          seq: 2,
+          prevHash: createHash,
+          type: 'invest',
+          body: const {'amount': 20000},
+        );
+        expect(await store.receive(second), ReceiveOutcome.equivocating);
+
+        return partnershipId;
+      });
+      await pumpDashboard(tester, id!);
+
+      expect(
+        find.textContaining(
+          "Two different versions of the investor's record #2 were found",
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Please talk to your partner'), findsWidgets);
+    },
+  );
+
+  testWidgets(
+    'a record with the wrong prevHash names its author, not the whole app',
+    (tester) async {
+      final id = await tester.runAsync(() async {
+        final partnershipId = await createPartnership(
+          investorKeys: investor,
+          managerKey: manager.publicKeyBase64Url,
+          investorPercent: 60,
+          store: store,
+        );
+
+        final badChain = await signed(
+          investor,
+          partnership: partnershipId,
+          seq: 2,
+          prevHash: 'a' * 64,
+          type: 'invest',
+          body: const {'amount': 10000},
+        );
+        expect(await store.receive(badChain), ReceiveOutcome.chainInvalid);
+
+        return partnershipId;
+      });
+      await pumpDashboard(tester, id!);
+
+      expect(
+        find.textContaining("A record from the investor (#2) does not fit"),
+        findsOneWidget,
+      );
+    },
+  );
 }

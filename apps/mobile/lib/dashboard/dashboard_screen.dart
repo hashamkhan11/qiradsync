@@ -51,6 +51,7 @@ class DashboardScreen extends StatelessWidget {
     final parties = proposedParties(usable);
     final withdrawn = totalProfitWithdrawn(usable, partnershipKeys: keys);
     final periods = periodShares(usable, partnershipKeys: keys);
+    final integrityMessages = _integrityMessages(validator, parties);
     // Spec 6.7: "owed back" only counts closed periods, so before the first
     // settlement there is nothing settled to compare withdrawals against.
     final beforeFirstSettlement = periods.every((p) => p.open);
@@ -117,6 +118,19 @@ class DashboardScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          for (final message in integrityMessages) ...[
+            Card(
+              color: theme.colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  message,
+                  style: TextStyle(color: theme.colorScheme.onErrorContainer),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           _Figure(label: 'Capital', value: formatPaisa(money.capital)),
           _Figure(label: 'Cash balance', value: formatPaisa(money.cashBalance)),
           _Figure(label: 'Result', value: formatPaisa(money.result)),
@@ -220,6 +234,49 @@ String _statusMessage(DecisionStatus? status) {
     case DecisionStatus.active:
       return 'No active ratio yet. The manager must approve the start.';
   }
+}
+
+/// Factual, neutral messages about chain problems this phone has found
+/// (spec 6.1 steps 4-5). Equivocation and a wrong `prevHash` can come from
+/// a bug or a broken device, not only bad intent, so these only state what
+/// was found and what to do — they never accuse.
+List<String> _integrityMessages(Validator validator, Parties? parties) {
+  final messages = <String>[];
+  final allRecords = {for (final r in validator.ledger.records) r.id: r};
+
+  // Sorted so the banner's order does not depend on map iteration order,
+  // which Dart does not guarantee (hard rule: deterministic, no clock).
+  final equivocating = validator.equivocatingFromSeq.entries.toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  for (final entry in equivocating) {
+    final label = _partnerLabel(entry.key, parties);
+    messages.add(
+      "Two different versions of $label's record #${entry.value} were "
+      'found. Their records from that point are not counted. '
+      'Please talk to your partner.',
+    );
+  }
+
+  final chainInvalid = validator.chainInvalidIds.toList()..sort();
+  for (final id in chainInvalid) {
+    final record = allRecords[id];
+    if (record == null) continue;
+    final label = _partnerLabel(record.author, parties);
+    messages.add(
+      'A record from $label (#${record.seq}) does not fit after their '
+      'earlier record, so it is not counted. Please talk to your partner.',
+    );
+  }
+
+  return messages;
+}
+
+/// Names the author of a flagged record, for the integrity banner above.
+/// Falls back to "a partner" before the create names who is who.
+String _partnerLabel(String key, Parties? parties) {
+  if (parties != null && key == parties.investor) return 'the investor';
+  if (parties != null && key == parties.manager) return 'the manager';
+  return 'a partner';
 }
 
 class _Figure extends StatelessWidget {
