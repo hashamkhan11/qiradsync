@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:qirad_core/qirad_core.dart';
 
+import '../create/new_menu_screen.dart';
 import '../inbox/inbox_screen.dart';
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
@@ -60,6 +61,25 @@ class DashboardScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Dashboard'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'New',
+            // Before the create exists, proposedParties is null and there
+            // is no role to offer a menu for yet (spec section 5).
+            onPressed: parties == null
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => NewMenuScreen(
+                        store: store,
+                        writer: writer,
+                        myKey: myKey,
+                        partnership: partnership,
+                        onSyncNow: onSyncNow,
+                      ),
+                    ),
+                  ),
+          ),
           IconButton(
             icon: syncing
                 ? const SizedBox(
