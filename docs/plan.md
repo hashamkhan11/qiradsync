@@ -97,8 +97,8 @@ all tests pass, and its pull request is merged.
 
 - [ ] Onboarding: create keys, create or join partnership (share partnership id by QR code or text)
 - [ ] Dashboard: capital, cash balance, result, each partner's share, active ratio
-- [ ] Transactions list with filters, and record detail showing author, signature status and links
-- [ ] Forms: invest, sale, expense (choose budget, optional receipt photo hash), withdraw, budget, ratio, reversal
+- [ ] Transactions list, and record detail showing author, signature status and links
+- [ ] Forms: invest, sale, expense (choose budget, optional receipt photo hash), withdraw, budget, ratio, reversal, settlement (cut from the phone's current vector, period result shown before proposing)
 - [ ] Approvals inbox: pending items with approve / reject
 - [ ] Warnings: over-budget, equivocation, chain problems
 - [ ] Sync status indicator and manual "sync now"
@@ -120,3 +120,7 @@ all tests pass, and its pull request is merged.
 ## Before the first release
 
 - [ ] Database schema migration path: versioned upgrades for the phone's SQLite file (the schema is version 1, with no upgrade step yet)
+
+## Future work
+
+- [ ] Transactions list filters (Phase 7 shipped the list without filters, by scope decision)
