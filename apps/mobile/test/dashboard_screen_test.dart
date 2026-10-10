@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/dashboard/dashboard_screen.dart';
 import 'package:mobile/onboarding/partnership_setup.dart';
 import 'package:mobile/storage/record_store.dart';
+import 'package:mobile/storage/record_writer.dart';
 import 'package:path/path.dart' as p;
 import 'package:qirad_core/qirad_core.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -34,11 +35,20 @@ void main() {
     await dir.delete(recursive: true);
   });
 
+  // The investor's own phone views the dashboard in these tests; the
+  // writer and key are needed by the constructor but not exercised here.
   Future<void> pumpDashboard(WidgetTester tester, String id) async {
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     await tester.pumpWidget(
       MaterialApp(
-        home: DashboardScreen(store: store, partnership: id),
+        home: DashboardScreen(
+          store: store,
+          partnership: id,
+          myKey: investor.publicKeyBase64Url,
+          writer: RecordWriter(keys: investor, partnership: id, store: store),
+          syncing: false,
+          onSyncNow: () async {},
+        ),
       ),
     );
   }
@@ -187,19 +197,20 @@ void main() {
     expect(find.textContaining('may not match the contract'), findsNothing);
   });
 
-  testWidgets('if the manager rejects the create, it says the partnership was declined', (
-    tester,
-  ) async {
-    final id = await tester.runAsync(partnershipWithRejectedCreate);
-    await pumpDashboard(tester, id!);
+  testWidgets(
+    'if the manager rejects the create, it says the partnership was declined',
+    (tester) async {
+      final id = await tester.runAsync(partnershipWithRejectedCreate);
+      await pumpDashboard(tester, id!);
 
-    expect(find.text('Rs 0.00'), findsNWidgets(3));
-    expect(
-      find.text('The manager declined this partnership.'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Ratio:'), findsNothing);
-  });
+      expect(find.text('Rs 0.00'), findsNWidgets(3));
+      expect(
+        find.text('The manager declined this partnership.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Ratio:'), findsNothing);
+    },
+  );
 
   testWidgets('after a ratio change, it warns that the split may not match', (
     tester,

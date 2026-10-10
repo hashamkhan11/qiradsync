@@ -1,29 +1,47 @@
 import 'package:flutter/material.dart';
 import 'package:qirad_core/qirad_core.dart';
 
+import '../inbox/inbox_screen.dart';
 import '../storage/record_store.dart';
+import '../storage/record_writer.dart';
 import 'format.dart';
 
 /// The home screen for one partnership: the money totals and each partner's
 /// share of the result (spec 6.5, 6.6).
 ///
 /// Every number comes from `buildDashboard` on the usable records. The screen
-/// only formats them, so no maths lives in the widget.
+/// only formats them, so no maths lives in the widget. The inbox badge count
+/// is likewise read fresh from `approvalsInbox` on every build, so it never
+/// needs its own stored state here — only a rebuild from above after a sync
+/// or a write (spec 7.3).
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({
     super.key,
     required this.store,
     required this.partnership,
+    required this.myKey,
+    required this.writer,
+    required this.syncing,
+    required this.onSyncNow,
   });
 
   final RecordStore store;
   final String partnership;
+  final String myKey;
+  final RecordWriter writer;
+  final bool syncing;
+  final Future<void> Function() onSyncNow;
 
   @override
   Widget build(BuildContext context) {
     final validator = store.validatorFor(partnership);
     final usable = validator.usableRecords;
     final keys = validator.partnershipKeys!;
+    final inboxCount = approvalsInbox(
+      usable,
+      partnershipKeys: keys,
+      myKey: myKey,
+    ).length;
     // No clock here: the ratio comes from the records alone (hard rule 3).
     final dashboard = buildDashboard(usable, partnershipKeys: keys);
     final ratio = dashboard.ratio;
@@ -39,7 +57,43 @@ class DashboardScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Dashboard')),
+      appBar: AppBar(
+        title: const Text('Dashboard'),
+        actions: [
+          IconButton(
+            icon: syncing
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.sync),
+            tooltip: 'Sync now',
+            // Sync trigger: the manual button (spec 7.3). The other two
+            // triggers (app open, after a write) live above this screen.
+            onPressed: syncing ? null : onSyncNow,
+          ),
+          IconButton(
+            icon: Badge(
+              label: Text('$inboxCount'),
+              isLabelVisible: inboxCount > 0,
+              child: const Icon(Icons.inbox),
+            ),
+            tooltip: 'Inbox',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => InboxScreen(
+                  store: store,
+                  writer: writer,
+                  myKey: myKey,
+                  partnership: partnership,
+                  onSyncNow: onSyncNow,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

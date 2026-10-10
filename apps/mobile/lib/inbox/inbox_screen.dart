@@ -149,6 +149,12 @@ class _InboxScreenState extends State<InboxScreen> {
         },
       ),
     );
-    if (changed == true && mounted) setState(() {});
+    if (changed != true) return;
+    // Sync trigger: right after this device writes an answer, so the other
+    // partner sees it as soon as possible and this screen's own badge count
+    // (recomputed by the parent, since `onSyncNow` updates its state too)
+    // reflects it (spec 7.3).
+    await widget.onSyncNow();
+    if (mounted) setState(() {});
   }
 }
