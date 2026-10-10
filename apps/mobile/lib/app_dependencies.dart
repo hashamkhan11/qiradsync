@@ -40,7 +40,11 @@ class AppDependencies {
 
   RecordWriter writerFor(String partnership) => _writers.putIfAbsent(
     partnership,
-    () => RecordWriter(keys: keys, partnership: partnership, store: store),
+    () => RecordWriter.forPartnership(
+      keys: keys,
+      partnership: partnership,
+      store: store,
+    ),
   );
 
   /// Builds every startup dependency from [relayUrl]. Throws [RelayUrlError]

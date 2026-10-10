@@ -187,12 +187,13 @@ void main() {
     return s1;
   }
 
-  RecordWriter writer({Future<void> Function()? beforeSign}) => RecordWriter(
-    keys: investor,
-    partnership: partnership,
-    store: store,
-    beforeSign: beforeSign,
-  );
+  RecordWriter writer({Future<void> Function()? beforeSign}) =>
+      RecordWriter.forTesting(
+        keys: investor,
+        partnership: partnership,
+        store: store,
+        beforeSign: beforeSign,
+      );
 
   Future<void> pump(
     WidgetTester tester, {

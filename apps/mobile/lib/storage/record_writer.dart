@@ -93,18 +93,52 @@ class WriteResult {
 /// [RecordStore.appendWith], so reading the chain, signing and saving happen
 /// in one transaction and one queue. Two writes cannot pick the same seq.
 class RecordWriter {
-  RecordWriter({
+  // Private: the cache in AppDependencies is what stops two RecordWriter
+  // instances existing for one partnership (spec 7.4), but a cache only
+  // protects callers that go through it. Hiding this constructor means the
+  // *only* way to build a real one is `RecordWriter.forPartnership`, which
+  // `AppDependencies.writerFor` calls and nothing else needs to.
+  RecordWriter._({
     required Ed25519KeyPair keys,
     required this.partnership,
     required RecordStore store,
     String Function()? newId,
     DateTime Function()? now,
-    @visibleForTesting Future<void> Function()? beforeSign,
+    Future<void> Function()? beforeSign,
   }) : _keys = keys,
        _store = store,
        _newId = newId ?? (() => const Uuid().v4()),
        _now = now ?? DateTime.now,
        _beforeSign = beforeSign ?? (() async {});
+
+  /// The one production entry point. No test hooks: a writer built this way
+  /// always uses real ids, the real clock, and a real signature, so nothing
+  /// outside a test can accidentally slip in a fake one.
+  factory RecordWriter.forPartnership({
+    required Ed25519KeyPair keys,
+    required String partnership,
+    required RecordStore store,
+  }) => RecordWriter._(keys: keys, partnership: partnership, store: store);
+
+  /// Test-only: the same writer, but with the seams tests need — a fake id
+  /// generator, a fake clock, or (most often) [beforeSign] to hold a write
+  /// open so a test can check a screen's state while one is in flight.
+  @visibleForTesting
+  factory RecordWriter.forTesting({
+    required Ed25519KeyPair keys,
+    required String partnership,
+    required RecordStore store,
+    String Function()? newId,
+    DateTime Function()? now,
+    Future<void> Function()? beforeSign,
+  }) => RecordWriter._(
+    keys: keys,
+    partnership: partnership,
+    store: store,
+    newId: newId,
+    now: now,
+    beforeSign: beforeSign,
+  );
 
   final Ed25519KeyPair _keys;
   final RecordStore _store;

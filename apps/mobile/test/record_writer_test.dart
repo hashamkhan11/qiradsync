@@ -137,8 +137,11 @@ void main() {
         manager.publicKeyBase64Url: managerSeq,
       });
 
-  RecordWriter writer() =>
-      RecordWriter(keys: investor, partnership: partnership, store: store);
+  RecordWriter writer() => RecordWriter.forTesting(
+    keys: investor,
+    partnership: partnership,
+    store: store,
+  );
 
   /// An unsaved investor approve of [targetId], built on the saved ledger.
   /// The screen builds the same kind of record to show its summary.
@@ -386,7 +389,7 @@ void main() {
         await receive(budget);
         await syncedAs(investorSeq: 2, managerSeq: 0);
 
-        final result = await RecordWriter(
+        final result = await RecordWriter.forTesting(
           keys: manager,
           partnership: partnership,
           store: store,

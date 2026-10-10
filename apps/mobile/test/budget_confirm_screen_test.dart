@@ -219,7 +219,7 @@ void main() {
   }
 
   RecordWriter investorWriter({Future<void> Function()? beforeSign}) =>
-      RecordWriter(
+      RecordWriter.forTesting(
         keys: investor,
         partnership: partnership,
         store: store,
@@ -227,7 +227,7 @@ void main() {
       );
 
   RecordWriter managerWriter({Future<void> Function()? beforeSign}) =>
-      RecordWriter(
+      RecordWriter.forTesting(
         keys: manager,
         partnership: partnership,
         store: store,

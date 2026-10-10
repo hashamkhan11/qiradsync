@@ -45,7 +45,11 @@ void main() {
           store: store,
           partnership: id,
           myKey: investor.publicKeyBase64Url,
-          writer: RecordWriter(keys: investor, partnership: id, store: store),
+          writer: RecordWriter.forTesting(
+            keys: investor,
+            partnership: id,
+            store: store,
+          ),
           syncing: false,
           onSyncNow: () async {},
         ),

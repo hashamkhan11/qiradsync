@@ -98,17 +98,14 @@ void main() {
   }
 
   RecordWriter managerWriter({Future<void> Function()? beforeSign}) =>
-      RecordWriter(
+      RecordWriter.forTesting(
         keys: manager,
         partnership: partnership,
         store: store,
         beforeSign: beforeSign,
       );
 
-  Future<void> pump(
-    WidgetTester tester, {
-    RecordWriter? writerOverride,
-  }) async {
+  Future<void> pump(WidgetTester tester, {RecordWriter? writerOverride}) async {
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     await tester.pumpWidget(
       MaterialApp(
@@ -145,14 +142,8 @@ void main() {
             valueFor(tester, 'Investor').data,
             investor.publicKeyBase64Url,
           );
-          expect(
-            valueFor(tester, 'Manager').data,
-            manager.publicKeyBase64Url,
-          );
-          expect(
-            valueFor(tester, 'Investor share').data,
-            '60% (manager 40%)',
-          );
+          expect(valueFor(tester, 'Manager').data, manager.publicKeyBase64Url);
+          expect(valueFor(tester, 'Investor share').data, '60% (manager 40%)');
           expect(find.byKey(const Key('safety-code')), findsOneWidget);
           final expectedCode = safetyCode(
             investorKey: investor.publicKeyBase64Url,
@@ -219,33 +210,30 @@ void main() {
       },
     );
 
-    testWidgets(
-      'unticking the checkbox again disables Approve',
-      (tester) async {
-        await tester.runAsync(() async {
-          await createPending();
-          await pump(tester);
-          await tester.pump();
+    testWidgets('unticking the checkbox again disables Approve', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        await createPending();
+        await pump(tester);
+        await tester.pump();
 
-          final checkboxFinder = find.byKey(
-            const Key('code-matches-checkbox'),
-          );
-          await tester.tap(checkboxFinder);
-          await tester.pump();
-          await tester.tap(checkboxFinder);
-          await tester.pump();
+        final checkboxFinder = find.byKey(const Key('code-matches-checkbox'));
+        await tester.tap(checkboxFinder);
+        await tester.pump();
+        await tester.tap(checkboxFinder);
+        await tester.pump();
 
-          expect(
-            tester
-                .widget<ElevatedButton>(
-                  find.widgetWithText(ElevatedButton, 'Approve'),
-                )
-                .onPressed,
-            isNull,
-          );
-        });
-      },
-    );
+        expect(
+          tester
+              .widget<ElevatedButton>(
+                find.widgetWithText(ElevatedButton, 'Approve'),
+              )
+              .onPressed,
+          isNull,
+        );
+      });
+    });
 
     testWidgets(
       'rejecting needs no checkbox, and still asks "are you sure?" first',
@@ -282,26 +270,23 @@ void main() {
       },
     );
 
-    testWidgets(
-      'already answered by a write made elsewhere',
-      (tester) async {
-        await tester.runAsync(() async {
-          await createPending();
-          final answered = await managerWriter().answer(
-            testId('partnership'),
-            approve: true,
-          );
-          expect(answered.record, isNotNull);
+    testWidgets('already answered by a write made elsewhere', (tester) async {
+      await tester.runAsync(() async {
+        await createPending();
+        final answered = await managerWriter().answer(
+          testId('partnership'),
+          approve: true,
+        );
+        expect(answered.record, isNotNull);
 
-          await pump(tester);
-          await tester.pump();
+        await pump(tester);
+        await tester.pump();
 
-          expect(find.text('This was already answered.'), findsOneWidget);
-          expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
-          expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
-        });
-      },
-    );
+        expect(find.text('This was already answered.'), findsOneWidget);
+        expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
+        expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
+      });
+    });
 
     testWidgets(
       'disables both buttons for the whole time a write is in flight',

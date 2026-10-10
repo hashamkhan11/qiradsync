@@ -128,7 +128,7 @@ void main() {
       MaterialApp(
         home: InboxScreen(
           store: store,
-          writer: RecordWriter(
+          writer: RecordWriter.forTesting(
             keys: investor,
             partnership: partnership,
             store: store,
@@ -184,7 +184,7 @@ void main() {
       MaterialApp(
         home: InboxScreen(
           store: store,
-          writer: RecordWriter(
+          writer: RecordWriter.forTesting(
             keys: investor,
             partnership: partnership,
             store: store,

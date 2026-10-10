@@ -134,7 +134,7 @@ void main() {
   }
 
   RecordWriter investorWriter({Future<void> Function()? beforeSign}) =>
-      RecordWriter(
+      RecordWriter.forTesting(
         keys: investor,
         partnership: partnership,
         store: store,
@@ -142,7 +142,7 @@ void main() {
       );
 
   RecordWriter managerWriter({Future<void> Function()? beforeSign}) =>
-      RecordWriter(
+      RecordWriter.forTesting(
         keys: manager,
         partnership: partnership,
         store: store,
@@ -216,7 +216,10 @@ void main() {
           expect(valueFor(tester, 'Current ratio').data, '60/40');
           expect(valueFor(tester, 'Proposed ratio').data, '50/50');
           expect(valueFor(tester, 'Starts').data, '2026-11-01');
-          expect(find.textContaining('applies after the next settlement'), findsOneWidget);
+          expect(
+            find.textContaining('applies after the next settlement'),
+            findsOneWidget,
+          );
 
           await tester.tap(find.widgetWithText(ElevatedButton, 'Approve'));
           await pumpUntil(
@@ -241,24 +244,21 @@ void main() {
       },
     );
 
-    testWidgets(
-      'already answered by a write made elsewhere',
-      (tester) async {
-        await tester.runAsync(() async {
-          final proposal = await answeredElsewhereReady();
-          await pump(
-            tester,
-            myKey: investor.publicKeyBase64Url,
-            targetId: proposal.id,
-          );
-          await tester.pump();
+    testWidgets('already answered by a write made elsewhere', (tester) async {
+      await tester.runAsync(() async {
+        final proposal = await answeredElsewhereReady();
+        await pump(
+          tester,
+          myKey: investor.publicKeyBase64Url,
+          targetId: proposal.id,
+        );
+        await tester.pump();
 
-          expect(find.text('This was already answered.'), findsOneWidget);
-          expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
-          expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
-        });
-      },
-    );
+        expect(find.text('This was already answered.'), findsOneWidget);
+        expect(find.widgetWithText(ElevatedButton, 'Approve'), findsNothing);
+        expect(find.widgetWithText(OutlinedButton, 'Reject'), findsNothing);
+      });
+    });
 
     testWidgets('rejecting asks "are you sure?" first', (tester) async {
       await tester.runAsync(() async {
@@ -283,7 +283,8 @@ void main() {
         await tester.tap(find.widgetWithText(FilledButton, 'Reject'));
         await pumpUntil(
           tester,
-          () => find.widgetWithText(OutlinedButton, 'Reject').evaluate().isEmpty,
+          () =>
+              find.widgetWithText(OutlinedButton, 'Reject').evaluate().isEmpty,
         );
 
         final saved = [
