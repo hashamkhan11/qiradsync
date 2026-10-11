@@ -122,12 +122,50 @@ class WriteResult {
   final int? budgetLeft;
 }
 
+/// Maps [qirad_core]'s [AnswerEligibilityRefusal] to this class's own
+/// [WriteRefusal]. A switch expression, not a switch statement with a
+/// default: adding a reason to the core enum without adding a case here
+/// fails to compile, instead of silently falling through.
+WriteRefusal _fromEligibility(AnswerEligibilityRefusal reason) =>
+    switch (reason) {
+      AnswerEligibilityRefusal.notAnswerable => WriteRefusal.notAnswerable,
+      AnswerEligibilityRefusal.alreadyAnswered => WriteRefusal.alreadyAnswered,
+      AnswerEligibilityRefusal.alreadyDecided => WriteRefusal.alreadyDecided,
+      AnswerEligibilityRefusal.partnershipNotActive =>
+        WriteRefusal.partnershipNotActive,
+    };
+
+/// Maps [qirad_core]'s [AnswerConsentRefusal] to [WriteRefusal] (see
+/// [_fromEligibility]).
+WriteRefusal _fromConsent(AnswerConsentRefusal reason) => switch (reason) {
+  AnswerConsentRefusal.answerEarlierFirst => WriteRefusal.answerEarlierFirst,
+  AnswerConsentRefusal.consentNotShown => WriteRefusal.consentNotShown,
+  AnswerConsentRefusal.summaryChanged => WriteRefusal.summaryChanged,
+};
+
+/// Maps [qirad_core]'s [ProposalRefusal] to [WriteRefusal] (see
+/// [_fromEligibility]).
+WriteRefusal _fromProposal(ProposalRefusal reason) => switch (reason) {
+  ProposalRefusal.wrongRole => WriteRefusal.wrongRole,
+  ProposalRefusal.noEffectiveBudget => WriteRefusal.noEffectiveBudget,
+  ProposalRefusal.overBudget => WriteRefusal.overBudget,
+  ProposalRefusal.notReversible => WriteRefusal.notReversible,
+  ProposalRefusal.emptyCut => WriteRefusal.emptyCut,
+};
+
 /// The only code that writes this phone's own records (spec 7.4).
 ///
 /// It holds the private key. Screens get a [RecordWriter] and can call
 /// [answer], but they never see the key. Each write goes through
 /// [RecordStore.appendWith], so reading the chain, signing and saving happen
 /// in one transaction and one queue. Two writes cannot pick the same seq.
+///
+/// This class owns the lock, the transaction, the relay-sync gate and the
+/// signing. Every other rule — who may author what, whether a budget or
+/// reversal target is valid, whether an answer is in order and its numbers
+/// still match — is decided once, in `qirad_core` ([answerEligibility],
+/// [answerConsent], [proposalRefusal]), so the evaluation harness's workload
+/// generator can call the exact same functions instead of a second copy.
 class RecordWriter {
   // Private: the cache in AppDependencies is what stops two RecordWriter
   // instances existing for one partnership (spec 7.4), but a cache only
@@ -245,35 +283,17 @@ class RecordWriter {
       }
 
       final validator = _store.validatorFor(partnership);
-      final keys = validator.partnershipKeys ?? const <String>{};
-      final decisions = decideApprovals(
-        validator.usableRecords,
-        partnershipKeys: keys,
-      );
-      final decision = decisions.where((d) => d.target.id == targetId);
-      if (decision.isEmpty || decision.single.target.author == _me) {
-        refusal = WriteRefusal.notAnswerable;
-        return null;
-      }
-      final current = decision.single;
-      if (current.hasValidResponseFrom(_me)) {
-        refusal = WriteRefusal.alreadyAnswered;
-        return null;
-      }
-      if (current.status != DecisionStatus.pending) {
-        refusal = WriteRefusal.alreadyDecided;
-        return null;
-      }
 
-      // Spec section 5: until the create is active, the only record anyone
-      // may write is the manager's own answer to it. This is the one write
-      // path in the app for anything other than that bootstrap create
-      // (invest, sale, budget, withdrawal and ratio proposals are all
-      // answered here too), so the gate belongs here, reading the same
-      // `partnershipStatus` that decides effectiveness and the inbox.
-      if (current.target.type != 'partnership_create' &&
-          partnershipStatus(decisions) != DecisionStatus.active) {
-        refusal = WriteRefusal.partnershipNotActive;
+      // Cheap checks first, before a candidate answer record exists (spec
+      // 5, 6.7, 7.4): not-answerable, already-decided, already-answered,
+      // partnership-not-active.
+      final eligibility = answerEligibility(
+        targetId: targetId,
+        me: _me,
+        validator: validator,
+      );
+      if (eligibility != null) {
+        refusal = _fromEligibility(eligibility);
         return null;
       }
 
@@ -291,111 +311,28 @@ class RecordWriter {
         refersTo: targetId,
       );
 
-      // The app never writes a record it already knows is invalid. "Kept as
-      // evidence" (spec 6.1, 6.7) is for records received from the other
-      // partner, not for records this writer creates itself. Re-run the
-      // ordering rule with the candidate as if it had just arrived, and
-      // refuse if it would land in invalidResponses.
-      if (current.target.type == 'settlement') {
-        final withCandidate = decideApprovals([
-          ...validator.usableRecords,
-          unsigned,
-        ], partnershipKeys: keys);
-        final decided = withCandidate.firstWhere(
-          (d) => d.target.id == targetId,
-        );
-        if (decided.invalidResponses.any((r) => r.id == unsigned.id)) {
-          refusal = WriteRefusal.answerEarlierFirst;
-          return null;
-        }
-      }
-
-      // Optimistic check: the numbers the user saw must still be the numbers
-      // core reports now (spec 6.7). A reject has no summary to check. When
-      // the answer would have no effect there is no summary, so nothing is
-      // checked, and the screen never offers that approve in the first place.
-      if (approve && current.target.type == 'settlement') {
-        final now = settlementConsent(
-          validator.usableRecords,
-          partnershipKeys: keys,
-          proposal: current.target,
-          answer: unsigned,
-        );
-        latestSettlement = now;
-        if (now == null) {
-          if (shownSettlement != null) refusal = WriteRefusal.summaryChanged;
-        } else if (shownSettlement == null) {
-          refusal = WriteRefusal.consentNotShown;
-        } else if (now != shownSettlement) {
-          refusal = WriteRefusal.summaryChanged;
-        }
-        if (refusal != null) return null;
-      }
-      if (approve && current.target.type == 'withdraw_request') {
-        final now = withdrawalConsent(
-          validator.usableRecords,
-          partnershipKeys: keys,
-          request: current.target,
-          answer: unsigned,
-        );
-        latestWithdrawal = now;
-        if (now == null) {
-          if (shownWithdrawal != null) refusal = WriteRefusal.summaryChanged;
-        } else if (shownWithdrawal == null) {
-          refusal = WriteRefusal.consentNotShown;
-        } else if (now != shownWithdrawal) {
-          refusal = WriteRefusal.summaryChanged;
-        }
-        if (refusal != null) return null;
-      }
-      if (approve && current.target.type == 'reversal') {
-        final now = reversalConsent(
-          validator.usableRecords,
-          partnershipKeys: keys,
-          reversal: current.target,
-          answer: unsigned,
-        );
-        latestReversal = now;
-        if (now == null) {
-          if (shownReversal != null) refusal = WriteRefusal.summaryChanged;
-        } else if (shownReversal == null) {
-          refusal = WriteRefusal.consentNotShown;
-        } else if (now != shownReversal) {
-          refusal = WriteRefusal.summaryChanged;
-        }
-        if (refusal != null) return null;
-      }
-      if (approve && current.target.type == 'budget_proposal') {
-        final now = budgetConsent(
-          validator.usableRecords,
-          partnershipKeys: keys,
-          proposal: current.target,
-        );
-        latestBudget = now;
-        if (now == null) {
-          if (shownBudget != null) refusal = WriteRefusal.summaryChanged;
-        } else if (shownBudget == null) {
-          refusal = WriteRefusal.consentNotShown;
-        } else if (now != shownBudget) {
-          refusal = WriteRefusal.summaryChanged;
-        }
-        if (refusal != null) return null;
-      }
-      if (approve && current.target.type == 'ratio_proposal') {
-        final now = ratioConsent(
-          validator.usableRecords,
-          partnershipKeys: keys,
-          proposal: current.target,
-        );
-        latestRatio = now;
-        if (now == null) {
-          if (shownRatio != null) refusal = WriteRefusal.summaryChanged;
-        } else if (shownRatio == null) {
-          refusal = WriteRefusal.consentNotShown;
-        } else if (now != shownRatio) {
-          refusal = WriteRefusal.summaryChanged;
-        }
-        if (refusal != null) return null;
+      // The app never writes a record it already knows is invalid: the
+      // settlement ordering rule, and (for an approve) whether the numbers
+      // the user saw still match (spec 6.7, consent).
+      final consent = answerConsent(
+        targetId: targetId,
+        approve: approve,
+        candidate: unsigned,
+        validator: validator,
+        shownSettlement: shownSettlement,
+        shownWithdrawal: shownWithdrawal,
+        shownReversal: shownReversal,
+        shownBudget: shownBudget,
+        shownRatio: shownRatio,
+      );
+      if (consent != null) {
+        refusal = _fromConsent(consent.reason);
+        latestSettlement = consent.latestSettlement;
+        latestWithdrawal = consent.latestWithdrawal;
+        latestReversal = consent.latestReversal;
+        latestBudget = consent.latestBudget;
+        latestRatio = consent.latestRatio;
+        return null;
       }
 
       // Every check has passed: this write will really happen. A test can
@@ -422,20 +359,12 @@ class RecordWriter {
   }
 
   /// Proposes `invest`: adds capital (spec section 5). Investor only.
-  Future<WriteResult> proposeInvest({required int amount}) => _propose(
-    type: 'invest',
-    bodyOf: (_, _, _) => {'amount': amount},
-    refusalOf: (_, _, parties) =>
-        canAuthor('invest', _me, parties) ? null : WriteRefusal.wrongRole,
-  );
+  Future<WriteResult> proposeInvest({required int amount}) =>
+      _propose(type: 'invest', bodyOf: (_, _, _) => {'amount': amount});
 
   /// Proposes `sale`: adds income (spec section 5). Manager only.
-  Future<WriteResult> proposeSale({required int amount}) => _propose(
-    type: 'sale',
-    bodyOf: (_, _, _) => {'amount': amount},
-    refusalOf: (_, _, parties) =>
-        canAuthor('sale', _me, parties) ? null : WriteRefusal.wrongRole,
-  );
+  Future<WriteResult> proposeSale({required int amount}) =>
+      _propose(type: 'sale', bodyOf: (_, _, _) => {'amount': amount});
 
   /// Proposes `expense`: removes money, drawn from [budgetId] (spec section
   /// 5, 6.4). Manager only, and only from a budget this key is the grantee
@@ -452,38 +381,13 @@ class RecordWriter {
     required int amount,
     required String budgetId,
     String? receiptHash,
-  }) async {
-    int? budgetLeft;
-    final result = await _propose(
-      type: 'expense',
-      refersTo: budgetId,
-      bodyOf: (_, _, _) => {'amount': amount, 'receiptHash': receiptHash},
-      refusalOf: (_, validator, parties) {
-        if (!canAuthor('expense', _me, parties)) {
-          return WriteRefusal.wrongRole;
-        }
-        final budgets = effectiveBudgetsFor(
-          validator.usableRecords,
-          partnershipKeys: validator.partnershipKeys!,
-          grantee: _me,
-        );
-        final left = budgets[budgetId];
-        if (left == null) return WriteRefusal.noEffectiveBudget;
-        if (amount > left) {
-          budgetLeft = left;
-          return WriteRefusal.overBudget;
-        }
-        return null;
-      },
-    );
-    if (result.refusal == WriteRefusal.overBudget) {
-      return WriteResult.refused(
-        WriteRefusal.overBudget,
-        budgetLeft: budgetLeft,
-      );
-    }
-    return result;
-  }
+  }) => _propose(
+    type: 'expense',
+    refersTo: budgetId,
+    budgetId: budgetId,
+    amount: amount,
+    bodyOf: (_, _, _) => {'amount': amount, 'receiptHash': receiptHash},
+  );
 
   /// Proposes `withdraw_request` (spec section 5). [kind] is `"capital"` or
   /// `"profit"`. A capital withdrawal is investor only — the manager put in
@@ -494,13 +398,8 @@ class RecordWriter {
     required String kind,
   }) => _propose(
     type: 'withdraw_request',
+    kind: kind,
     bodyOf: (_, _, _) => {'amount': amount, 'kind': kind},
-    refusalOf: (_, _, parties) {
-      if (!canAuthor('withdraw_request', _me, parties, kind: kind)) {
-        return WriteRefusal.wrongRole;
-      }
-      return null;
-    },
   );
 
   /// Proposes `budget_proposal`: a spending limit for [grantee] (spec
@@ -512,9 +411,6 @@ class RecordWriter {
   }) => _propose(
     type: 'budget_proposal',
     bodyOf: (_, _, _) => {'grantee': grantee, 'amount': amount},
-    refusalOf: (_, _, parties) => canAuthor('budget_proposal', _me, parties)
-        ? null
-        : WriteRefusal.wrongRole,
   );
 
   /// Proposes `ratio_proposal`: a new profit-share split, effective from
@@ -529,9 +425,6 @@ class RecordWriter {
       'ratio': {'investor': investorPercent, 'manager': managerPercent},
       'effectiveFrom': effectiveFrom,
     },
-    refusalOf: (_, _, parties) => canAuthor('ratio_proposal', _me, parties)
-        ? null
-        : WriteRefusal.wrongRole,
   );
 
   /// Proposes a `reversal` of [targetId] (spec section 5). Either partner.
@@ -541,16 +434,8 @@ class RecordWriter {
   Future<WriteResult> proposeReversal({required String targetId}) => _propose(
     type: 'reversal',
     refersTo: targetId,
+    reversalTarget: targetId,
     bodyOf: (_, _, _) => const {},
-    refusalOf: (ledger, _, parties) {
-      if (!canAuthor('reversal', _me, parties)) return WriteRefusal.wrongRole;
-      const reversible = {'invest', 'sale', 'expense', 'withdraw_request'};
-      final target = ledger.where((r) => r.id == targetId);
-      if (target.isEmpty || !reversible.contains(target.single.type)) {
-        return WriteRefusal.notReversible;
-      }
-      return null;
-    },
   );
 
   /// Proposes a `settlement` closing the open period at this phone's current
@@ -562,25 +447,6 @@ class RecordWriter {
   Future<WriteResult> proposeSettlement() => _propose(
     type: 'settlement',
     bodyOf: (_, validator, _) => {'cut': _openCut(validator)},
-    refusalOf: (_, validator, parties) {
-      if (!canAuthor('settlement', _me, parties)) {
-        return WriteRefusal.wrongRole;
-      }
-      final shares = periodShares(
-        validator.usableRecords,
-        partnershipKeys: validator.partnershipKeys!,
-      );
-      final candidate = _openCut(validator);
-      final previous = shares.length >= 2
-          ? shares[shares.length - 2].closingCut
-          : {parties.investor: 0, parties.manager: 0};
-      final coversNew = coversNewBusiness(
-        previous,
-        candidate,
-        validator.usableRecords,
-      );
-      return coversNew ? null : WriteRefusal.emptyCut;
-    },
   );
 
   /// The open period's closing cut: each partner's highest seq currently
@@ -594,10 +460,13 @@ class RecordWriter {
   /// Shared gate and write transaction for every creation form above (spec
   /// 7.4), mirroring [answer]'s structure: refuse, without writing, when this
   /// install is not known to be synced or caught up, or when the partnership
-  /// is not active yet. [refusalOf] runs after that and before anything is
-  /// built, so a type's own rule (its author's role, a budget's grantee, an
-  /// empty settlement cut) can refuse too. [bodyOf] and [refusalOf] both see
-  /// the partnership's roles, read from the same accepted create.
+  /// is not active yet. [proposalRefusal] (`qirad_core`) then decides the
+  /// type's own rule (its author's role, a budget's grantee and remaining
+  /// amount, a reversal's target, an empty settlement cut) before anything
+  /// is built. [bodyOf] sees the partnership's roles, read from the same
+  /// accepted create. [kind], [budgetId], [amount] and [reversalTarget] are
+  /// only the extra inputs [proposalRefusal] needs for some types — see its
+  /// doc comment.
   Future<WriteResult> _propose({
     required String type,
     String? refersTo,
@@ -607,12 +476,10 @@ class RecordWriter {
       Parties parties,
     )
     bodyOf,
-    WriteRefusal? Function(
-      List<Record> ledger,
-      Validator validator,
-      Parties parties,
-    )?
-    refusalOf,
+    String? kind,
+    String? budgetId,
+    int? amount,
+    String? reversalTarget,
   }) async {
     // The gate reads the relay vector from the latest sync (spec 7.4, rule 2).
     final relayVector = await _store.relayVectorFor(partnership);
@@ -621,6 +488,7 @@ class RecordWriter {
     }
 
     WriteRefusal? refusal;
+    int? budgetLeft;
     final text = await _store.appendWith(partnership, (texts) async {
       final ledger = [
         for (final text in texts)
@@ -656,8 +524,22 @@ class RecordWriter {
       // Active means a well-formed create was accepted, so the roles exist.
       final parties = proposedParties(validator.usableRecords)!;
 
-      refusal = refusalOf?.call(ledger, validator, parties);
-      if (refusal != null) return null;
+      final result = proposalRefusal(
+        type: type,
+        author: _me,
+        parties: parties,
+        ledger: ledger,
+        validator: validator,
+        kind: kind,
+        budgetId: budgetId,
+        amount: amount,
+        reversalTarget: reversalTarget,
+      );
+      if (result != null) {
+        refusal = _fromProposal(result.reason);
+        budgetLeft = result.budgetLeft;
+        return null;
+      }
 
       // The builder reads my chain from [ledger], so the seq and prevHash
       // come from the saved records, never from the screen.
@@ -681,7 +563,7 @@ class RecordWriter {
     });
 
     if (text == null) {
-      return WriteResult.refused(refusal!);
+      return WriteResult.refused(refusal!, budgetLeft: budgetLeft);
     }
     return WriteResult.written(
       Record.fromJson(jsonDecode(text) as Map<String, dynamic>),
