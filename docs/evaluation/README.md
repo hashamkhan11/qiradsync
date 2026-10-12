@@ -170,3 +170,15 @@ hour:
 See `packages/evaluation/lib/src/workload_generator.dart` for the implementation and
 `packages/evaluation/test/workload_generator_test.dart` for what is verified about it
 (determinism, convergence, and that every record type appears).
+
+## Threats to validity
+
+- **RQ1 checks convergence after re-syncing each run's final state**, not syncs interleaved with
+  ongoing writes: `_resyncThroughRelay` takes the two devices' already-finished record sets and
+  replays them through the real delta protocol (`RelaySim`, `firstMissingSeqs`, version vectors)
+  once, at the end. A device syncing mid-run, while still producing new records, exercises the
+  same primitives but was not separately tested here.
+- **`RelaySim` is a Dart mirror of the PHP relay's logic** (exact-text storage, hash de-duplication,
+  gap-aware version vector), not the relay itself — it exists so RQ1 can run inside the pure-Dart
+  evaluation package without a live server. The real PHP relay is covered separately by the CI
+  month scenario (`relay/tests`), which runs the actual server code.
