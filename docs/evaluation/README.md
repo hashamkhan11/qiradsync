@@ -56,6 +56,10 @@ episode — never overlap an hour already marked offline, so they cannot stack i
 than either one is meant to model on its own. Each run records both devices' actual online
 fraction (`WorkloadRun.onlineFractionInvestor`/`onlineFractionManager`); the `onlineFraction*`
 columns in `rq1_correctness.csv` and `rq2_coordination.csv` report the range actually seen.
+Measured across 30 seeds of `realistic`, both devices land at **73–82% online (mean ~77%)** — a
+direct consequence of `shortOfflinePeriodsPerDay` × `shortOfflinePeriodHours` (roughly 2 periods ×
+3.5h ≈ 7 offline hours of a 24h day), not a separately-tuned target. This is reported as measured;
+the parameters are not adjusted to chase a particular online-fraction figure.
 
 **What this means for reading results:** every row in `stress` that differs from `realistic` exists
 to put pressure on a rule (reversal, staleness, chain-gap buffering, de-duplication, budget
@@ -65,6 +69,15 @@ settlement cadence) are identical between the two configs on purpose: `stress` i
 business under worse conditions, not a different one.
 
 ## Run lengths
+
+> **Status: `rq1_correctness.csv`, `rq1_failures.csv`, `rq2_coordination.csv` and
+> `rq2_coordination_summary.csv` are superseded.** They were generated from 30-day runs, and
+> `settlementIntervalDays` (30) can never trigger within a 30-day run (the day-index loop only
+> reaches day 29), so no run in either config has ever produced a settlement — every
+> `settlementStable` check so far has passed vacuously, without ever exercising spec 6.7's "a
+> closed period never recalculates" rule. RQ1's 300/300-pass, 0/300-non-trivial result above is
+> real but uninformative about settlements for the same reason. Both tools are being changed to
+> 90-day runs (about three settlement cycles) and re-run; this note is removed once that lands.
 
 - **RQ1 (correctness of delta sync):** several hundred seeded runs per config, each covering about
   a month, so the sample is large enough to catch rare merge or ordering bugs rather than relying
