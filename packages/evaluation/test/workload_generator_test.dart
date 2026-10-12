@@ -1,4 +1,5 @@
 import 'package:evaluation/evaluation.dart';
+import 'package:qirad_core/qirad_core.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -78,6 +79,59 @@ void main() {
     test('both named configs run without crashing', () async {
       await generateWorkload(WorkloadConfig.realistic(days: 5), 42);
       await generateWorkload(WorkloadConfig.stress(days: 5), 42);
+    });
+
+    test(
+      'stress keeps each device reachable for a healthy share of the run',
+      () async {
+        // Regression check: a device must never be modeled as offline so
+        // often it is effectively unreachable (the bug this fixed left
+        // stress devices online under 5% of a 30-day run, which starved
+        // every consent-gated proposal and sometimes stalled the whole
+        // run at 1 record).
+        for (var seed = 1; seed <= 10; seed++) {
+          final run = await generateWorkload(
+            WorkloadConfig.stress(days: 30),
+            seed,
+          );
+          expect(
+            run.onlineFractionInvestor,
+            greaterThan(0.3),
+            reason: 'seed=$seed investor',
+          );
+          expect(
+            run.onlineFractionManager,
+            greaterThan(0.3),
+            reason: 'seed=$seed manager',
+          );
+        }
+      },
+    );
+
+    test('the manager never proposes a second budget while one of hers is '
+        'still pending', () async {
+      final run = await generateWorkload(WorkloadConfig.stress(days: 60), 9);
+
+      final byId = <String, Record>{
+        for (final r in [...run.investorLedger, ...run.managerLedger]) r.id: r,
+      };
+
+      String? openProposalId;
+      for (final event in run.events) {
+        if (event.type == 'budget_proposal') {
+          expect(
+            openProposalId,
+            isNull,
+            reason:
+                'budget_proposal ${event.recordId} was authored while '
+                '$openProposalId was still unanswered',
+          );
+          openProposalId = event.recordId;
+        } else if ((event.type == 'approve' || event.type == 'reject') &&
+            byId[event.recordId]!.refersTo == openProposalId) {
+          openProposalId = null;
+        }
+      }
     });
   });
 }

@@ -29,6 +29,15 @@ const _seed = 123;
 Future<void> main(List<String> args) async {
   final force = args.contains('--force');
   final dataDir = Directory('data')..createSync(recursive: true);
+  // Recorded in every fixture file so a later analysis can tell which
+  // generator version produced it — fixtures are cached and reused across
+  // many commits, so this is the only way to know they all came from the
+  // same code (the user's explicit requirement after a schedule-generator
+  // bug fix made every previously-cached fixture stale).
+  final commitHash = Process.runSync(
+    'git',
+    ['rev-parse', 'HEAD'],
+  ).stdout.toString().trim();
 
   const jobs = [
     ('realistic', '1month', 30),
@@ -58,10 +67,13 @@ Future<void> main(List<String> args) async {
       'config': configName,
       'seed': _seed,
       'days': days,
+      'generatorCommit': commitHash,
       'generationMs': sw.elapsedMilliseconds,
       'investorKey': run.investor.key,
       'managerKey': run.manager.key,
       'partnershipId': run.partnershipId,
+      'onlineFractionInvestor': run.onlineFractionInvestor,
+      'onlineFractionManager': run.onlineFractionManager,
       // The order records were authored in, so a benchmark can take a
       // size-N prefix that is a real run shape, not a lexical slice of the
       // final ledger.

@@ -48,7 +48,8 @@ Future<void> main(List<String> args) async {
 
   final rowsFile = File('../../docs/evaluation/rq2_coordination.csv')
     ..writeAsStringSync(
-      'config,seed,month,coordinationFree,consentProposals,responses\n',
+      'config,seed,month,coordinationFree,consentProposals,responses,'
+      'onlineFractionInvestor,onlineFractionManager\n',
     );
 
   final summaries = <String, _ConfigTotals>{};
@@ -74,7 +75,9 @@ Future<void> main(List<String> args) async {
     ..writeAsStringSync(
       'config,coordinationFreeShare,consentProposalsShare,'
       'totalCoordinationFree,totalConsentProposals,totalResponses,'
-      'partnershipCreateCount,expensesPerBudgetApproval\n',
+      'partnershipCreateCount,expensesPerBudgetApproval,'
+      'onlineFractionInvestorMin,onlineFractionInvestorMax,'
+      'onlineFractionManagerMin,onlineFractionManagerMax\n',
     );
   for (final entry in summaries.entries) {
     summaryFile.writeAsStringSync(entry.value.summaryRow(entry.key), mode: FileMode.append);
@@ -93,6 +96,18 @@ class _ConfigTotals {
   int expenses = 0;
   int effectiveBudgetApprovals = 0;
 
+  double onlineFractionInvestorMin = double.infinity;
+  double onlineFractionInvestorMax = -double.infinity;
+  double onlineFractionManagerMin = double.infinity;
+  double onlineFractionManagerMax = -double.infinity;
+
+  void recordOnlineFractions(double investor, double manager) {
+    if (investor < onlineFractionInvestorMin) onlineFractionInvestorMin = investor;
+    if (investor > onlineFractionInvestorMax) onlineFractionInvestorMax = investor;
+    if (manager < onlineFractionManagerMin) onlineFractionManagerMin = manager;
+    if (manager > onlineFractionManagerMax) onlineFractionManagerMax = manager;
+  }
+
   String summaryRow(String config) {
     final totalSplit = coordinationFree + consentProposals;
     final coordinationFreeShare = totalSplit == 0
@@ -107,11 +122,20 @@ class _ConfigTotals {
     return '$config,${coordinationFreeShare.toStringAsFixed(4)},'
         '${consentProposalsShare.toStringAsFixed(4)},$coordinationFree,'
         '$consentProposals,$responses,$partnershipCreateCount,'
-        '${amortization.toStringAsFixed(2)}\n';
+        '${amortization.toStringAsFixed(2)},'
+        '${onlineFractionInvestorMin.toStringAsFixed(4)},'
+        '${onlineFractionInvestorMax.toStringAsFixed(4)},'
+        '${onlineFractionManagerMin.toStringAsFixed(4)},'
+        '${onlineFractionManagerMax.toStringAsFixed(4)}\n';
   }
 }
 
 void _tallyRun(WorkloadRun run, File rowsFile, _ConfigTotals totals) {
+  totals.recordOnlineFractions(
+    run.onlineFractionInvestor,
+    run.onlineFractionManager,
+  );
+
   final byId = <String, Record>{};
   for (final r in [...run.investorLedger, ...run.managerLedger]) {
     byId[r.id] = r;
@@ -175,7 +199,9 @@ void _tallyRun(WorkloadRun run, File rowsFile, _ConfigTotals totals) {
     final c = perMonth[month]!;
     rowsFile.writeAsStringSync(
       '${run.config.name},${run.seed},$month,${c.coordinationFree},'
-      '${c.consentProposals},${c.responses}\n',
+      '${c.consentProposals},${c.responses},'
+      '${run.onlineFractionInvestor.toStringAsFixed(4)},'
+      '${run.onlineFractionManager.toStringAsFixed(4)}\n',
       mode: FileMode.append,
     );
   }

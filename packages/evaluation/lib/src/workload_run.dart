@@ -77,6 +77,8 @@ class WorkloadRun {
     required this.manager,
     required this.events,
     required this.refusals,
+    required this.onlineFractionInvestor,
+    required this.onlineFractionManager,
   });
 
   final WorkloadConfig config;
@@ -86,6 +88,13 @@ class WorkloadRun {
   final Device manager;
   final List<WorkloadEvent> events;
   final List<RefusalEvent> refusals;
+
+  /// Share of the run's hours each device's precomputed schedule marked it
+  /// online (day 0 is always online; see `workload_generator.dart`'s
+  /// `_buildOnlineSchedule`). Recorded per run so RQ1/RQ2 can report the
+  /// actual connectivity a run saw, not just the config's intended ranges.
+  final double onlineFractionInvestor;
+  final double onlineFractionManager;
 
   /// The records the investor's device holds at the end of the run, sorted
   /// by author then seq, so two runs with the same seed always print the
@@ -105,6 +114,8 @@ class WorkloadRun {
     'managerRecordCount': managerLedger.length,
     'events': [for (final e in events) e.toJson()],
     'refusals': [for (final r in refusals) r.toJson()],
+    'onlineFractionInvestor': onlineFractionInvestor,
+    'onlineFractionManager': onlineFractionManager,
   };
 }
 

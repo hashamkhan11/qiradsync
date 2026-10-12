@@ -37,8 +37,10 @@ class WorkloadConfig {
     required this.profitWithdrawalFraction,
     required this.capitalWithdrawalDailyChance,
     required this.capitalWithdrawalFraction,
-    required this.offlinePeriodsPerDay,
-    required this.offlinePeriodHours,
+    required this.shortOfflinePeriodsPerDay,
+    required this.shortOfflinePeriodHours,
+    required this.longOfflineEpisodeChancePerWeek,
+    required this.longOfflineEpisodeDays,
     required this.relayDelaySeconds,
     required this.duplicateRate,
     required this.reorderChance,
@@ -140,13 +142,24 @@ class WorkloadConfig {
   /// partial draw-down, not a full exit.
   final DoubleRange capitalWithdrawalFraction;
 
-  /// How many separate offline stretches happen per day on each device.
-  /// A phone goes offline a few short times a day under normal use.
-  final IntRange offlinePeriodsPerDay;
+  /// How many short offline stretches happen per day on each device, on top
+  /// of [longOfflineEpisodeChancePerWeek]'s occasional long one. A phone
+  /// goes offline a few short times a day under normal use, in both configs.
+  final IntRange shortOfflinePeriodsPerDay;
 
-  /// Length of each offline stretch. `realistic`: 1-6 hours (a work gap or
-  /// overnight). `stress`: 1-3 days, to force long divergence before sync.
-  final IntRange offlinePeriodHours;
+  /// Length of each short daily offline stretch: a work gap or overnight,
+  /// in both configs — only the long weekly episode differs between them.
+  final IntRange shortOfflinePeriodHours;
+
+  /// Chance, per 7-day window, of one long offline episode starting (a
+  /// genuinely dropped connection, not a daily gap). `realistic`: 0 — this
+  /// never happens. `stress`: 1.0 — about once a week, every week.
+  final double longOfflineEpisodeChancePerWeek;
+
+  /// Length of a long offline episode, in days, when
+  /// [longOfflineEpisodeChancePerWeek] fires. `stress` only: 1-3 days, long
+  /// enough to force real divergence before the next sync.
+  final IntRange longOfflineEpisodeDays;
 
   /// Extra network delay once a device is back online and syncing.
   /// `realistic` models a normal connection; `stress` models a poor one.
@@ -187,17 +200,21 @@ class WorkloadConfig {
     profitWithdrawalFraction: const DoubleRange(0.10, 0.60),
     capitalWithdrawalDailyChance: 1 / 90,
     capitalWithdrawalFraction: const DoubleRange(0.05, 0.20),
-    offlinePeriodsPerDay: const IntRange(1, 3),
-    offlinePeriodHours: const IntRange(1, 6),
+    shortOfflinePeriodsPerDay: const IntRange(1, 3),
+    shortOfflinePeriodHours: const IntRange(1, 6),
+    longOfflineEpisodeChancePerWeek: 0.0,
+    longOfflineEpisodeDays: const IntRange(1, 3),
     relayDelaySeconds: const IntRange(0, 30),
     duplicateRate: 0.02,
     reorderChance: 0.02,
   );
 
   /// Values chosen to exercise the rules hard, not to model a typical day:
-  /// long offline gaps, frequent ratio changes, more mistakes, and higher
-  /// delay/duplicate/reorder rates, so staleness, reversal and chain-gap
-  /// handling are all genuinely tested under pressure.
+  /// an occasional multi-day offline episode on top of ordinary daily gaps,
+  /// frequent ratio changes, more mistakes, and higher delay/duplicate/
+  /// reorder rates, so staleness, reversal and chain-gap handling are all
+  /// genuinely tested under pressure — without modeling a device that is
+  /// offline so often it can never be reached at all.
   factory WorkloadConfig.stress({int days = 30}) => WorkloadConfig(
     name: 'stress',
     days: days,
@@ -222,8 +239,10 @@ class WorkloadConfig {
     profitWithdrawalFraction: const DoubleRange(0.10, 0.60),
     capitalWithdrawalDailyChance: 1 / 90,
     capitalWithdrawalFraction: const DoubleRange(0.05, 0.20),
-    offlinePeriodsPerDay: const IntRange(1, 2),
-    offlinePeriodHours: const IntRange(24, 72),
+    shortOfflinePeriodsPerDay: const IntRange(1, 2),
+    shortOfflinePeriodHours: const IntRange(1, 6),
+    longOfflineEpisodeChancePerWeek: 1.0,
+    longOfflineEpisodeDays: const IntRange(1, 3),
     relayDelaySeconds: const IntRange(0, 300),
     duplicateRate: 0.10,
     reorderChance: 0.15,
@@ -253,8 +272,10 @@ class WorkloadConfig {
     'profitWithdrawalFraction': profitWithdrawalFraction.toJson(),
     'capitalWithdrawalDailyChance': capitalWithdrawalDailyChance,
     'capitalWithdrawalFraction': capitalWithdrawalFraction.toJson(),
-    'offlinePeriodsPerDay': offlinePeriodsPerDay.toJson(),
-    'offlinePeriodHours': offlinePeriodHours.toJson(),
+    'shortOfflinePeriodsPerDay': shortOfflinePeriodsPerDay.toJson(),
+    'shortOfflinePeriodHours': shortOfflinePeriodHours.toJson(),
+    'longOfflineEpisodeChancePerWeek': longOfflineEpisodeChancePerWeek,
+    'longOfflineEpisodeDays': longOfflineEpisodeDays.toJson(),
     'relayDelaySeconds': relayDelaySeconds.toJson(),
     'duplicateRate': duplicateRate,
     'reorderChance': reorderChance,

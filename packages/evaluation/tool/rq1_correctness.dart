@@ -35,30 +35,41 @@ Future<void> main(List<String> args) async {
 
   final resultsFile = File('../../docs/evaluation/rq1_correctness.csv')
     ..writeAsStringSync(
-      'config,seed,records,syncProtocolConverged,identicalRecords,'
+      'config,seed,records,expenses,settlements,nonTrivial,'
+      'onlineFractionInvestor,onlineFractionManager,'
+      'syncProtocolConverged,identicalRecords,'
       'dashboardMatch,settlementStable,budgetSafe,noFalseAlarms\n',
     );
   final failuresFile = File('../../docs/evaluation/rq1_failures.csv')
     ..writeAsStringSync('config,seed,check,detail\n');
 
   for (final configName in ['realistic', 'stress']) {
+    var nonTrivialCount = 0;
+    var passCount = 0;
     for (var seed = 1; seed <= seedsPerConfig; seed++) {
       final config = configName == 'stress'
           ? WorkloadConfig.stress(days: _days)
           : WorkloadConfig.realistic(days: _days);
       final run = await generateWorkload(config, seed);
-      final row = await _checkRun(configName, seed, run, failuresFile);
-      resultsFile.writeAsStringSync(row, mode: FileMode.append);
+      final result = await _checkRun(configName, seed, run, failuresFile);
+      resultsFile.writeAsStringSync(result.row, mode: FileMode.append);
+      if (result.nonTrivial) nonTrivialCount++;
+      if (result.passed) passCount++;
 
       if (seed % 25 == 0) {
         stdout.writeln('$configName: $seed/$seedsPerConfig done');
       }
     }
+    stdout.writeln(
+      '$configName: $passCount/$seedsPerConfig passed, '
+      '$nonTrivialCount/$seedsPerConfig non-trivial '
+      '(at least one expense and one settlement)',
+    );
   }
   stdout.writeln('wrote ${resultsFile.path} and ${failuresFile.path}');
 }
 
-Future<String> _checkRun(
+Future<_CheckResult> _checkRun(
   String configName,
   int seed,
   WorkloadRun run,
@@ -163,9 +174,40 @@ Future<String> _checkRun(
     );
   }
 
-  return '$configName,$seed,${investorUsable.length},$syncProtocolConverged,'
+  final expenseCount = run.events.where((e) => e.type == 'expense').length;
+  final settlementCount = run.events
+      .where((e) => e.type == 'settlement')
+      .length;
+  final nonTrivial = expenseCount > 0 && settlementCount > 0;
+  final passed =
+      syncProtocolConverged &&
+      identicalRecords &&
+      dashboardMatch &&
+      settlementStable &&
+      budgetSafe &&
+      noFalseAlarms;
+
+  final row =
+      '$configName,$seed,${investorUsable.length},$expenseCount,'
+      '$settlementCount,$nonTrivial,'
+      '${run.onlineFractionInvestor.toStringAsFixed(4)},'
+      '${run.onlineFractionManager.toStringAsFixed(4)},'
+      '$syncProtocolConverged,'
       '$identicalRecords,$dashboardMatch,$settlementStable,$budgetSafe,'
       '$noFalseAlarms\n';
+  return _CheckResult(row: row, nonTrivial: nonTrivial, passed: passed);
+}
+
+class _CheckResult {
+  const _CheckResult({
+    required this.row,
+    required this.nonTrivial,
+    required this.passed,
+  });
+
+  final String row;
+  final bool nonTrivial;
+  final bool passed;
 }
 
 /// Rebuilds both devices' ledgers from scratch, through an in-memory relay

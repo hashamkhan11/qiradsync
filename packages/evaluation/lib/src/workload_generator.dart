@@ -25,7 +25,14 @@ Future<WorkloadRun> generateWorkload(WorkloadConfig config, int seed) async {
     manager: engine.manager,
     events: engine.events,
     refusals: engine.refusals,
+    onlineFractionInvestor: _onlineFraction(engine.onlineInvestor),
+    onlineFractionManager: _onlineFraction(engine.onlineManager),
   );
+}
+
+double _onlineFraction(List<bool> online) {
+  if (online.isEmpty) return 0;
+  return online.where((h) => h).length / online.length;
 }
 
 /// A record queued for delivery to the other device at a simulated hour —
@@ -240,7 +247,25 @@ class _Engine {
   /// less than [WorkloadConfig.budgetRenewalThreshold] of its amount left —
   /// a business condition, not a timer, so a refusal here (if any) reflects
   /// the system, not the simulation's clock.
+  ///
+  /// A real manager also would not send a second ask while the first is
+  /// still unanswered, so this first checks whether she already has a
+  /// `budget_proposal` of her own still pending (no counted response yet) —
+  /// otherwise the daily check would re-propose every single day the budget
+  /// stays low, independent of whether the investor has had a chance to
+  /// answer the one already sent.
   Future<void> _maybeRenewBudget(int hour) async {
+    final hasPendingProposal = decideApprovals(
+      manager.validator.usableRecords,
+      partnershipKeys: partnershipKeys,
+    ).any(
+      (d) =>
+          d.status == DecisionStatus.pending &&
+          d.target.type == 'budget_proposal' &&
+          d.target.author == managerKey,
+    );
+    if (hasPendingProposal) return;
+
     final remaining = effectiveBudgetsFor(
       manager.validator.usableRecords,
       partnershipKeys: partnershipKeys,
@@ -755,21 +780,68 @@ class _Engine {
 
   // ---- network and offline model ---------------------------------------
 
+  /// Builds one device's online/offline hours for the whole run.
+  ///
+  /// Day 0 is always online: the partners set the partnership up in person
+  /// (the QR key exchange), so there is nothing to be offline *from* yet.
+  /// After that, two independent things can mark hours offline, and neither
+  /// is allowed to mark an hour that is already offline — periods never
+  /// overlap or stack, so "offline" always means a fresh gap, not several
+  /// gaps piled on top of each other:
+  ///   - a short daily period (both configs): a work gap or overnight.
+  ///   - a long weekly episode (`stress` only): about once a week, 1-3 days
+  ///     of a genuinely dropped connection, long enough to force real
+  ///     divergence before the next sync.
   List<bool> _buildOnlineSchedule(int totalHours) {
     final online = List<bool>.filled(totalHours, true);
-    final days = (totalHours / 24).ceil();
-    for (var day = 0; day < days; day++) {
-      final dayStart = day * 24;
-      final count = uniformInt(rng, config.offlinePeriodsPerDay);
-      for (var i = 0; i < count; i++) {
-        final start = dayStart + rng.nextInt(24);
-        final duration = uniformInt(rng, config.offlinePeriodHours);
-        final end = (start + duration).clamp(0, totalHours);
-        for (var h = start; h < end && h < totalHours; h++) {
-          online[h] = false;
-        }
+    const firstOnlineHours = 24;
+    if (totalHours <= firstOnlineHours) return online;
+
+    bool fullyOnline(int start, int duration) {
+      final end = min(start + duration, totalHours);
+      for (var h = start; h < end; h++) {
+        if (!online[h]) return false;
+      }
+      return true;
+    }
+
+    void markOffline(int start, int duration) {
+      final end = min(start + duration, totalHours);
+      for (var h = start; h < end; h++) {
+        online[h] = false;
       }
     }
+
+    if (config.longOfflineEpisodeChancePerWeek > 0) {
+      var weekStart = firstOnlineHours;
+      while (weekStart < totalHours) {
+        final weekEnd = min(weekStart + 24 * 7, totalHours);
+        if (bernoulli(rng, config.longOfflineEpisodeChancePerWeek)) {
+          final duration = uniformInt(rng, config.longOfflineEpisodeDays) * 24;
+          final latestStart = weekEnd - duration;
+          if (latestStart > weekStart) {
+            final start = weekStart + rng.nextInt(latestStart - weekStart);
+            if (fullyOnline(start, duration)) markOffline(start, duration);
+          }
+        }
+        weekStart = weekEnd;
+      }
+    }
+
+    for (var dayStart = firstOnlineHours;
+        dayStart < totalHours;
+        dayStart += 24) {
+      final dayEnd = min(dayStart + 24, totalHours);
+      final count = uniformInt(rng, config.shortOfflinePeriodsPerDay);
+      for (var i = 0; i < count; i++) {
+        final duration = uniformInt(rng, config.shortOfflinePeriodHours);
+        final latestStart = dayEnd - duration;
+        if (latestStart <= dayStart) continue;
+        final start = dayStart + rng.nextInt(latestStart - dayStart);
+        if (fullyOnline(start, duration)) markOffline(start, duration);
+      }
+    }
+
     return online;
   }
 
