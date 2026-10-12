@@ -54,6 +54,15 @@ dropped connections or reordering. Business-shape fields (amounts, rates of sale
 settlement cadence) are identical between the two configs on purpose: `stress` is the same
 business under worse conditions, not a different one.
 
+**A consequence worth knowing about:** under `stress`, the manager's daily budget-renewal attempt
+(`budgetRenewalThreshold`) combined with the investor's 24–72h `answerDelayHours` means the budget
+proposal can starve completely — a fresh proposal supersedes yesterday's before the investor's
+delayed answer catches up, every day, for the whole run. In RQ2's 40 stress seeds this happened in
+every non-degenerate run: zero effective budget approvals, hence zero expenses, for the whole
+month. This is a real property of stress's parameter combination (poor connectivity can fully
+block a consent-gated operation while coordination-free ones keep flowing), not a measurement
+error — see `docs/evaluation/rq2_coordination_summary.csv`'s `expensesPerBudgetApproval` column.
+
 ## Run lengths
 
 - **RQ1 (correctness of delta sync):** several hundred seeded runs per config, each covering about
