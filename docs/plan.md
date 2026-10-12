@@ -143,3 +143,10 @@ Everything measured below is measured against that commit.
 - [ ] Closing a `budget_proposal` early by reversal — blocked for now because it raises a
       cross-author ordering question (which of the grantee's already-written expenses still count)
       (decisions.md)
+- [ ] Incremental recalculation for `approvalsInbox`/`decideApprovals`/`computeEffective`. Phase 8's
+      RQ3 workload runs show inbox checks growing faster than the ledger itself (each check rescans
+      every usable record from scratch, by hard rule 5's design, with no incremental state kept
+      between calls) — see docs/evaluation/README.md's "Where the time goes" section for the measured
+      numbers. This is real per-write cost the app itself would also pay as a ledger grows large, not
+      a one-off; it is listed here rather than fixed now because Phase 8 is scope-frozen and the app
+      is not unusable at today's realistic ledger sizes.
