@@ -27,7 +27,7 @@ import 'dart:io';
 import 'package:evaluation/evaluation.dart';
 import 'package:qirad_core/qirad_core.dart';
 
-const _days = 30; // "about a month" — see docs/evaluation/README.md.
+const _days = 90; // about three settlement cycles — see docs/evaluation/README.md.
 const _maxRepairRounds = 3; // spec 7.3's own repair-round limit.
 
 Future<void> main(List<String> args) async {
@@ -35,7 +35,8 @@ Future<void> main(List<String> args) async {
 
   final resultsFile = File('../../docs/evaluation/rq1_correctness.csv')
     ..writeAsStringSync(
-      'config,seed,records,expenses,settlements,nonTrivial,'
+      'config,seed,records,expenses,settlementsEffective,reversals,'
+      'nonTrivial,settlementStableExercised,'
       'onlineFractionInvestor,onlineFractionManager,'
       'syncProtocolConverged,identicalRecords,'
       'dashboardMatch,settlementStable,budgetSafe,noFalseAlarms\n',
@@ -46,6 +47,7 @@ Future<void> main(List<String> args) async {
   for (final configName in ['realistic', 'stress']) {
     var nonTrivialCount = 0;
     var passCount = 0;
+    var settlementStableExercisedCount = 0;
     for (var seed = 1; seed <= seedsPerConfig; seed++) {
       final config = configName == 'stress'
           ? WorkloadConfig.stress(days: _days)
@@ -55,6 +57,7 @@ Future<void> main(List<String> args) async {
       resultsFile.writeAsStringSync(result.row, mode: FileMode.append);
       if (result.nonTrivial) nonTrivialCount++;
       if (result.passed) passCount++;
+      if (result.settlementStableExercised) settlementStableExercisedCount++;
 
       if (seed % 25 == 0) {
         stdout.writeln('$configName: $seed/$seedsPerConfig done');
@@ -63,7 +66,9 @@ Future<void> main(List<String> args) async {
     stdout.writeln(
       '$configName: $passCount/$seedsPerConfig passed, '
       '$nonTrivialCount/$seedsPerConfig non-trivial '
-      '(at least one expense and one settlement)',
+      '(at least one effective settlement and one expense), '
+      '$settlementStableExercisedCount/$seedsPerConfig actually had a '
+      'closed period to check settlementStable against',
     );
   }
   stdout.writeln('wrote ${resultsFile.path} and ${failuresFile.path}');
@@ -101,7 +106,9 @@ Future<_CheckResult> _checkRun(
 
   var dashboardMatch = false;
   var settlementStable = true;
+  var settlementStableExercised = false;
   var budgetSafe = true;
+  var settlementsEffective = 0;
 
   if (identicalRecords) {
     final investorDashboard = buildDashboard(
@@ -124,6 +131,7 @@ Future<_CheckResult> _checkRun(
     final periods = periodShares(investorUsable, partnershipKeys: keys);
     for (final period in periods) {
       if (period.open) continue;
+      settlementStableExercised = true;
       final cutRecords = recordsInCut(investorUsable, period.closingCut);
       final recomputed = periodShares(cutRecords, partnershipKeys: keys).last;
       if (recomputed.result != period.result ||
@@ -145,6 +153,10 @@ Future<_CheckResult> _checkRun(
     }
 
     final effectiveness = computeEffective(investorUsable, partnershipKeys: keys);
+    settlementsEffective = effectiveness.settlements
+        .where((s) => s.state == SettlementState.effective)
+        .length;
+
     final money = computeMoney(investorUsable, effectiveness: effectiveness);
     for (final entry in money.budgetLeft.entries) {
       if (entry.value < 0) {
@@ -175,10 +187,8 @@ Future<_CheckResult> _checkRun(
   }
 
   final expenseCount = run.events.where((e) => e.type == 'expense').length;
-  final settlementCount = run.events
-      .where((e) => e.type == 'settlement')
-      .length;
-  final nonTrivial = expenseCount > 0 && settlementCount > 0;
+  final reversalCount = run.events.where((e) => e.type == 'reversal').length;
+  final nonTrivial = settlementsEffective > 0 && expenseCount > 0;
   final passed =
       syncProtocolConverged &&
       identicalRecords &&
@@ -189,13 +199,19 @@ Future<_CheckResult> _checkRun(
 
   final row =
       '$configName,$seed,${investorUsable.length},$expenseCount,'
-      '$settlementCount,$nonTrivial,'
+      '$settlementsEffective,$reversalCount,$nonTrivial,'
+      '$settlementStableExercised,'
       '${run.onlineFractionInvestor.toStringAsFixed(4)},'
       '${run.onlineFractionManager.toStringAsFixed(4)},'
       '$syncProtocolConverged,'
       '$identicalRecords,$dashboardMatch,$settlementStable,$budgetSafe,'
       '$noFalseAlarms\n';
-  return _CheckResult(row: row, nonTrivial: nonTrivial, passed: passed);
+  return _CheckResult(
+    row: row,
+    nonTrivial: nonTrivial,
+    passed: passed,
+    settlementStableExercised: settlementStableExercised,
+  );
 }
 
 class _CheckResult {
@@ -203,11 +219,13 @@ class _CheckResult {
     required this.row,
     required this.nonTrivial,
     required this.passed,
+    required this.settlementStableExercised,
   });
 
   final String row;
   final bool nonTrivial;
   final bool passed;
+  final bool settlementStableExercised;
 }
 
 /// Rebuilds both devices' ledgers from scratch, through an in-memory relay

@@ -31,7 +31,7 @@ import 'dart:io';
 import 'package:evaluation/evaluation.dart';
 import 'package:qirad_core/qirad_core.dart';
 
-const _days = 30; // "about a month" per run — see docs/evaluation/README.md.
+const _days = 90; // about three settlement cycles — see docs/evaluation/README.md.
 const _hoursPerMonth = 24 * 30;
 
 const _coordinationFreeTypes = {'sale', 'expense', 'invest'};
