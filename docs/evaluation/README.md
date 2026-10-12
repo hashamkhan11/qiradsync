@@ -41,11 +41,21 @@ pressure on the rules, not from a lucky seed.
 | `profitWithdrawalFraction` | 10%–60% of settled share | same | Partners rarely withdraw either a token amount or everything at once. |
 | `capitalWithdrawalDailyChance` | ~once/90 days | same | The investor rarely pulls capital out mid-partnership. |
 | `capitalWithdrawalFraction` | 5%–20% of cash balance | same | A partial draw-down, not a full exit. |
-| `offlinePeriodsPerDay` | 1–3 | 1–2 | A phone goes offline a few short times a day under normal use. |
-| `offlinePeriodHours` | 1–6h | 24–72h | **Models reality** at 1–6h: a work gap or overnight. **Stress** stretches this to 1–3 days specifically to force long divergence before sync. |
+| `shortOfflinePeriodsPerDay` | 1–3 | 1–2 | A phone goes offline a few short times a day under normal use, in both configs. |
+| `shortOfflinePeriodHours` | 1–6h | same | A work gap or overnight — identical in both configs; only the long weekly episode below differs. |
+| `longOfflineEpisodeChancePerWeek` | 0 (never) | 1.0 (about once a week) | **Models reality**: a connection this bad never happens. **Stress** adds a genuinely dropped connection roughly once a week, on top of the daily gaps, to force long divergence before sync — without making the device permanently unreachable (periods never overlap; see "Online schedule" below). |
+| `longOfflineEpisodeDays` | n/a | 1–3 days | Length of the weekly episode when it fires. **Stress** only. |
 | `relayDelaySeconds` | 0–30s | 0–300s | **Models reality** at a normal connection's delay. **Stress** models a poor connection. |
 | `duplicateRate` | 2% | 10% | Fraction of deliveries arriving twice (a retried sync re-sending records the relay already has), to exercise de-duplication. **Stress** raises this to test it harder, not because real syncs duplicate this often. |
 | `reorderChance` | 2% | 15% | Extra chance a delivery is held back past its normal time, so records arrive out of `seq` order and exercise the chain-gap buffer. **Stress** raises this to test the buffer harder, not as a realistic rate. |
+
+**Online schedule:** each device's online/offline hours are precomputed once per run. Day 0 is
+always online for both devices (the partners set the partnership up in person, with the QR key
+exchange), and offline periods — both the short daily ones and, in `stress`, the long weekly
+episode — never overlap an hour already marked offline, so they cannot stack into a longer outage
+than either one is meant to model on its own. Each run records both devices' actual online
+fraction (`WorkloadRun.onlineFractionInvestor`/`onlineFractionManager`); the `onlineFraction*`
+columns in `rq1_correctness.csv` and `rq2_coordination.csv` report the range actually seen.
 
 **What this means for reading results:** every row in `stress` that differs from `realistic` exists
 to put pressure on a rule (reversal, staleness, chain-gap buffering, de-duplication, budget
@@ -53,15 +63,6 @@ renewal under contention) — none of them is a claim about how often a real bus
 dropped connections or reordering. Business-shape fields (amounts, rates of sales/expenses,
 settlement cadence) are identical between the two configs on purpose: `stress` is the same
 business under worse conditions, not a different one.
-
-**A consequence worth knowing about:** under `stress`, the manager's daily budget-renewal attempt
-(`budgetRenewalThreshold`) combined with the investor's 24–72h `answerDelayHours` means the budget
-proposal can starve completely — a fresh proposal supersedes yesterday's before the investor's
-delayed answer catches up, every day, for the whole run. In RQ2's 40 stress seeds this happened in
-every non-degenerate run: zero effective budget approvals, hence zero expenses, for the whole
-month. This is a real property of stress's parameter combination (poor connectivity can fully
-block a consent-gated operation while coordination-free ones keep flowing), not a measurement
-error — see `docs/evaluation/rq2_coordination_summary.csv`'s `expensesPerBudgetApproval` column.
 
 ## Run lengths
 
