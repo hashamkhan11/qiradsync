@@ -231,6 +231,96 @@ void main() {
       },
     );
 
+    test(
+      'a capital withdrawal for more than current capital is refused '
+      '(overCapital), and carries the amount actually left',
+      () async {
+        final (validator, investor, manager, partnership) =
+            await setUpPartnership();
+        final parties = Parties(investor: investor.key, manager: manager.key);
+        final invest = await investor.next(
+          partnership: partnership,
+          type: 'invest',
+          body: {'amount': 1000},
+        );
+        await validator.receiveText(canonicalJson(invest.toJson()));
+
+        final result = proposalRefusal(
+          type: 'withdraw_request',
+          author: investor.key,
+          parties: parties,
+          ledger: validator.usableRecords.toList(),
+          validator: validator,
+          kind: 'capital',
+          amount: 1500,
+        );
+
+        expect(result?.reason, ProposalRefusal.overCapital);
+        expect(result?.capitalLeft, 1000);
+      },
+    );
+
+    test(
+      'a capital withdrawal within current capital is allowed',
+      () async {
+        final (validator, investor, manager, partnership) =
+            await setUpPartnership();
+        final parties = Parties(investor: investor.key, manager: manager.key);
+        final invest = await investor.next(
+          partnership: partnership,
+          type: 'invest',
+          body: {'amount': 1000},
+        );
+        await validator.receiveText(canonicalJson(invest.toJson()));
+
+        final result = proposalRefusal(
+          type: 'withdraw_request',
+          author: investor.key,
+          parties: parties,
+          ledger: validator.usableRecords.toList(),
+          validator: validator,
+          kind: 'capital',
+          amount: 1000,
+        );
+
+        expect(result, isNull);
+      },
+    );
+
+    test(
+      'a profit withdrawal is never refused by the capital check, even past '
+      'what capital would allow',
+      () async {
+        final (validator, investor, manager, partnership) =
+            await setUpPartnership();
+        final parties = Parties(investor: investor.key, manager: manager.key);
+        final invest = await investor.next(
+          partnership: partnership,
+          type: 'invest',
+          body: {'amount': 1000},
+        );
+        await validator.receiveText(canonicalJson(invest.toJson()));
+        final sale = await manager.next(
+          partnership: partnership,
+          type: 'sale',
+          body: {'amount': 5000},
+        );
+        await validator.receiveText(canonicalJson(sale.toJson()));
+
+        final result = proposalRefusal(
+          type: 'withdraw_request',
+          author: manager.key,
+          parties: parties,
+          ledger: validator.usableRecords.toList(),
+          validator: validator,
+          kind: 'profit',
+          amount: 5000,
+        );
+
+        expect(result, isNull);
+      },
+    );
+
     test('a settlement covering a sale since the last one is allowed', () async {
       final (validator, investor, manager, partnership) =
           await setUpPartnership();

@@ -1,5 +1,7 @@
 import 'authorization.dart';
 import 'budget_view.dart';
+import 'effective.dart';
+import 'money.dart';
 import 'periods.dart';
 import 'record.dart';
 import 'settlement.dart';
@@ -24,6 +26,10 @@ enum ProposalRefusal {
   /// (decision 2026-10-11).
   overBudget,
 
+  /// A capital `withdraw_request`'s amount is more than the current capital
+  /// (decision 2026-10-16). Does not apply to a profit withdrawal.
+  overCapital,
+
   /// A `reversal`'s target is not one of the types spec section 5 allows to
   /// be reversed, or is not held on this phone at all.
   notReversible,
@@ -34,15 +40,18 @@ enum ProposalRefusal {
 }
 
 /// The result of [proposalRefusal]: the reason, and (for
-/// [ProposalRefusal.overBudget] only) the amount actually left, so a caller
-/// can report it without recomputing it.
+/// [ProposalRefusal.overBudget] or [ProposalRefusal.overCapital]) the amount
+/// actually left, so a caller can report it without recomputing it.
 class ProposalRefusalResult {
-  const ProposalRefusalResult(this.reason, {this.budgetLeft});
+  const ProposalRefusalResult(this.reason, {this.budgetLeft, this.capitalLeft});
 
   final ProposalRefusal reason;
 
   /// Set only for [ProposalRefusal.overBudget].
   final int? budgetLeft;
+
+  /// Set only for [ProposalRefusal.overCapital].
+  final int? capitalLeft;
 }
 
 /// Why proposing a [type] record authored by [author] would be refused, or
@@ -56,7 +65,9 @@ class ProposalRefusalResult {
 /// the partnership is already active; it does not check that itself.
 ///
 /// Extra parameters, by [type]:
-/// - `withdraw_request`: pass [kind] (`"capital"` or `"profit"`).
+/// - `withdraw_request`: pass [kind] (`"capital"` or `"profit"`) and
+///   [amount] (checked against current capital only when [kind] is
+///   `"capital"`; a profit withdrawal is not amount-checked here).
 /// - `expense`: pass [budgetId] (the chosen budget's id) and [amount].
 /// - `reversal`: pass [reversalTarget] (the id of the record to reverse).
 /// - every other type (`invest`, `sale`, `budget_proposal`, `ratio_proposal`,
@@ -79,6 +90,24 @@ ProposalRefusalResult? proposalRefusal({
   final keys = validator.partnershipKeys ?? const <String>{};
 
   switch (type) {
+    case 'withdraw_request':
+      if (kind != 'capital') return null;
+      final effectiveness = computeEffective(
+        validator.usableRecords,
+        partnershipKeys: keys,
+      );
+      final capital = computeMoney(
+        validator.usableRecords,
+        effectiveness: effectiveness,
+      ).capital;
+      if (amount != null && amount > capital) {
+        return ProposalRefusalResult(
+          ProposalRefusal.overCapital,
+          capitalLeft: capital,
+        );
+      }
+      return null;
+
     case 'expense':
       final budgets = effectiveBudgetsFor(
         validator.usableRecords,

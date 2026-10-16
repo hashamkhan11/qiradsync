@@ -1,5 +1,8 @@
+import 'amounts.dart';
 import 'approvals.dart';
 import 'consent_summary.dart';
+import 'effective.dart';
+import 'money.dart';
 import 'record.dart';
 import 'validator.dart';
 
@@ -18,6 +21,11 @@ enum AnswerConsentRefusal {
   /// The numbers changed since the user saw them, for example a sync made a
   /// settlement effective (spec 6.7).
   summaryChanged,
+
+  /// An approve of a capital `withdraw_request` whose amount is more than
+  /// the current capital (decision 2026-10-16). Does not apply to a profit
+  /// withdrawal.
+  overCapital,
 }
 
 /// The result of [answerConsent]: the reason, and the current summary for
@@ -31,6 +39,7 @@ class AnswerConsentResult {
     this.latestReversal,
     this.latestBudget,
     this.latestRatio,
+    this.capitalLeft,
   });
 
   final AnswerConsentRefusal reason;
@@ -39,6 +48,9 @@ class AnswerConsentResult {
   final ReversalConsent? latestReversal;
   final BudgetConsent? latestBudget;
   final RatioConsent? latestRatio;
+
+  /// Set only for [AnswerConsentRefusal.overCapital].
+  final int? capitalLeft;
 }
 
 /// Whether answering [targetId] with the already-built [candidate] record
@@ -94,6 +106,25 @@ AnswerConsentResult? answerConsent({
           : AnswerConsentResult(reason, latestSettlement: now);
 
     case 'withdraw_request':
+      // Checked here, not just on the proposing side, because the investor's
+      // own proposalRefusal check only sees capital at the moment it was
+      // proposed — more could have been withdrawn since, on either chain.
+      // This is a "right now" check, never a replay, so it cannot flip
+      // retroactively (decision 2026-10-16).
+      if (current.target.body['kind'] == 'capital') {
+        final amount = positiveAmount(current.target);
+        final effectiveness = computeEffective(usable, partnershipKeys: keys);
+        final capital = computeMoney(
+          usable,
+          effectiveness: effectiveness,
+        ).capital;
+        if (amount != null && amount > capital) {
+          return AnswerConsentResult(
+            AnswerConsentRefusal.overCapital,
+            capitalLeft: capital,
+          );
+        }
+      }
       final now = withdrawalConsent(
         usable,
         partnershipKeys: keys,

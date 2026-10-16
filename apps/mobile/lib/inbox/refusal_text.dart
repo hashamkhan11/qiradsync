@@ -36,5 +36,9 @@ String refusalText(WriteRefusal refusal) {
       // `result.budgetLeft` is in scope (create_widgets.dart); this is only
       // the generic fallback.
       return 'Over budget.';
+    case WriteRefusal.overCapital:
+      // Same pattern as overBudget: the amount-specific text is built where
+      // `result.capitalLeft` is in scope.
+      return 'Over capital.';
   }
 }

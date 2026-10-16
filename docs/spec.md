@@ -592,6 +592,20 @@ A phone writes its own records (an answer, a proposal, a sale) only through one 
    is invalid. This is different from section 6.4's "flagged and excluded": that rule is for an
    over-budget expense *received* from the other partner, whose own writer had no say in what this
    phone later learns about its budget (decision 2026-10-11).
+6. **No capital withdrawal beyond current capital.** A capital `withdraw_request`'s amount is
+   checked against `capital` (section 6.5), computed from this phone's own saved records, at two
+   points: before the investor's phone proposes it, and before the manager's phone approves it.
+   Either refuses the write if the amount is more than current capital right now. Both checks read
+   only the current state at the moment of that write — never a replay of either chain — so neither
+   can later flip as more records arrive; this is what keeps the rule compatible with section 6.2's
+   determinism requirement even though a capital withdrawal needs the other partner's approval (decision
+   2026-10-16). A profit `withdraw_request` is never checked this way. As with rule 5, this is
+   different from section 6.4's "flagged and excluded," which is for a record *received* from the
+   other partner; an over-capital withdrawal that nonetheless reaches `usableRecords` (for example a
+   forged record, or one from a build that predates this rule) is not flagged or excluded on receipt
+   — it can still only take effect if both partners' own writers let it through, which this rule
+   prevents for any app built after this decision. Detecting and excluding one that still gets
+   through is future work (decision 2026-10-16).
 
 ---
 

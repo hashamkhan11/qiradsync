@@ -1064,3 +1064,83 @@ the join code.
 **Tests:** `apps/mobile/test/onboarding_screen_test.dart` — the existing "shows the phone key" test
 now also checks for the QR; a new test confirms the scan button opens a scan screen titled
 "Scan manager's key".
+
+---
+
+## 2026-10-16 — `proposalRefusal` and `answerConsent` refuse a capital withdrawal beyond current capital
+
+**Finding:** The RQ1/RQ2 evaluation workloads showed `capital` going negative — one seed-1 example
+had capital at -5,419,527 paisa right before an attack, which is impossible (capital is investments
+minus capital withdrawals; a Mudaraba investor cannot withdraw more capital than they put in).
+
+Root cause in `packages/evaluation/lib/src/workload_generator.dart`: a capital withdrawal was sized
+as 5-20% of `cashBalance`, which includes undistributed sales profit (`money.dart`'s
+`computeMoney`), not of `capital`. A device with little capital left but a healthy cash balance
+could therefore generate a capital withdrawal larger than its actual capital. Across 100 seeds per
+config, 90-day runs: `realistic` config, 2/100 runs dipped negative at some point (1/100 ended
+negative, worst case seed=57 at -234,861.05 PKR); `stress` config, 0/100 in this sample, though the
+same code path was present.
+
+Separately, checking whether the system itself allowed this (not just the generator) found two real
+gaps:
+1. `proposalRefusal` (`qirad_core`) had no case at all for `withdraw_request` — it fell through to
+   `default: return null`, so nothing ever checked a capital withdrawal's amount against capital
+   before writing it.
+2. `RecordWriter.proposeWithdrawal` (apps/mobile) never passed `amount` to `_propose`, so even a
+   fixed `proposalRefusal` would never have received it from this call site.
+
+**Design considered and rejected:** A receive-side `WithdrawalStatus` (mirroring `ExpenseStatus`,
+which flags an over-budget expense on receipt — spec §6.4) was considered first, computed by
+replaying the investor's own chain in seq order and checking each capital withdrawal against
+capital as of that point. Rejected: unlike a budget, a capital withdrawal needs the *manager's*
+approval, which arrives on a different chain, at a different time. Example: capital = 100; W1 (80)
+proposed and pending; replayed alone, W2 (50) looks valid (80 + 50 > 100, but W1 has not taken
+effect yet). Once the manager approves W1, W2 retroactively becomes over-capital — its status would
+flip after the fact, purely because of when the other partner's approve happened to arrive. That
+breaks section 6.2's "same records, same result regardless of arrival order" rule, which every other
+effectiveness computation in `qirad_core` depends on.
+
+**Decision:** Fixed only the two points where a device is about to write something new, exactly as
+spec §7.4's new rule 6 describes:
+1. `proposalRefusal` gained a `case 'withdraw_request':`: for `kind == 'capital'`, it computes
+   current capital (`computeEffective` + `computeMoney(...).capital`) from the author's own
+   `validator.usableRecords` and refuses with a new `ProposalRefusal.overCapital` if `amount` is
+   more. `ProposalRefusalResult` gained a `capitalLeft` field, same pattern as `budgetLeft`. Profit
+   withdrawals are untouched — `kind != 'capital'` returns `null` immediately.
+2. `answerConsent`'s existing `case 'withdraw_request':` branch gained the same check, run before
+   the existing staleness check, using the same "capital right now" computation over
+   `validator.usableRecords`. `AnswerConsentRefusal.overCapital` and `AnswerConsentResult.capitalLeft`
+   mirror the propose side.
+3. `RecordWriter` maps both new core reasons to a new `WriteRefusal.overCapital`, threads a new
+   `WriteResult.capitalLeft` through both `answer()` and `_propose()`, and `proposeWithdrawal` now
+   passes `amount: amount` through (the second gap above). `WithdrawalForm` (create_widgets.dart's
+   shared `_save`) and `WithdrawalConfirmScreen` both show "Over capital: X available" using
+   `capitalLeft`, the same pattern `overBudget` already uses for `budgetLeft`.
+
+Both checks read only the state saved on this phone right now, never a replay of either chain — the
+exact property the rejected design lacked — so neither can flip once written, in either direction.
+
+No receive-side status is added. An over-capital withdrawal that nonetheless reaches
+`usableRecords` — a forged record, or a genuine one written by an app built before this decision —
+is not flagged or excluded; it stays exactly as effective as any other `withdraw_request` whose
+`approve` is active. Detecting and excluding one of these in a way that stays monotonic (for
+example by reusing the "a decision's effect is final once a later answer is invalid under the
+ordering rule" shape that already governs settlement answers) is future work, not done here.
+
+**Generator fix:** `workload_generator.dart`'s capital-withdrawal task now also reads `_capital`
+(mirroring the existing `_cashBalance` helper) and clamps the sized amount to
+`min(cashFraction, capital)` before writing the `withdraw_request`, so the workload itself can no
+longer generate a request the real app would now refuse.
+
+**Reason:** Consent, not a stored status, is the safeguard here — the same "the app never writes a
+record it already knows is invalid" principle behind `overBudget` (decision 2026-10-11) and
+`answerEarlierFirst` (decision 2026-10-08), applied at both ends of a two-party decision instead of
+one.
+
+**Tests:** `packages/qirad_core/test/proposal_refusal_test.dart` (a capital withdrawal over current
+capital is refused and carries `capitalLeft`; one within capital is allowed; a profit withdrawal is
+never refused this way) and `packages/qirad_core/test/answer_consent_test.dart` (the same three
+cases on the approve side). `apps/mobile/test/record_writer_test.dart` gained matching tests for
+`proposeWithdrawal` and `answer`, and the existing `'proposeWithdrawal of kind capital is investor
+only'` test now invests first, since a bare capital withdrawal with no capital at all is correctly
+refused after this fix.

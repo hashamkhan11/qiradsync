@@ -187,6 +187,91 @@ void main() {
     );
 
     test(
+      'approving a capital withdrawal for more than current capital is '
+      'refused (overCapital), and carries the amount actually left',
+      () async {
+        final (validator, investor, manager, partnership) =
+            await setUpPartnership();
+        final invest = await investor.next(
+          partnership: partnership,
+          type: 'invest',
+          body: {'amount': 1000},
+        );
+        await validator.receiveText(canonicalJson(invest.toJson()));
+        // Written directly (bypassing proposalRefusal) to model a request
+        // that reached this phone despite the propose-side guard, the way a
+        // forged or pre-fix record would (decision 2026-10-16).
+        final request = await investor.next(
+          partnership: partnership,
+          type: 'withdraw_request',
+          body: {'amount': 1500, 'kind': 'capital'},
+        );
+        await validator.receiveText(canonicalJson(request.toJson()));
+
+        final candidate = _candidateApprove(
+          validator,
+          manager.key,
+          partnership,
+          request.id,
+        );
+
+        final result = answerConsent(
+          targetId: request.id,
+          approve: true,
+          candidate: candidate,
+          validator: validator,
+        );
+
+        expect(result?.reason, AnswerConsentRefusal.overCapital);
+        expect(result?.capitalLeft, 1000);
+      },
+    );
+
+    test(
+      'approving a profit withdrawal is never refused by the capital check, '
+      'even past what capital would allow',
+      () async {
+        final (validator, investor, manager, partnership) =
+            await setUpPartnership();
+        final sale = await manager.next(
+          partnership: partnership,
+          type: 'sale',
+          body: {'amount': 5000},
+        );
+        await validator.receiveText(canonicalJson(sale.toJson()));
+        final request = await manager.next(
+          partnership: partnership,
+          type: 'withdraw_request',
+          body: {'amount': 5000, 'kind': 'profit'},
+        );
+        await validator.receiveText(canonicalJson(request.toJson()));
+
+        final candidate = _candidateApprove(
+          validator,
+          investor.key,
+          partnership,
+          request.id,
+        );
+        final shown = withdrawalConsent(
+          validator.usableRecords,
+          partnershipKeys: {investor.key, manager.key},
+          request: request,
+          answer: candidate,
+        );
+
+        final result = answerConsent(
+          targetId: request.id,
+          approve: true,
+          candidate: candidate,
+          validator: validator,
+          shownWithdrawal: shown,
+        );
+
+        expect(result, isNull);
+      },
+    );
+
+    test(
       'approving a budget proposal with the summary the user was just shown '
       'is allowed',
       () async {

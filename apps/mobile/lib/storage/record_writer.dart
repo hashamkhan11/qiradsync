@@ -73,6 +73,12 @@ enum WriteRefusal {
   /// this phone never creates one, so [proposeExpense] refuses it here
   /// instead. [WriteResult.budgetLeft] carries the amount actually left.
   overBudget,
+
+  /// A capital `withdraw_request`'s amount is more than the current capital
+  /// right now (spec 7.4, decision 2026-10-16), whether this key is
+  /// proposing it or approving it. A profit withdrawal is never refused
+  /// this way. [WriteResult.capitalLeft] carries the amount actually left.
+  overCapital,
 }
 
 /// The result of one write: the saved record, or the reason it was refused.
@@ -84,7 +90,8 @@ class WriteResult {
       latestReversal = null,
       latestBudget = null,
       latestRatio = null,
-      budgetLeft = null;
+      budgetLeft = null,
+      capitalLeft = null;
 
   const WriteResult.refused(
     WriteRefusal this.refusal, {
@@ -94,6 +101,7 @@ class WriteResult {
     this.latestBudget,
     this.latestRatio,
     this.budgetLeft,
+    this.capitalLeft,
   }) : record = null;
 
   final Record? record;
@@ -120,6 +128,11 @@ class WriteResult {
   /// [WriteRefusal.overBudget]. The screen can show "Over budget: X left"
   /// without recomputing it itself.
   final int? budgetLeft;
+
+  /// The capital actually available, set only for [WriteRefusal.overCapital].
+  /// The screen can show "Over capital: X available" without recomputing it
+  /// itself.
+  final int? capitalLeft;
 }
 
 /// Maps [qirad_core]'s [AnswerEligibilityRefusal] to this class's own
@@ -141,6 +154,7 @@ WriteRefusal _fromConsent(AnswerConsentRefusal reason) => switch (reason) {
   AnswerConsentRefusal.answerEarlierFirst => WriteRefusal.answerEarlierFirst,
   AnswerConsentRefusal.consentNotShown => WriteRefusal.consentNotShown,
   AnswerConsentRefusal.summaryChanged => WriteRefusal.summaryChanged,
+  AnswerConsentRefusal.overCapital => WriteRefusal.overCapital,
 };
 
 /// Maps [qirad_core]'s [ProposalRefusal] to [WriteRefusal] (see
@@ -149,6 +163,7 @@ WriteRefusal _fromProposal(ProposalRefusal reason) => switch (reason) {
   ProposalRefusal.wrongRole => WriteRefusal.wrongRole,
   ProposalRefusal.noEffectiveBudget => WriteRefusal.noEffectiveBudget,
   ProposalRefusal.overBudget => WriteRefusal.overBudget,
+  ProposalRefusal.overCapital => WriteRefusal.overCapital,
   ProposalRefusal.notReversible => WriteRefusal.notReversible,
   ProposalRefusal.emptyCut => WriteRefusal.emptyCut,
 };
@@ -264,6 +279,7 @@ class RecordWriter {
     ReversalConsent? latestReversal;
     BudgetConsent? latestBudget;
     RatioConsent? latestRatio;
+    int? capitalLeft;
     final text = await _store.appendWith(partnership, (texts) async {
       final ledger = [
         for (final text in texts)
@@ -332,6 +348,7 @@ class RecordWriter {
         latestReversal = consent.latestReversal;
         latestBudget = consent.latestBudget;
         latestRatio = consent.latestRatio;
+        capitalLeft = consent.capitalLeft;
         return null;
       }
 
@@ -351,6 +368,7 @@ class RecordWriter {
         latestReversal: latestReversal,
         latestBudget: latestBudget,
         latestRatio: latestRatio,
+        capitalLeft: capitalLeft,
       );
     }
     return WriteResult.written(
@@ -393,12 +411,17 @@ class RecordWriter {
   /// `"profit"`. A capital withdrawal is investor only — the manager put in
   /// no capital, so there is nothing for them to withdraw (decision
   /// 2026-10-10). A profit withdrawal stays open to either partner.
+  ///
+  /// A capital withdrawal for more than the current capital is refused here
+  /// (spec 7.4, decision 2026-10-16): [amount] is passed through to
+  /// [proposalRefusal] so it can be checked against capital right now.
   Future<WriteResult> proposeWithdrawal({
     required int amount,
     required String kind,
   }) => _propose(
     type: 'withdraw_request',
     kind: kind,
+    amount: amount,
     bodyOf: (_, _, _) => {'amount': amount, 'kind': kind},
   );
 
@@ -489,6 +512,7 @@ class RecordWriter {
 
     WriteRefusal? refusal;
     int? budgetLeft;
+    int? capitalLeft;
     final text = await _store.appendWith(partnership, (texts) async {
       final ledger = [
         for (final text in texts)
@@ -538,6 +562,7 @@ class RecordWriter {
       if (result != null) {
         refusal = _fromProposal(result.reason);
         budgetLeft = result.budgetLeft;
+        capitalLeft = result.capitalLeft;
         return null;
       }
 
@@ -563,7 +588,11 @@ class RecordWriter {
     });
 
     if (text == null) {
-      return WriteResult.refused(refusal!, budgetLeft: budgetLeft);
+      return WriteResult.refused(
+        refusal!,
+        budgetLeft: budgetLeft,
+        capitalLeft: capitalLeft,
+      );
     }
     return WriteResult.written(
       Record.fromJson(jsonDecode(text) as Map<String, dynamic>),
