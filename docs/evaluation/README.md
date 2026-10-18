@@ -10,6 +10,68 @@ Every run is reproducible from `(config, seed)` alone: one `Random(seed)` drives
 amount, delay and decision, and nothing in the generator reads the system clock (hard rule 3 —
 simulated `time` fields are built from the tick counter, never `DateTime.now()`).
 
+## Research questions
+
+Phase 8 answers four questions, each with its own tool and output files, so a result can always be
+traced back to how it was produced.
+
+### RQ1 — Correctness of delta sync
+
+**Question:** does the CRDT merge and delta-sync protocol converge to identical, correct ledgers on
+both devices, under realistic and adversarial network conditions, without ever recalculating a
+closed settlement?
+
+**Method:** several hundred seeded runs per config, 90 days each (`tool/rq1_correctness.dart`).
+Every run is checked two independent ways — `liveConverged` (the two devices' own validators,
+exactly as the simulation left them, after a forced final mutual-online quiet window) and
+`backupConverged` (`_resyncThroughRelay`: both devices' finished record sets replayed through the
+real delta protocol from scratch, once, at the end) — and `passed` requires both, so a passing
+backup can never hide a failing live check. See "Simulation simplifications" and "Threats to
+validity" below for what each check does and does not cover.
+
+**Metrics:** `liveConverged`, `backupConverged`, `identicalRecords`, `dashboardMatch`,
+`settlementStable`, `budgetSafe`, `noFalseAlarms`, `nonTrivial` (at least one effective settlement
+and one expense), `settlementsEffective`, `reversals`.
+
+**Output:** `docs/evaluation/rq1_correctness.csv` (one row per run), `rq1_failures.csv` (one row per
+failing check, with the seed and the first differing record or value, so it is reproducible).
+
+### RQ2 — Coordination cost
+
+**Question:** what share of writes are coordination-free versus need the other partner's consent,
+and how much does one round of coordination actually cover?
+
+**Method:** the same seeded runs (`tool/rq2_coordination.dart`), classifying every record into
+`coordinationFree` (`sale`, `expense`, `invest`, and a self-reversal), `consentProposals`
+(`budget_proposal`, `ratio_proposal`, `settlement`, `withdraw_request`, and a reversal of the other
+partner's record), or `responses` (`approve`/`reject` — the actual coordination cost: actions the
+*other* partner had to take). `partnership_create` is reported separately (always exactly 1 per
+run) rather than folded into the ratio. `expensesPerBudgetApproval` reports how many stand-alone
+expense writes one budget-approval round of coordination amortizes over.
+
+**Metrics:** `coordinationFree`/`consentProposals`/`responses` counts and fraction, per run and per
+month; `expensesPerBudgetApproval`.
+
+**Output:** `docs/evaluation/rq2_coordination.csv` (per run), `rq2_coordination_summary.csv`
+(aggregated per config).
+
+### RQ3 — Performance vs. ledger size
+
+**Question:** how does the per-call cost of the app's full-ledger recompute functions
+(`approvalsInbox`, `computeEffective`, `buildDashboard`) grow as the ledger grows, and is that
+acceptable at realistic sizes?
+
+**Method:** cached fixtures (`tool/generate_fixtures.dart`) at roughly 100 / 1,000 / 10,000 records
+(about 1 month / 12 months / 10 years of `realistic`), read back as size-N prefixes in authorship
+order; `tool/benchmark_recalc.dart` times each function in isolation, as a compiled binary (no JIT
+warm-up noise), with a warm-up phase and enough repetitions that the median is a real element, not
+an average.
+
+**Metrics:** median milliseconds per call, for each of the three functions, at each size.
+
+**Output:** fixtures cached under `packages/evaluation/data/` (gitignored, regenerable);
+`benchmark_recalc.dart`'s printed table, recorded into this README's "Where the time goes" table.
+
 ## The two configs
 
 `WorkloadConfig.realistic` models a believable business day. `WorkloadConfig.stress` keeps the
@@ -45,9 +107,9 @@ pressure on the rules, not from a lucky seed.
 | `shortOfflinePeriodHours` | 1–6h | same | A work gap or overnight — identical in both configs; only the long weekly episode below differs. |
 | `longOfflineEpisodeChancePerWeek` | 0 (never) | 1.0 (about once a week) | **Models reality**: a connection this bad never happens. **Stress** adds a genuinely dropped connection roughly once a week, on top of the daily gaps, to force long divergence before sync — without making the device permanently unreachable (periods never overlap; see "Online schedule" below). |
 | `longOfflineEpisodeDays` | n/a | 1–3 days | Length of the weekly episode when it fires. **Stress** only. |
-| `relayDelaySeconds` | 0–30s | 0–300s | **Models reality** at a normal connection's delay. **Stress** models a poor connection. |
-| `duplicateRate` | 2% | 10% | Fraction of deliveries arriving twice (a retried sync re-sending records the relay already has), to exercise de-duplication. **Stress** raises this to test it harder, not because real syncs duplicate this often. |
-| `reorderChance` | 2% | 15% | Extra chance a delivery is held back past its normal time, so records arrive out of `seq` order and exercise the chain-gap buffer. **Stress** raises this to test the buffer harder, not as a realistic rate. |
+| `relayDelaySeconds` | 0–30s | 0–300s | Modelled as a holdback on the author's own upload (a record is not offered as a sync candidate until this much simulated time has passed), not as latency before delivery to the recipient — the recipient only ever learns of it once it actually reaches the relay. **Models reality** at a normal connection's delay. **Stress** models a poor connection. |
+| `duplicateRate` | 2% | 10% | Chance a device's sync call is immediately repeated for the same hour (a retried sync re-sending records the relay already has), to exercise de-duplication (`ReceiveOutcome.duplicateIgnored`). **Stress** raises this to test it harder, not because real syncs duplicate this often. |
+| `reorderChance` | 0% | 15% | Chance a sync call's received batch is fed to the validator in shuffled order instead of the relay's guaranteed per-author seq order, to exercise the chain-gap buffer. **realistic** uses 0%: a well-behaved client never does this on its own, so there is nothing to model at a low rate. **Stress** raises it to test the buffer under a condition that should never occur in practice. |
 
 **Online schedule:** each device's online/offline hours are precomputed once per run. Day 0 is
 always online for both devices (the partners set the partnership up in person, with the QR key
@@ -172,9 +234,17 @@ hour:
 - Day 0: the investor creates the partnership and immediately logs the agreed starting capital.
   The investment is stored right away and becomes effective retroactively once the manager's
   approve arrives, matching how the app itself treats records that arrive before approval.
-- Each device has its own precomputed online/offline schedule; a record pushed while its author is
-  online is delayed by a sampled relay time, occasionally held back further (to force reordering)
-  or duplicated, and only "arrives" once the recipient is next online.
+- Each device has its own precomputed online/offline schedule, and syncs through a shared in-memory
+  relay (`RelaySim`) whenever it is online, using the same `syncOwnRecords` helper the real client's
+  `SyncRunner._runOnce` shape is modelled on (query first, upload what is actually missing, repeat
+  up to the spec's own repair-round limit). A record becomes a candidate for upload only once a
+  sampled relay delay has elapsed since it was authored; occasionally a device's sync call is
+  immediately repeated (to exercise de-duplication) or its received batch is shuffled before being
+  fed to the validator (to exercise the chain-gap buffer, `stress` only).
+- The run's final day is "quiet": both devices are forced online for the whole day, and nothing new
+  is authored or answered during it, so that window is pure sync time rather than a window where a
+  record authored in the run's literal last hour would have no later tick left to sync — see
+  "Simulation simplifications" below.
 - Sales and expenses are generated hourly from a Poisson-style daily rate; a small fraction of each
   are later reversed by the same author, after a delay, exactly like a real correction.
 - Budget renewal, ratio changes and settlements are triggered by business conditions (budget
@@ -194,13 +264,39 @@ See `packages/evaluation/lib/src/workload_generator.dart` for the implementation
 `packages/evaluation/test/workload_generator_test.dart` for what is verified about it
 (determinism, convergence, and that every record type appears).
 
+## Simulation simplifications
+
+These are deliberate differences from the real client, called out here so a reader does not mistake
+either one for a claim about the sync protocol itself:
+
+- **Each device's sync call only offers its own unacknowledged records as upload candidates**, not
+  every saved record the real client re-sends on every call (`apps/mobile/lib/sync/sync_runner.dart`
+  re-sends everything "because a smaller candidate list would be only a bandwidth shortcut" — true
+  here too). This is a pure bandwidth shortcut for the simulation: it never needs to recover another
+  device's lost upload, since nothing in the generator ever drops a write before it reaches the
+  relay. What counts as "unacknowledged" is read fresh from the relay's reply in the *current* sync
+  round every time (`syncOwnRecords`, `packages/evaluation/lib/src/sync_through_relay.dart`), never
+  from a remembered vector — the same rule spec 7.3 and `docs/decisions.md`'s "sync loop must not
+  trust a cached relay vector" require of the real client.
+- **The run's final day is quiet** (see "What the generator actually does" above): no new records
+  are authored or answered while both devices sit in the forced final online window. Without this,
+  a record authored in the simulation's literal last hour would have no later tick left in which
+  either device could sync it, regardless of how well the protocol itself behaved — a finite-run
+  boundary artifact that would otherwise show up as a `liveConverged` failure unrelated to sync
+  correctness.
+
 ## Threats to validity
 
-- **RQ1 checks convergence after re-syncing each run's final state**, not syncs interleaved with
-  ongoing writes: `_resyncThroughRelay` takes the two devices' already-finished record sets and
-  replays them through the real delta protocol (`RelaySim`, `firstMissingSeqs`, version vectors)
-  once, at the end. A device syncing mid-run, while still producing new records, exercises the
-  same primitives but was not separately tested here.
+- **RQ1's `liveConverged` and `backupConverged` are two different checks, and a passing backup
+  never hides a failing live check** (both are required for `passed`, and `rq1_failures.csv` logs
+  `liveConverged` failures even when `backupConverged` passes). `liveConverged` compares the two
+  devices' own validators exactly as the simulation left them, after a run that ends with a forced
+  mutual-online, quiet window — the closest this harness gets to "did the live protocol actually
+  converge," though it still only exercises the protocol while nothing new is being written in that
+  final window. `backupConverged` (`_resyncThroughRelay`) separately takes the two devices'
+  already-finished record sets and replays them through the real delta protocol (`RelaySim`,
+  `firstMissingSeqs`, version vectors) from scratch, once, at the end — a cross-check with no time
+  pressure or partial-eligibility behaviour of its own, not a stand-in for `liveConverged`.
 - **`RelaySim` is a Dart mirror of the PHP relay's logic** (exact-text storage, hash de-duplication,
   gap-aware version vector), not the relay itself — it exists so RQ1 can run inside the pure-Dart
   evaluation package without a live server. The real PHP relay is covered separately by the CI

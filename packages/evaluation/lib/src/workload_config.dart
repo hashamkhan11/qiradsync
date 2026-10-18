@@ -161,16 +161,21 @@ class WorkloadConfig {
   /// enough to force real divergence before the next sync.
   final IntRange longOfflineEpisodeDays;
 
-  /// Extra network delay once a device is back online and syncing.
-  /// `realistic` models a normal connection; `stress` models a poor one.
+  /// Extra network delay once a device is back online: a record is not
+  /// eligible to be uploaded in a sync call until this long after it was
+  /// authored. `realistic` models a normal connection; `stress` models a
+  /// poor one.
   final IntRange relayDelaySeconds;
 
-  /// Fraction of deliveries that arrive twice (a retried sync re-sending
-  /// records the relay already has), to exercise the merge's de-duplication.
+  /// Chance a device repeats the same sync call a second time right away (a
+  /// retried sync re-sending records the relay already has), to exercise
+  /// the merge's de-duplication (`ReceiveOutcome.duplicateIgnored`).
   final double duplicateRate;
 
-  /// Extra chance a delivery is held back past its normal delivery time, so
-  /// records arrive out of `seq` order and exercise the chain-gap buffer.
+  /// Chance a sync call's received batch is fed to the validator in a
+  /// shuffled order instead of the relay's own per-author seq order, to
+  /// exercise the chain-gap buffer. `realistic` keeps 0: a well-behaved
+  /// client never does this on its own. `stress` exercises it often.
   final double reorderChance;
 
   /// Values chosen to model a real small Mudaraba business: everyday
@@ -206,7 +211,7 @@ class WorkloadConfig {
     longOfflineEpisodeDays: const IntRange(1, 3),
     relayDelaySeconds: const IntRange(0, 30),
     duplicateRate: 0.02,
-    reorderChance: 0.02,
+    reorderChance: 0.0,
   );
 
   /// Values chosen to exercise the rules hard, not to model a typical day:

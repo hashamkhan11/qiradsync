@@ -3,9 +3,23 @@ import 'dart:math';
 import 'package:qirad_core/qirad_core.dart';
 
 import 'device.dart';
+import 'relay_sim.dart';
 import 'sampling.dart';
+import 'sync_through_relay.dart';
 import 'workload_config.dart';
 import 'workload_run.dart';
+
+/// Spec 7.3's own repair-round limit, matched here so the generator's live
+/// sync gives up on a stuck round exactly when the real client would.
+const _maxRepairRounds = 3;
+
+/// Length of the online window forced at both the start and the end of every
+/// run (see [_Engine._buildOnlineSchedule]). The run's final day is also kept
+/// "quiet" — no new records authored, including answers — for exactly this
+/// many hours, so the forced window is pure sync time with nothing new still
+/// landing in it. One full day, matching the day-aligned run length used
+/// everywhere else.
+const _forcedOnlineHours = 24;
 
 /// Runs one seeded simulation of [config] through the real core rules and
 /// returns both devices' final ledgers, in [WorkloadRun].
@@ -33,16 +47,6 @@ Future<WorkloadRun> generateWorkload(WorkloadConfig config, int seed) async {
 double _onlineFraction(List<bool> online) {
   if (online.isEmpty) return 0;
   return online.where((h) => h).length / online.length;
-}
-
-/// A record queued for delivery to the other device at a simulated hour —
-/// how the generator models a relay sync, instead of delivering everything
-/// the instant it is signed.
-class _Delivery {
-  _Delivery(this.hour, this.text);
-
-  final int hour;
-  final String text;
 }
 
 class _ScheduledReversal {
@@ -122,8 +126,19 @@ class _Engine {
 
   final List<WorkloadEvent> events = [];
   final List<RefusalEvent> refusals = [];
-  final List<_Delivery> pendingToInvestor = [];
-  final List<_Delivery> pendingToManager = [];
+
+  /// The relay both devices sync through, shared for the whole run — this
+  /// is what replaced the old direct-delivery queues: a device only learns
+  /// of the other partner's records by syncing against this, exactly like
+  /// the real client syncs against the real relay.
+  final RelaySim relay = RelaySim();
+
+  /// `recordId -> hour`: when a record becomes eligible to be offered as an
+  /// upload candidate (relay delay, remapped as a holdback on the author's
+  /// own upload rather than latency before delivery — see
+  /// [WorkloadConfig.relayDelaySeconds]).
+  final Map<String, int> uploadEligibleHour = {};
+
   final List<_ScheduledReversal> scheduledReversals = [];
   final Map<String, _PendingAnswer> pendingAnswersInvestor = {};
   final Map<String, _PendingAnswer> pendingAnswersManager = {};
@@ -161,6 +176,13 @@ class _Engine {
 
     for (var day = 0; day < config.days; day++) {
       final dayStartHour = day * 24;
+      // The run's final day is quiet: both devices are forced online for it
+      // (see _buildOnlineSchedule), and nothing new is authored or answered
+      // during it, so that window is pure sync time with nothing still
+      // landing in it — otherwise a record authored in the simulation's
+      // literal last hour would have no later tick left to sync, which is a
+      // finite-run boundary artifact, not a sync-protocol finding.
+      final quietDay = config.days > 1 && day == config.days - 1;
 
       if (day == 0) {
         // The partnership is bootstrapped, and the investor logs the agreed
@@ -175,15 +197,17 @@ class _Engine {
           body: {'amount': amount},
           hour: dayStartHour,
         );
-      } else {
+      } else if (!quietDay) {
         await _dailyTasks(day, dayStartHour);
       }
 
       for (var h = 0; h < 24; h++) {
         final hour = dayStartHour + h;
-        await _processDueDeliveries(hour);
-        await _hourlyTasks(hour);
-        await _answerPending(hour);
+        await _syncIfOnline(hour);
+        if (!quietDay) {
+          await _hourlyTasks(hour);
+          await _answerPending(hour);
+        }
       }
     }
   }
@@ -224,9 +248,14 @@ class _Engine {
 
     if (bernoulli(rng, config.capitalWithdrawalDailyChance)) {
       final cash = _cashBalance(investor);
-      if (cash > 0) {
+      final capital = _capital(investor);
+      if (cash > 0 && capital > 0) {
         final fraction = uniformDouble(rng, config.capitalWithdrawalFraction);
-        final amount = (cash * fraction).round();
+        // Sized off cashBalance (a believable "withdraw some of what's on
+        // hand" decision), but a capital withdrawal can never take out more
+        // than was actually invested — cash includes undistributed sales
+        // profit, which is not capital (qirad_core money.dart).
+        final amount = (cash * fraction).round().clamp(0, capital);
         if (amount > 0) {
           await _buildSignStore(
             device: investor,
@@ -680,8 +709,7 @@ class _Engine {
         author: _actorOf(device),
       ),
     );
-    _scheduleDelivery(from: device, text: text, authorHour: hour);
-    _markDirty(_otherDevice(device));
+    _recordUploadDelay(signed, hour);
     _pendingByDevice(device).remove(targetId);
 
     if (!approve) return;
@@ -727,8 +755,7 @@ class _Engine {
         author: _actorOf(device),
       ),
     );
-    _scheduleDelivery(from: device, text: text, authorHour: hour);
-    _markDirty(_otherDevice(device));
+    _recordUploadDelay(signed, hour);
     return signed;
   }
 
@@ -778,12 +805,20 @@ class _Engine {
     );
   }
 
-  // ---- network and offline model ---------------------------------------
+  // ---- network and sync model -------------------------------------------
 
-  /// Builds one device's online/offline hours for the whole run.
+  /// Builds one device's online/offline hours for the whole run — this is
+  /// also its sync eligibility: a device only syncs during an hour it is
+  /// online (see [_syncIfOnline]), exactly like the real app only syncs
+  /// while it has a connection.
   ///
   /// Day 0 is always online: the partners set the partnership up in person
   /// (the QR key exchange), so there is nothing to be offline *from* yet.
+  /// The last [_forcedOnlineHours] hours are always online too, on both
+  /// devices, and that same final day is kept quiet (see [run]) so nothing
+  /// new is still landing in it — together these make `liveConverged` (see
+  /// tool/rq1_correctness.dart) a real check rather than a coin flip on
+  /// whichever hour the schedule happened to land on at the run's end.
   /// After that, two independent things can mark hours offline, and neither
   /// is allowed to mark an hour that is already offline — periods never
   /// overlap or stack, so "offline" always means a fresh gap, not several
@@ -794,8 +829,7 @@ class _Engine {
   ///     divergence before the next sync.
   List<bool> _buildOnlineSchedule(int totalHours) {
     final online = List<bool>.filled(totalHours, true);
-    const firstOnlineHours = 24;
-    if (totalHours <= firstOnlineHours) return online;
+    if (totalHours <= _forcedOnlineHours) return online;
 
     bool fullyOnline(int start, int duration) {
       final end = min(start + duration, totalHours);
@@ -813,7 +847,7 @@ class _Engine {
     }
 
     if (config.longOfflineEpisodeChancePerWeek > 0) {
-      var weekStart = firstOnlineHours;
+      var weekStart = _forcedOnlineHours;
       while (weekStart < totalHours) {
         final weekEnd = min(weekStart + 24 * 7, totalHours);
         if (bernoulli(rng, config.longOfflineEpisodeChancePerWeek)) {
@@ -828,7 +862,7 @@ class _Engine {
       }
     }
 
-    for (var dayStart = firstOnlineHours;
+    for (var dayStart = _forcedOnlineHours;
         dayStart < totalHours;
         dayStart += 24) {
       final dayEnd = min(dayStart + 24, totalHours);
@@ -842,70 +876,84 @@ class _Engine {
       }
     }
 
+    for (var h = max(0, totalHours - _forcedOnlineHours); h < totalHours; h++) {
+      online[h] = true;
+    }
+
     return online;
   }
 
-  int _nextOnlineHour(List<bool> online, int from) {
-    var h = from < 0 ? 0 : from;
-    while (h < online.length && !online[h]) {
-      h++;
-    }
-    return h >= online.length ? online.length - 1 : h;
-  }
-
-  void _scheduleDelivery({
-    required Device from,
-    required String text,
-    required int authorHour,
-  }) {
-    final fromInvestor = from == investor;
-    final senderOnline = fromInvestor ? onlineInvestor : onlineManager;
-    final recipientOnline = fromInvestor ? onlineManager : onlineInvestor;
-    final queue = fromInvestor ? pendingToManager : pendingToInvestor;
-
-    final pushHour = _nextOnlineHour(senderOnline, authorHour);
+  /// Records when [record] becomes eligible to be offered as an upload
+  /// candidate — relay delay, remapped for the sync model as a holdback on
+  /// the author's own upload rather than latency before delivery (see
+  /// [WorkloadConfig.relayDelaySeconds]'s doc comment).
+  void _recordUploadDelay(Record record, int authorHour) {
     final relayHours = (uniformInt(rng, config.relayDelaySeconds) / 3600)
         .ceil();
-    var arriveHour = pushHour + relayHours;
-    if (bernoulli(rng, config.reorderChance)) {
-      // Held back on purpose, so a later record from the same author can
-      // overtake it and the recipient must buffer a real chain gap.
-      arriveHour += 2 + rng.nextInt(23);
-    }
-    final deliverHour = _nextOnlineHour(recipientOnline, arriveHour);
+    uploadEligibleHour[record.id] = authorHour + relayHours;
+  }
 
-    queue.add(_Delivery(deliverHour, text));
+  /// Each device that is online this hour runs one sync round, exactly like
+  /// the real app only syncing while it has a connection.
+  Future<void> _syncIfOnline(int hour) async {
+    if (onlineInvestor[hour]) await _syncDevice(investor, hour);
+    if (onlineManager[hour]) await _syncDevice(manager, hour);
+  }
+
+  Future<void> _syncDevice(Device device, int hour) async {
+    await _syncOnce(device, hour);
     if (bernoulli(rng, config.duplicateRate)) {
-      // A retried sync resending a record the relay already has.
-      queue.add(_Delivery(deliverHour, text));
+      // A retried sync calling again right away for the same round —
+      // exercises ReceiveOutcome.duplicateIgnored deliberately.
+      await _syncOnce(device, hour);
     }
   }
 
-  Future<void> _processDueDeliveries(int hour) async {
-    await _deliver(pendingToInvestor, investor, hour);
-    await _deliver(pendingToManager, manager, hour);
+  Future<void> _syncOnce(Device device, int hour) async {
+    final before = device.validator.ledger.records.length;
+    final shuffleThisCall = bernoulli(rng, config.reorderChance);
+    await syncOwnRecords(
+      relay: relay,
+      validator: device.validator,
+      ownKey: device.key,
+      ownTextsFrom: (fromSeq) => _ownTextsFrom(device, fromSeq, hour),
+      maxRepairRounds: _maxRepairRounds,
+      reorder: shuffleThisCall ? _shuffled : null,
+    );
+    if (device.validator.ledger.records.length > before) {
+      _markDirty(device);
+    }
   }
 
-  Future<void> _deliver(
-    List<_Delivery> queue,
-    Device recipient,
-    int hour,
-  ) async {
-    final due = queue.where((d) => d.hour <= hour).toList();
-    if (due.isEmpty) return;
-    queue.removeWhere((d) => d.hour <= hour);
-    for (final delivery in due) {
-      await recipient.validator.receiveText(delivery.text);
+  List<String> _shuffled(List<String> texts) => [...texts]..shuffle(rng);
+
+  /// This device's own signed record texts from [fromSeq] onward, stopping
+  /// at the first seq that either does not exist yet or is not yet eligible
+  /// to upload (see [_recordUploadDelay]) — a later-but-eligible record is
+  /// never sent ahead of an earlier-but-not-yet-eligible one, so a slow
+  /// record can hold up its own author's later ones, same as a real device
+  /// cannot usefully upload record N+1 before record N.
+  List<String> _ownTextsFrom(Device device, int fromSeq, int hour) {
+    final own = <int, Record>{
+      for (final r in device.validator.ledger.records)
+        if (r.author == device.key) r.seq: r,
+    };
+    final texts = <String>[];
+    var seq = fromSeq;
+    while (true) {
+      final record = own[seq];
+      if (record == null) break;
+      if ((uploadEligibleHour[record.id] ?? hour) > hour) break;
+      texts.add(canonicalJson(record.toJson()));
+      seq++;
     }
-    _markDirty(recipient);
+    return texts;
   }
 
   // ---- small helpers -----------------------------------------------------
 
   Map<String, _PendingAnswer> _pendingByDevice(Device device) =>
       device == investor ? pendingAnswersInvestor : pendingAnswersManager;
-
-  Device _otherDevice(Device device) => device == investor ? manager : investor;
 
   Actor _actorOf(Device device) =>
       device == investor ? Actor.investor : Actor.manager;
@@ -927,6 +975,17 @@ class _Engine {
       device.validator.usableRecords,
       effectiveness: effectiveness,
     ).cashBalance;
+  }
+
+  int _capital(Device device) {
+    final effectiveness = computeEffective(
+      device.validator.usableRecords,
+      partnershipKeys: partnershipKeys,
+    );
+    return computeMoney(
+      device.validator.usableRecords,
+      effectiveness: effectiveness,
+    ).capital;
   }
 
   int _highestSeqFor(Validator validator, String author) {

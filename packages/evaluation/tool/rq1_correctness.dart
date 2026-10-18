@@ -38,7 +38,7 @@ Future<void> main(List<String> args) async {
       'config,seed,records,expenses,settlementsEffective,reversals,'
       'nonTrivial,settlementStableExercised,'
       'onlineFractionInvestor,onlineFractionManager,'
-      'syncProtocolConverged,identicalRecords,'
+      'liveConverged,backupConverged,identicalRecords,'
       'dashboardMatch,settlementStable,budgetSafe,noFalseAlarms\n',
     );
   final failuresFile = File('../../docs/evaluation/rq1_failures.csv')
@@ -48,6 +48,7 @@ Future<void> main(List<String> args) async {
     var nonTrivialCount = 0;
     var passCount = 0;
     var settlementStableExercisedCount = 0;
+    var liveConvergedCount = 0;
     for (var seed = 1; seed <= seedsPerConfig; seed++) {
       final config = configName == 'stress'
           ? WorkloadConfig.stress(days: _days)
@@ -58,6 +59,7 @@ Future<void> main(List<String> args) async {
       if (result.nonTrivial) nonTrivialCount++;
       if (result.passed) passCount++;
       if (result.settlementStableExercised) settlementStableExercisedCount++;
+      if (result.liveConverged) liveConvergedCount++;
 
       if (seed % 25 == 0) {
         stdout.writeln('$configName: $seed/$seedsPerConfig done');
@@ -68,7 +70,9 @@ Future<void> main(List<String> args) async {
       '$nonTrivialCount/$seedsPerConfig non-trivial '
       '(at least one effective settlement and one expense), '
       '$settlementStableExercisedCount/$seedsPerConfig actually had a '
-      'closed period to check settlementStable against',
+      'closed period to check settlementStable against, '
+      '$liveConvergedCount/$seedsPerConfig converged live, without the '
+      'post-hoc resync',
     );
   }
   stdout.writeln('wrote ${resultsFile.path} and ${failuresFile.path}');
@@ -88,11 +92,42 @@ Future<_CheckResult> _checkRun(
   }
 
   final keys = {run.investor.key, run.manager.key};
+
+  // liveConverged checks the LIVE validators the simulation itself carried
+  // through the whole run — no post-hoc resync action of any kind. A final
+  // mutual-online window is forced into every schedule (see
+  // _buildOnlineSchedule) specifically so this has a real chance to pass;
+  // a false result here is a finding even when backupConverged (below)
+  // passes, because the backup resync must never hide a live failure.
+  final liveInvestorUsable = run.investor.validator.usableRecords.toList();
+  final liveManagerUsable = run.manager.validator.usableRecords.toList();
+  var liveConverged = _sameIds(liveInvestorUsable, liveManagerUsable);
+  if (!liveConverged) {
+    fail('liveConverged', _firstDifferingId(liveInvestorUsable, liveManagerUsable));
+  } else {
+    final liveInvestorDashboard = buildDashboard(
+      liveInvestorUsable,
+      partnershipKeys: keys,
+    );
+    final liveManagerDashboard = buildDashboard(
+      liveManagerUsable,
+      partnershipKeys: keys,
+    );
+    liveConverged = _dashboardEquals(liveInvestorDashboard, liveManagerDashboard);
+    if (!liveConverged) {
+      fail(
+        'liveConverged',
+        'investor result=${liveInvestorDashboard.money.result} '
+        'manager result=${liveManagerDashboard.money.result}',
+      );
+    }
+  }
+
   final resync = await _resyncThroughRelay(run);
-  final syncProtocolConverged = resync.converged;
-  if (!syncProtocolConverged) {
+  final backupConverged = resync.converged;
+  if (!backupConverged) {
     fail(
-      'syncProtocolConverged',
+      'backupConverged',
       'did not converge within $_maxRepairRounds repair rounds',
     );
   }
@@ -189,8 +224,11 @@ Future<_CheckResult> _checkRun(
   final expenseCount = run.events.where((e) => e.type == 'expense').length;
   final reversalCount = run.events.where((e) => e.type == 'reversal').length;
   final nonTrivial = settlementsEffective > 0 && expenseCount > 0;
+  // liveConverged is included here, not just logged, so the backup resync
+  // can never hide a live failure behind a passing overall result.
   final passed =
-      syncProtocolConverged &&
+      liveConverged &&
+      backupConverged &&
       identicalRecords &&
       dashboardMatch &&
       settlementStable &&
@@ -203,7 +241,7 @@ Future<_CheckResult> _checkRun(
       '$settlementStableExercised,'
       '${run.onlineFractionInvestor.toStringAsFixed(4)},'
       '${run.onlineFractionManager.toStringAsFixed(4)},'
-      '$syncProtocolConverged,'
+      '$liveConverged,$backupConverged,'
       '$identicalRecords,$dashboardMatch,$settlementStable,$budgetSafe,'
       '$noFalseAlarms\n';
   return _CheckResult(
@@ -211,6 +249,7 @@ Future<_CheckResult> _checkRun(
     nonTrivial: nonTrivial,
     passed: passed,
     settlementStableExercised: settlementStableExercised,
+    liveConverged: liveConverged,
   );
 }
 
@@ -220,12 +259,14 @@ class _CheckResult {
     required this.nonTrivial,
     required this.passed,
     required this.settlementStableExercised,
+    required this.liveConverged,
   });
 
   final String row;
   final bool nonTrivial;
   final bool passed;
   final bool settlementStableExercised;
+  final bool liveConverged;
 }
 
 /// Rebuilds both devices' ledgers from scratch, through an in-memory relay
