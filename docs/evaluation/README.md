@@ -122,6 +122,73 @@ actualOutcome, detected, noImpact, forgedExcluded, honestUnaffected, settledUnch
 four columns are blank except where that check applies), `rq4_security_summary.csv`
 (counts and rates for all four checks, per attack type and config).
 
+## Findings
+
+### Quarantining an equivocator can undo the honest partner's own consent and revert a settled period
+
+**What happens:** spec §6.4's equivocation rule, as built in `Validator`, excludes *every* record
+an equivocating author wrote from the contested `seq` onward, forever — not just the forged
+record. This is correct and necessary for the forged record itself, but it is global by author,
+not by record identity, so it also removes any *real*, honestly-signed record from that author at
+or after that seq. Two cases were targeted to confirm this has real effect:
+
+- **Budget approve:** if the investor equivocates at the seq of their own `approve` of a
+  `budget_proposal`, that approve disappears from `usableRecords`. `decideApprovals` recomputes the
+  budget's `Decision` fresh every call, so the budget reverts to `pending`, and every manager
+  expense written against it — expenses the manager wrote in good faith while the budget was
+  genuinely approved — falls through `computeEffective` to `ExpenseStatus.noEffectiveBudget` and
+  stops counting.
+- **Settlement cut:** if the investor equivocates at a seq inside an already-`effective`
+  settlement's `cut`, the settlement's own status reverts from `effective` to `waiting`
+  (`settlementStatuses` also recomputes fresh every call) — a period that was already closed and
+  paid out un-settles itself, even though the cut's own seq numbers do not change.
+
+**Evidence** (15-seed smoke runs, 90-day workloads, both configs — full-size numbers once the
+approved full run completes):
+
+| config    | attack type                  | detected | forgedExcluded | honestUnaffected | settledUnchanged |
+|-----------|-------------------------------|----------|----------------|-------------------|-------------------|
+| realistic | equivocation (generic)        | 15/15    | 15/15          | 6/15              | 14/15             |
+| realistic | equivocationAtBudgetApprove    | 15/15    | 15/15          | 0/15              | 0/15              |
+| realistic | equivocationAtSettlementCut    | 15/15    | 15/15          | 0/15              | 0/15              |
+| stress    | equivocation (generic)        | 15/15    | 15/15          | 8/15              | 15/15             |
+| stress    | equivocationAtBudgetApprove    | 15/15    | 15/15          | 0/15              | 0/15              |
+| stress    | equivocationAtSettlementCut    | 15/15    | 15/15          | 0/15              | 0/15              |
+
+Both targeted variants hit `honestUnaffected = 0` and `settledUnchanged = 0` on every seed, in
+both configs — a deterministic, structural consequence of how the quarantine is defined, not a
+rare or seed-dependent event. The untargeted, generic equivocation attack (which usually lands on
+a seq the honest partner never specifically relied on) shows the same effect only part of the time
+(6/15–8/15 "unaffected"), consistent with this being about *which* seq is hit, not a different
+mechanism.
+
+**One example (realistic config, seed 1):**
+
+- *Budget approve* — the investor's `approve` of a Rs 27,428.80 budget sat at seq 3. Quarantining
+  the investor from seq 3 flipped all 15 of the manager's expense records written against that
+  budget from `effective=true` (`ExpenseStatus.valid`) to `effective=false`
+  (`ExpenseStatus.noEffectiveBudget`) — none of those 15 records were touched or forged; they
+  changed purely because the approval they depended on vanished. The dashboard's `cashBalance`
+  moved by +Rs 1,675,009.40 and `result` by +Rs 81,553.00, both only because real spending silently
+  stopped being counted.
+- *Settlement cut* — an already-`effective` settlement (`cut = {investor: 4, manager: 68}`,
+  `profitPaid` = Rs 874,432.13) reverted to `waiting` the moment the investor was quarantined from
+  a seq inside that cut, even though the cut's own numbers did not change. `profitPaid` for that
+  period fell to Rs 0 — a period that had already paid out profit-sharing stopped being settled at
+  all.
+
+**What still holds:** `detected` and `forgedExcluded` are 15/15 in every row above. The system
+always correctly identifies the equivocating author — both this device directly, and the other
+partner independently via `RelaySim` cross-checking — and the forged content itself never appears
+in any computed number. What breaks is strictly collateral: legitimate records the honest partner
+wrote, and periods already closed, before the forgery was ever sent.
+
+**Decision:** not fixed in core for this phase (scope freeze) — `qirad_core`'s quarantine rule
+stays exactly as spec §6.4 defines it. See `docs/decisions.md`, 2026-10-16, for the full write-up,
+reasoning, and future-work design options (never quarantine inside an effective settlement's cut;
+keep the first-received version at a contested seq for consent already relied on; freeze
+consent-dependent effects at the point of reliance).
+
 ## The two configs
 
 `WorkloadConfig.realistic` models a believable business day. `WorkloadConfig.stress` keeps the
