@@ -105,3 +105,17 @@ stress,3,malformedSchema,rejectedSchema,rejectedSchema,true,true,,,
 stress,4,malformedSchema,rejectedSchema,rejectedSchema,true,true,,,
 stress,5,malformedSchema,rejectedSchema,rejectedSchema,true,true,,,
 stress,1,overBudgetExpense,accepted;overBudget,accepted;overBudget,true,true,,,
+stress,2,overBudgetExpense,accepted;overBudget,accepted;overBudget,true,true,,,
+stress,3,overBudgetExpense,accepted;overBudget,accepted;overBudget,true,true,,,
+stress,4,overBudgetExpense,accepted;overBudget,accepted;overBudget,true,true,,,
+stress,5,overBudgetExpense,accepted;overBudget,accepted;overBudget,true,true,,,
+stress,1,equivocationAtBudgetApprove,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
+stress,2,equivocationAtBudgetApprove,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
+stress,3,equivocationAtBudgetApprove,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
+stress,4,equivocationAtBudgetApprove,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
+stress,5,equivocationAtBudgetApprove,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
+stress,1,equivocationAtSettlementCut,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
+stress,2,equivocationAtSettlementCut,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
+stress,3,equivocationAtSettlementCut,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
+stress,4,equivocationAtSettlementCut,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
+stress,5,equivocationAtSettlementCut,equivocating;flaggedByOther,equivocating;flaggedByOther=true,true,,true,false,false
