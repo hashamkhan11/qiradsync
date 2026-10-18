@@ -1,5 +1,7 @@
 # QiradSync
 
+![QiradSync: two partner phones holding the same signed ledger, synced through a relay](docs/banner.png)
+
 An offline-first ledger for **Mudaraba** (Islamic profit-sharing) partnerships between two
 partners: one investor (Rabb-ul-Mal) and one manager (Mudarib).
 
