@@ -72,6 +72,56 @@ an average.
 **Output:** fixtures cached under `packages/evaluation/data/` (gitignored, regenerable);
 `benchmark_recalc.dart`'s printed table, recorded into this README's "Where the time goes" table.
 
+### RQ4 — Security
+
+**Question:** does the system detect every attack attempted against it, and does no attack change
+the honest partner's own numbers?
+
+**Method:** `tool/rq4_security.dart`, about 50 seeds per attack type per config (see "Run lengths"
+for the actual sizes used). Each run starts from an honest generated run, injects one crafted
+attack record into the receiving device, and checks `detected` (the validator's actual outcome
+matches the expected one). For the 9 ordinary attacks (1–9 below), it also checks `noImpact` (the
+receiving device's dashboard numbers stay identical to the honest run's own — only evidence/flags
+may differ). The 3 equivocation-family attacks (6, 11, 12) use three separate checks instead of
+one blended `noImpact`, because an equivocating author's quarantine is global and retroactive
+(spec §6.4) and a single pass/fail number hid exactly where it bites — see "Findings" below:
+
+- `forgedExcluded` — the forged version never appears in any computed number anywhere.
+- `honestUnaffected` — every record written by the *other*, honest partner keeps the same
+  effective/expense status it had before the attack.
+- `settledUnchanged` — every settlement that was already `effective` before the attack stays
+  `effective`, with an identical `cut`, after it.
+
+**Attack types and expected outcomes:**
+
+| # | Attack | Expected outcome |
+|---|---|---|
+| 1 | Signature tamper — change a field of a real signed record, keep the old signature | `rejectedSignature` |
+| 2 | Outside key — a non-partner key signs a record | `rejectedMembership` |
+| 3 | Wrong role — a real partner key signs a type it may not author (manager signs `invest`, investor signs `sale`, manager requests a capital withdrawal) | `rejectedMembership` |
+| 4 | Forged `partnership_create` — valid signature, different investor key, sent to a device with pinned keys | `rejectedMembership`; the real create is still accepted afterwards |
+| 5 | Chain tamper — the real author signs its next record with a wrong `prevHash` | `chainInvalid` |
+| 6 | Equivocation (generic) — the real author signs two different records at the same `seq` as its current chain head (including rewriting and re-signing an old one) | `equivocating`; the other partner, receiving both versions through `RelaySim`, also flags the author |
+| 7 | Id conflict — a new record reuses an existing id with different content | `idConflict` |
+| 8 | Non-canonical bytes (extra spaces, wrong key order, duplicate keys) / malformed schema | `rejectedNotCanonical` / `rejectedSchema` |
+| 9 | Over-budget expense signed by a dishonest manager (valid signature, breaks the budget) | stored as evidence, status `overBudget`, excluded from all computed numbers |
+| 10 | — *(reserved; see note below)* | |
+| 11 | Equivocation at budget approve — the investor equivocates at the exact `seq` of their own `approve` of a `budget_proposal` | `equivocating`, detected both sides, but see "Findings" |
+| 12 | Equivocation at settlement cut — the investor equivocates at a `seq` already covered by an `effective` settlement's `cut` | `equivocating`, detected both sides, but see "Findings" |
+
+(Numbering follows `AttackType`'s declaration order in `rq4_security.dart`; there is no attack
+#10 — the enum has 12 values, with the two targeted equivocation variants added after the original
+9.)
+
+Any attack that is not detected, or that changes the honest partner's numbers, is a finding to
+report, not a result to hide. For the two targeted equivocation variants, that finding is
+confirmed and documented below rather than hidden — see "Findings."
+
+**Output:** `docs/evaluation/rq4_security.csv` (config, seed, attackType, expectedOutcome,
+actualOutcome, detected, noImpact, forgedExcluded, honestUnaffected, settledUnchanged — the last
+four columns are blank except where that check applies), `rq4_security_summary.csv`
+(counts and rates for all four checks, per attack type and config).
+
 ## The two configs
 
 `WorkloadConfig.realistic` models a believable business day. `WorkloadConfig.stress` keeps the
