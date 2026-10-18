@@ -249,14 +249,32 @@ business under worse conditions, not a different one.
 
 ## Run lengths
 
-> **Status: `rq1_correctness.csv`, `rq1_failures.csv`, `rq2_coordination.csv` and
-> `rq2_coordination_summary.csv` are superseded.** They were generated from 30-day runs, and
-> `settlementIntervalDays` (30) can never trigger within a 30-day run (the day-index loop only
-> reaches day 29), so no run in either config has ever produced a settlement — every
-> `settlementStable` check so far has passed vacuously, without ever exercising spec 6.7's "a
-> closed period never recalculates" rule. RQ1's 300/300-pass, 0/300-non-trivial result above is
-> real but uninformative about settlements for the same reason. Both tools are being changed to
-> 90-day runs (about three settlement cycles) and re-run; this note is removed once that lands.
+> **RQ1 results (2026-10-18, commit `13110e9`, 300 seeds/config, 90-day runs):** 600/600 runs
+> passed every check — `liveConverged`, `backupConverged`, `identicalRecords`, `dashboardMatch`,
+> `settlementStable`, `budgetSafe` and `noFalseAlarms` are `true` on every row of
+> `rq1_correctness.csv`; `rq1_failures.csv` has no rows besides its header.
+>
+> `settlementStable` (spec 6.7's "a closed period never recalculates") was actually exercised on
+> 297/300 `realistic` seeds and 293/300 `stress` seeds — the other 10 seeds had no closed
+> settlement period to check against. A read-only diagnosis of all 10 (see
+> `tool/diag_rq1_zero_settlement.dart`, not committed) found the same cause in each: within the
+> 90-day window only two of the ~3 settlement opportunities fell due, and both of that seed's
+> proposals happened, independently, to be rejected (`settlementRejectChance` = 0.10 per proposal,
+> so two in a row is a roughly 1-in-100 event). None were left `waiting`/stuck — every proposal was
+> answered. This is expected simulation behaviour, not a liveness defect.
+>
+> With zero failures, the rule of three bounds the true failure rate at roughly 3/300 ≈ 1% (95%
+> confidence) for every check that ran on all 300 seeds, and at roughly 3/297 ≈ 1% (`realistic`) /
+> 3/293 ≈ 1% (`stress`) for `settlementStable` specifically, based on the seeds it actually
+> exercised.
+>
+> Total runtime: about 63 minutes of CPU time (matching the ~6.3 s/run measured earlier), though
+> the background run's wall clock read 365 minutes — the machine slept partway through and the
+> process resumed without dying, it did not hang. Machine: AMD Ryzen 7 PRO 4750U (8 cores / 16
+> threads), 16 GB RAM, Dart SDK 3.10.7 (stable, windows_x64), Windows 11 Pro.
+>
+> RQ2 at full size (40 seeds/config) has not run yet; its results land here the same way once it
+> does.
 
 - **RQ1 (correctness of delta sync):** several hundred seeded runs per config, each covering about
   a month, so the sample is large enough to catch rare merge or ordering bugs rather than relying
