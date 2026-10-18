@@ -273,8 +273,17 @@ business under worse conditions, not a different one.
 > process resumed without dying, it did not hang. Machine: AMD Ryzen 7 PRO 4750U (8 cores / 16
 > threads), 16 GB RAM, Dart SDK 3.10.7 (stable, windows_x64), Windows 11 Pro.
 >
-> RQ2 at full size (40 seeds/config) has not run yet; its results land here the same way once it
-> does.
+> **RQ2 results (2026-10-18, commit `7bf96c1`, 40 seeds/config, 3 months each):** 240/240
+> (seed × month) rows in `rq2_coordination.csv` have at least one `consentProposals` and one
+> `responses` record, so every coordination bucket was exercised throughout, not just on average.
+> `partnershipCreateCount` is exactly 40 in both configs' summary rows (1 per seed, as the method
+> requires) — a correctness sanity check on the classifier itself, not just the workload.
+> `coordinationFreeShare` is 0.938 (`realistic`) / 0.938 (`stress`) and `consentProposalsShare` is
+> 0.062 / 0.062 — most writes need no coordination at all, as the design intends.
+> `expensesPerBudgetApproval` is 6.28 (`realistic`) / 7.23 (`stress`): one round of budget
+> coordination covers several stand-alone expense writes. Total runtime: under 6 minutes (5 m 49 s
+> wall clock, matching the ~4.3 s/run measured earlier — no sleep interruption this time). Machine:
+> same as RQ1, above.
 
 - **RQ1 (correctness of delta sync):** several hundred seeded runs per config, each covering about
   a month, so the sample is large enough to catch rare merge or ordering bugs rather than relying
