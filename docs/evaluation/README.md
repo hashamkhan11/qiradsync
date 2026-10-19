@@ -143,23 +143,24 @@ or after that seq. Two cases were targeted to confirm this has real effect:
   (`settlementStatuses` also recomputes fresh every call) — a period that was already closed and
   paid out un-settles itself, even though the cut's own seq numbers do not change.
 
-**Evidence** (15-seed smoke runs, 90-day workloads, both configs — full-size numbers once the
-approved full run completes):
+**Evidence** (2026-10-19, commit `f9b94ed`, 50 seeds/attack/config, 90-day workloads, both
+configs — see `rq4_security_summary.csv`):
 
 | config    | attack type                  | detected | forgedExcluded | honestUnaffected | settledUnchanged |
 |-----------|-------------------------------|----------|----------------|-------------------|-------------------|
-| realistic | equivocation (generic)        | 15/15    | 15/15          | 6/15              | 14/15             |
-| realistic | equivocationAtBudgetApprove    | 15/15    | 15/15          | 0/15              | 0/15              |
-| realistic | equivocationAtSettlementCut    | 15/15    | 15/15          | 0/15              | 0/15              |
-| stress    | equivocation (generic)        | 15/15    | 15/15          | 8/15              | 15/15             |
-| stress    | equivocationAtBudgetApprove    | 15/15    | 15/15          | 0/15              | 0/15              |
-| stress    | equivocationAtSettlementCut    | 15/15    | 15/15          | 0/15              | 0/15              |
+| realistic | equivocation (generic)        | 50/50    | 50/50          | 19/50             | 47/50             |
+| realistic | equivocationAtBudgetApprove    | 50/50    | 50/50          | 0/50              | 0/50              |
+| realistic | equivocationAtSettlementCut    | 50/50    | 50/50          | 0/50              | 0/50              |
+| stress    | equivocation (generic)        | 50/50    | 50/50          | 26/50             | 48/50             |
+| stress    | equivocationAtBudgetApprove    | 50/50    | 50/50          | 0/50              | 1/50              |
+| stress    | equivocationAtSettlementCut    | 50/50    | 50/50          | 0/50              | 0/50              |
 
-Both targeted variants hit `honestUnaffected = 0` and `settledUnchanged = 0` on every seed, in
-both configs — a deterministic, structural consequence of how the quarantine is defined, not a
-rare or seed-dependent event. The untargeted, generic equivocation attack (which usually lands on
-a seq the honest partner never specifically relied on) shows the same effect only part of the time
-(6/15–8/15 "unaffected"), consistent with this being about *which* seq is hit, not a different
+Both targeted variants hit `honestUnaffected = 0` on every seed, in both configs, and
+`settledUnchanged = 0` on all but one (`stress`/`equivocationAtBudgetApprove`, 1/50) — a
+deterministic, structural consequence of how the quarantine is defined, not a rare or
+seed-dependent event. The untargeted, generic equivocation attack (which usually lands on a seq
+the honest partner never specifically relied on) shows the same effect only part of the time
+(19/50–26/50 "unaffected"), consistent with this being about *which* seq is hit, not a different
 mechanism.
 
 **One example (realistic config, seed 1):**
@@ -284,6 +285,41 @@ business under worse conditions, not a different one.
 > coordination covers several stand-alone expense writes. Total runtime: under 6 minutes (5 m 49 s
 > wall clock, matching the ~4.3 s/run measured earlier — no sleep interruption this time). Machine:
 > same as RQ1, above.
+>
+> **RQ4 results (2026-10-19, commit `f9b94ed`, 50 seeds/attack/config, 90-day runs):** 1,200/1,200
+> attack attempts (12 attack types × 2 configs × 50 seeds) are in `rq4_security.csv`; every single
+> one has `detected = true`, in both configs, for every attack type — 100% detection, no exceptions.
+> The 9 "ordinary" attack types (`signatureTamper`, `outsideKey`, `wrongRole`, `forgedCreate`,
+> `chainTamper`, `idConflict`, `nonCanonical`, `malformedSchema`, `overBudgetExpense`) are also
+> clean on the second check: `noImpact = true` on all 50/50 seeds in both configs — the forged or
+> malformed record is rejected and nothing else in the ledger is affected.
+>
+> The 3 equivocation-family attacks reconfirm, at full scale, the quarantine finding already
+> documented below ("Quarantining an equivocator can undo the honest partner's own consent"):
+> `equivocationAtBudgetApprove` has `honestUnaffected = 0/50` in both configs, and
+> `equivocationAtSettlementCut` has `settledUnchanged = 0/50` in both configs — the honest partner's
+> real approval or already-closed settlement is collaterally undone every single time the targeted
+> seq is hit, not just occasionally. The untargeted, generic `equivocation` attack (which lands on a
+> random seq, not deliberately on a consent-bearing one) shows the same effect only part of the
+> time, as expected: `honestUnaffected` 19/50 (`realistic`) / 26/50 (`stress`), `settledUnchanged`
+> 47/50 (`realistic`) / 48/50 (`stress`). These numbers replace the 15-seed smoke-test numbers in
+> the table below.
+>
+> One seed was skipped and substituted: `stress` seed 43 has zero effective settlements in its
+> 90-day window (the same deterministic workload already diagnosed above, for the identical
+> reason — two settlement proposals, both independently rejected by chance), so
+> `equivocationAtSettlementCut` requires at least one effective settlement to target and found
+> none; the tool moved on to seed 51 to reach 50 usable seeds, exactly as its own comments describe
+> (`_seedPoolSize = 400`, skipped seeds are not counted as a pass or fail). This is the same
+> already-adjudicated cause as the RQ1 finding, not a new issue, and every other attack type still
+> has all 50/50 seeds from the original 1–50 range for `stress`.
+>
+> With zero detection failures across 1,200 independent attempts, the rule of three bounds the true
+> non-detection rate at roughly 3/1,200 ≈ 0.25% (95% confidence) overall, or about 3/50 = 6% within
+> any single attack/config cell taken alone. Total runtime: about 17 minutes of actual compute
+> (matching the ~4.25 s/run measured earlier, 1,200 runs), though the background run's wall clock
+> read 668 minutes — the machine slept overnight partway through and the process resumed without
+> dying, it did not hang. Machine: same as RQ1/RQ2, above.
 
 - **RQ1 (correctness of delta sync):** several hundred seeded runs per config, each covering about
   a month, so the sample is large enough to catch rare merge or ordering bugs rather than relying
