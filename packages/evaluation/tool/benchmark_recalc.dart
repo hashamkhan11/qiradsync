@@ -20,7 +20,7 @@ import 'dart:io';
 import 'package:qirad_core/qirad_core.dart';
 
 /// Ledger sizes to measure at, clipped to what the fixture actually has.
-const _sizes = [100, 1000, 2500, 5000, 10000];
+const _sizes = [100, 1000, 2500, 3751, 5000, 10000];
 
 const _warmupReps = 5;
 const _timedReps = 31; // odd, so "median" is an actual element, not an average.

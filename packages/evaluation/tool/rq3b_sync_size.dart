@@ -26,7 +26,7 @@ import 'dart:io';
 
 import 'package:qirad_core/qirad_core.dart';
 
-const _sizes = [100, 1000, 2500, 5000, 10000];
+const _sizes = [100, 1000, 2500, 3751, 5000, 10000];
 
 Future<void> main(List<String> args) async {
   final path = args.isNotEmpty ? args[0] : 'data/realistic_seed123_5years.json';

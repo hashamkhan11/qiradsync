@@ -455,27 +455,34 @@ warm-up doesn't add noise to the numbers.
 
 **Results (2026-10-20, `data/realistic_seed123_5years.json`, laptop plugged in, nothing else
 running):** the 10-year fixture never finished generating (see "Run lengths"), so this ran against
-the largest fixture that did — 5 years, 3,751 records — and the two larger sizes on the tool's own
-list, 5,000 and 10,000, were not reached:
+the largest fixture that did — 5 years, 3,751 records, added as the ladder's top point. The two
+larger sizes on the tool's own list, 5,000 and 10,000, were not reached:
 
 | Records | `approvalsInbox` (ms) | `computeEffective` (ms) | `buildDashboard` (ms) |
 |---|---|---|---|
-| 100 | 0.09 | 0.06 | 0.07 |
-| 1,000 | 5.13 | 2.80 | 2.89 |
-| 2,500 | 34.94 | 18.87 | 19.18 |
+| 100 | 0.10 | 0.07 | 0.08 |
+| 1,000 | 5.20 | 2.80 | 2.87 |
+| 2,500 | 40.33 | 21.18 | 23.65 |
+| 3,751 | 122.76 | 42.25 | 45.45 |
 
-The growth is clearly super-linear and gets worse, not better, as the ledger grows: 100 → 1,000 is
-a 10× increase in records but roughly a 57× (`approvalsInbox`), 47× (`computeEffective`) or 41×
-(`buildDashboard`) increase in time; 1,000 → 2,500 is a 2.5× increase in records and roughly a
-6.6–6.8× increase in time across all three functions — close to the 6.25× a pure quadratic would
-predict at that step, and clearly worse than the 2.5× linear growth would give. This matches the
-fixture-generation times above, which grow even faster still (3 years → 5 years was a 1.67× increase
-in days but a 10.7× increase in generation time) — the generator calls these same functions
-repeatedly while simulating, so its own slowdown is a direct symptom of this cost. All three
-functions share the same cause: `approvalsInbox` calls `decideApprovals` and `computeEffective`;
-`buildDashboard` calls `computeEffective` and `computeMoney`; all rescan **every** usable record
-from scratch on every call, by hard rule 5's design (deterministic, no stored derived state) —
-there is no incremental version.
+The growth is clearly super-linear throughout, and gets worse, not better, as the ledger grows: 100
+→ 1,000 is a 10× increase in records but roughly a 52× (`approvalsInbox`), 40×
+(`computeEffective`) or 36× (`buildDashboard`) increase in time; 1,000 → 2,500 (2.5× the records)
+brings a further ~7.6–8.2× increase across all three; 2,500 → 3,751 (1.5× the records) brings a
+further ~1.9–3.0× increase, with `approvalsInbox` growing noticeably faster than the other two at
+this step. Every step is worse than the matching linear prediction, and several exceed even the
+matching quadratic one (10× records should give ≤100× under quadratic, but these reach only
+36–52×, so that step is actually sub-quadratic; 2.5× should give ≤6.25×, but these reach 7.6–8.2×,
+exceeding it; 1.5× should give ≤2.25×, which `approvalsInbox` exceeds at 3.0× while the other two
+stay just under it at ~1.9–2.0×) — so the curve is not a clean power law, but it is unambiguously
+and consistently worse than linear at every step measured. This matches the fixture-generation
+times above, which grow even faster still (3 years → 5 years was a 1.67× increase in days but a
+10.7× increase in generation time) — the generator calls these same functions repeatedly while
+simulating, so its own slowdown is a direct symptom of this cost. All three functions share the
+same cause: `approvalsInbox` calls `decideApprovals` and `computeEffective`; `buildDashboard` calls
+`computeEffective` and `computeMoney`; all rescan **every** usable record from scratch on every
+call, by hard rule 5's design (deterministic, no stored derived state) — there is no incremental
+version.
 
 **What this means for the app, not just the generator:** `apps/mobile/lib/dashboard/dashboard_screen.dart`
 calls both `approvalsInbox` (for its inbox-count badge) and `buildDashboard` fresh **on every widget
@@ -499,16 +506,21 @@ the version vector — see RQ3b above for exactly what "ordinary" means here):
 | 100 | 44,924 | 2 | 909 | 98 | 44.6× |
 | 1,000 | 448,501 | 2 | 876 | 100 | 459.5× |
 | 2,500 | 1,121,854 | 2 | 878 | 102 | 1,144.7× |
+| 3,751 | 1,683,491 | 2 | 878 | 102 | 1,717.8× |
 
-(5,000 and 10,000 were not reached — the fixture used, same as RQ3's, tops out at 3,751 records.)
+(5,000 and 10,000 were not reached — the fixture used, same as RQ3's, tops out at 3,751 records,
+which is now the ladder's top point.)
 
 A day's typical sync stays close to flat (2 new records, under 1 KB) regardless of how big the
 ledger already is, while the full-state download grows linearly with it — so the full/delta ratio
-grows essentially linearly too, from 45× at 100 records to over 1,100× at 2,500. This is the
-expected shape for a delta protocol: a device that syncs regularly pays a near-constant cost per
-sync no matter how old the partnership gets, and only a brand-new device (or one resyncing from
-scratch) pays the full-state cost — which is exactly the gap this measurement was built to check,
-since `docs/plan.md`'s Phase 8 checklist asks for it by name.
+grows linearly too, not super-linearly: ratio ÷ records is ~0.446, 0.460, 0.458 and 0.458 at the
+four sizes above — effectively a constant, confirming the ratio is a straight line through the
+origin, not a curve. (This is a different growth shape from recalculation *time* above, which is
+super-linear — the two measure different things and should not be conflated.) This is the expected
+shape for a delta protocol: a device that syncs regularly pays a near-constant cost per sync no
+matter how old the partnership gets, and only a brand-new device (or one resyncing from scratch)
+pays the full-state cost — which is exactly the gap this measurement was built to check, since
+`docs/plan.md`'s Phase 8 checklist asks for it by name.
 
 This measures payload **bytes**, not network time — no actual network call is made or timed here
 (that would depend on the device's connection, which is a separate, unmeasured variable). It is also
