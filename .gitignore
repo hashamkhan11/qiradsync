@@ -17,6 +17,10 @@ commit-msg
 .packages
 build/
 pubspec_overrides.yaml
+
+# Generated evaluation fixtures (large, reproducible from a seed — see
+# packages/evaluation/tool/generate_fixtures.dart)
+packages/evaluation/data/
 **/ios/Pods/
 **/android/.gradle/
 **/android/local.properties

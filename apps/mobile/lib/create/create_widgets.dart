@@ -158,6 +158,12 @@ class _CreateScaffoldState extends State<CreateScaffold> {
               'Over budget: ${formatPaisa(result.budgetLeft!)} left.',
         );
         break;
+      case WriteRefusal.overCapital:
+        setState(
+          () => _message =
+              'Over capital: ${formatPaisa(result.capitalLeft!)} available.',
+        );
+        break;
       default:
         setState(() => _message = refusalText(refusal));
     }

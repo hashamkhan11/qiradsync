@@ -1,0 +1,5 @@
+records,fullBytes,deltaRecordsMedian,deltaBytesMedian,vectorBytes,deltaTotalBytes,ratio
+100,44924,2,909,98,1007,44.61
+1000,448501,2,876,100,976,459.53
+2500,1121854,2,878,102,980,1144.75
+3751,1683491,2,878,102,980,1717.85

@@ -1,0 +1,18 @@
+name: evaluation
+description: >
+  Simulates realistic two-partner Mudaraba activity through the same core
+  rules the app uses, to measure correctness, coordination cost and
+  performance for Phase 8's write-up. Not shipped in the app.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.10.7
+
+dependencies:
+  qirad_core:
+    path: ../qirad_core
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6

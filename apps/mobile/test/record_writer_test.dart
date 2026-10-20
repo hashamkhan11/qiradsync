@@ -701,6 +701,8 @@ void main() {
       () async {
         await startWithCreate();
         await syncedAs(investorSeq: 1, managerSeq: 1);
+        await writer().proposeInvest(amount: 1000);
+        await syncedAs(investorSeq: 2, managerSeq: 1);
 
         final fromInvestor = await writer().proposeWithdrawal(
           amount: 100,
@@ -735,6 +737,88 @@ void main() {
           kind: 'profit',
         );
         expect(fromManager.record, isNotNull);
+      },
+    );
+
+    test(
+      'proposeWithdrawal of kind capital for more than current capital is '
+      'refused (overCapital), and writes nothing (decision 2026-10-16)',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+        await writer().proposeInvest(amount: 1000);
+        await syncedAs(investorSeq: 2, managerSeq: 1);
+        final before = store.validatorFor(partnership).usableRecords.length;
+
+        final result = await writer().proposeWithdrawal(
+          amount: 1500,
+          kind: 'capital',
+        );
+
+        expect(result.record, isNull);
+        expect(result.refusal, WriteRefusal.overCapital);
+        expect(result.capitalLeft, 1000);
+        expect(
+          store.validatorFor(partnership).usableRecords.length,
+          before,
+          reason: 'a refused withdrawal is never written',
+        );
+      },
+    );
+
+    test(
+      'proposeWithdrawal of kind profit is never refused by the capital '
+      'check, even with no capital invested at all',
+      () async {
+        await startWithCreate();
+        await syncedAs(investorSeq: 1, managerSeq: 1);
+
+        final result = await writer().proposeWithdrawal(
+          amount: 1500,
+          kind: 'profit',
+        );
+
+        expect(result.record, isNotNull);
+      },
+    );
+
+    test(
+      'approving a capital withdrawal for more than current capital is '
+      'refused (overCapital), and the approve screen can show the amount '
+      'available (decision 2026-10-16)',
+      () async {
+        await startWithCreate();
+        final invest = await write(
+          investor,
+          investorChain,
+          id: 'invest-1',
+          type: 'invest',
+          body: const {'amount': 1000},
+        );
+        await receive(invest);
+        // Written directly on the investor's own chain (bypassing
+        // proposeWithdrawal's own guard) to model a request that reached
+        // this phone despite the propose-side check, the way a forged or
+        // pre-fix record would.
+        final request = await write(
+          investor,
+          investorChain,
+          id: 'w-over-capital',
+          type: 'withdraw_request',
+          body: const {'amount': 1500, 'kind': 'capital'},
+        );
+        await receive(request);
+        await syncedAs(investorSeq: 3, managerSeq: 1);
+
+        final result = await managerWriter().answer(
+          testId('w-over-capital'),
+          approve: true,
+          shownWithdrawal: previewWithdrawal(request),
+        );
+
+        expect(result.record, isNull);
+        expect(result.refusal, WriteRefusal.overCapital);
+        expect(result.capitalLeft, 1000);
       },
     );
 
