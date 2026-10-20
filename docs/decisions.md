@@ -1252,3 +1252,46 @@ cases on the approve side). `apps/mobile/test/record_writer_test.dart` gained ma
 `proposeWithdrawal` and `answer`, and the existing `'proposeWithdrawal of kind capital is investor
 only'` test now invests first, since a bare capital withdrawal with no capital at all is correctly
 refused after this fix.
+
+---
+
+## 2026-10-20 — Phase 8 audit: on-device timing deferred past this phase
+
+**Finding:** The audit for Phase 8 found that `docs/plan.md`'s checklist item "measure verification
+and recalculation time on a real mid-range Android phone" was not met by RQ3: `tool/benchmark_recalc.dart`
+was run as a compiled Dart binary on the development machine (an AMD Ryzen 7 PRO 4750U laptop), not
+on an Android phone.
+
+**Decision:** Deferred, not closed now. The recalculation-cost *shape* (how cost grows with ledger
+size — see "Where the time goes") is already established from the laptop numbers and does not need
+a phone to demonstrate; what a phone run adds is the *absolute* number a real user would feel,
+which needs an actual device in hand to measure honestly rather than guessed from a desktop CPU's
+numbers. This is planned as part of the real-phone pass already scheduled for the Phase 8 write-up
+(screenshots, demo video), not a separate task.
+
+**Reason:** A desktop timing stands in for the shape of the cost, not the felt cost on the hardware
+that matters, and `docs/plan.md`'s own "Done when" for Phase 8 names a device model explicitly —
+reporting a laptop number under that heading would misstate what was measured.
+
+**Tests:** none; no code changed. `docs/plan.md`'s "measure verification and recalculation time on
+a real mid-range Android phone" checklist item stays unchecked.
+
+---
+
+## 2026-10-20 — Phase 8 audit: design report and README polish deferred past this phase
+
+**Finding:** The audit for Phase 8 found that `docs/design-report.md` does not exist yet, and the
+root README has no screenshots or demo video link — both named explicitly in `docs/plan.md`'s Phase
+8 checklist.
+
+**Decision:** Deferred, not closed now. Both depend on the same real-phone pass as the on-device
+timing decision above: `docs/design-report.md` is the developer's own write-up pulling RQ1–RQ4 (and
+the sync-size measurement) together with that phone's numbers, and the README's screenshots and
+demo video need an actual running app to capture, not placeholders.
+
+**Reason:** Writing a design report or taking screenshots before the on-device measurement exists
+would mean redoing them once real numbers land, or leaving the eventual report citing a laptop
+number it should not.
+
+**Tests:** none; no code changed. `docs/plan.md`'s remaining Phase 8 checklist items (design report,
+clean README) stay unchecked until the real-phone pass.

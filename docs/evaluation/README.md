@@ -74,6 +74,30 @@ average.
 **Output:** fixtures cached under `packages/evaluation/data/` (gitignored, regenerable);
 `benchmark_recalc.dart`'s printed table, recorded into this README's "Where the time goes" table.
 
+### RQ3b — Sync payload size
+
+**Question:** at realistic ledger sizes, how many bytes does an ordinary delta sync carry, compared
+to the full-state download a brand-new device would need? (This is `docs/plan.md`'s "measure sync
+size (full vs delta) for 100 / 1,000 / 10,000 records" item — a different question from RQ3's call
+*time*, so it gets its own tool and table rather than being folded into RQ3's numbers.)
+
+**Method:** `tool/rq3b_sync_size.dart`, reusing the same cached fixture as RQ3 (no new simulation
+runs). "Full" is the canonical JSON (spec 7.2) of every record in a size-N prefix — what a new
+device's very first sync downloads. "Delta" is the version vector a syncing device sends (spec 7.1)
+plus the records the relay sends back for one ordinary sync. The fixture's `events` log only
+records when each record was authored, not when any sync call ran or what it carried, so "one
+ordinary sync" is approximated as "one simulated day": the records authored on a given day stand in
+for what the next sync would pick up. This is a proxy over authorship timing, not a replay of real
+sync calls, and is reported as such. The **median** across days (not the mean) is used for both the
+record count and the byte count, each computed separately from the real per-day data — not one
+derived from the other — so "a typical sync" is an actual day that happened, not an average no day
+matches.
+
+**Metrics:** full-state bytes, delta record count and bytes (median), version-vector bytes, and the
+full/delta ratio, at each size.
+
+**Output:** `docs/evaluation/rq3_sync_size.csv`.
+
 ### RQ4 — Security
 
 **Question:** does the system detect every attack attempted against it, and does no attack change
@@ -463,6 +487,34 @@ what tells us whether it stays fine as a real partnership's ledger grows over ye
 call — not harness overhead, so it was measured and reported here rather than worked around. No
 `qirad_core` change was made (Phase 8 is scope-frozen, and the app is not unusable at today's
 realistic ledger sizes); incremental recalculation is tracked as future work in `docs/plan.md`.
+
+## Sync payload size (full vs delta)
+
+**Results (2026-10-20, `tool/rq3b_sync_size.dart data/realistic_seed123_5years.json`):** full-state
+size (every record up to that point) versus one ordinary delta sync (median day's new records plus
+the version vector — see RQ3b above for exactly what "ordinary" means here):
+
+| Records | Full-state bytes | Delta records (median/day) | Delta bytes (median/day) | Version vector bytes | Full ÷ delta |
+|---|---|---|---|---|---|
+| 100 | 44,924 | 2 | 909 | 98 | 44.6× |
+| 1,000 | 448,501 | 2 | 876 | 100 | 459.5× |
+| 2,500 | 1,121,854 | 2 | 878 | 102 | 1,144.7× |
+
+(5,000 and 10,000 were not reached — the fixture used, same as RQ3's, tops out at 3,751 records.)
+
+A day's typical sync stays close to flat (2 new records, under 1 KB) regardless of how big the
+ledger already is, while the full-state download grows linearly with it — so the full/delta ratio
+grows essentially linearly too, from 45× at 100 records to over 1,100× at 2,500. This is the
+expected shape for a delta protocol: a device that syncs regularly pays a near-constant cost per
+sync no matter how old the partnership gets, and only a brand-new device (or one resyncing from
+scratch) pays the full-state cost — which is exactly the gap this measurement was built to check,
+since `docs/plan.md`'s Phase 8 checklist asks for it by name.
+
+This measures payload **bytes**, not network time — no actual network call is made or timed here
+(that would depend on the device's connection, which is a separate, unmeasured variable). It is also
+a proxy, not a replay of real sync calls: the cached fixture only logs when each record was
+authored, not when any sync happened or what it carried, so "one ordinary sync" stands in for "the
+records authored in one simulated day" (see RQ3b's method above for the reasoning and its limits).
 
 ## What the generator actually does
 
