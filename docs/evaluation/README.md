@@ -61,11 +61,13 @@ month; `expensesPerBudgetApproval`.
 (`approvalsInbox`, `computeEffective`, `buildDashboard`) grow as the ledger grows, and is that
 acceptable at realistic sizes?
 
-**Method:** cached fixtures (`tool/generate_fixtures.dart`) at roughly 100 / 1,000 / 10,000 records
-(about 1 month / 12 months / 10 years of `realistic`), read back as size-N prefixes in authorship
-order; `tool/benchmark_recalc.dart` times each function in isolation, as a compiled binary (no JIT
-warm-up noise), with a warm-up phase and enough repetitions that the median is a real element, not
-an average.
+**Method:** cached fixtures (`tool/generate_fixtures.dart`), planned at roughly 100 / 1,000 /
+10,000 records (about 1 month / 12 months / 10 years of `realistic`) but the 10-year generation did
+not finish (see "Run lengths"), so the ladder actually reached is 1 month / 12 months / 3 years / 5
+years (about 65 / 731 / 2,268 / 3,751 records); read back as size-N prefixes in authorship order,
+`tool/benchmark_recalc.dart` times each function in isolation, as a compiled binary (no JIT warm-up
+noise), with a warm-up phase and enough repetitions that the median is a real element, not an
+average.
 
 **Metrics:** median milliseconds per call, for each of the three functions, at each size.
 
@@ -320,14 +322,60 @@ business under worse conditions, not a different one.
 > (matching the ~4.25 s/run measured earlier, 1,200 runs), though the background run's wall clock
 > read 668 minutes — the machine slept overnight partway through and the process resumed without
 > dying, it did not hang. Machine: same as RQ1/RQ2, above.
+>
+> **RQ3 fixture generation (2026-10-19/20, commit `abf8759`, `realistic` config, seed 123):** the
+> planned ladder was 1 month / 12 months / 10 years, landing near 100 / 1,000 / 10,000 records. The
+> 10-year job did not finish: it was left running under a 6-hour internal cap, the cap never fired,
+> and it was killed by hand after running 379m50s (about 6h20m) with no fixture written. Two
+> fallback lengths were generated instead — 3 years and 5 years — and both finished:
+>
+> | Length | Days | Records/side | Generation time |
+> |---|---|---|---|
+> | 1 month | 30 | 65 | 1.3 s (1,302 ms) |
+> | 12 months | 365 | 731 | 49.2 s (49,240 ms) |
+> | 3 years | 1,095 | 2,268 | 91.2 min (5,470,518 ms) |
+> | 5 years | 1,825 | 3,751 | 972.2 min / 16.2 h (58,332,592 ms) — see caveat below |
+> | 10 years | 3,650 | — (never finished) | > 6h20m, killed manually |
+>
+> This growth is itself RQ3 evidence, independent of the benchmark below: going from 3 years to 5
+> years is a 1.67× increase in days but a 10.7× increase in generation time, consistent with the
+> full-ledger recalculation cost growing much faster than record count (see "Where the time goes").
+>
+> The 6-hour cap was supposed to stop the 10-year job automatically, and it did not. The mechanism
+> (a `Timer` in a separate main isolate, racing a worker isolate that does the actual generation)
+> was built specifically to avoid two already-diagnosed failure modes — an external `timeout`
+> wrapper whose signal doesn't reach a native `dart.exe` child on Windows, and a same-isolate
+> `Future.delayed` that a CPU-bound async function's own microtask chain can starve — and it passed
+> its own smoke test. It still failed on the real, much longer run. The likely cause (not confirmed):
+> a `Timer`, in any isolate, only fires when that isolate's event loop gets a turn between
+> microtasks; if the generation loop's `await`s keep completing immediately rather than yielding to
+> the event queue, the main isolate's own Timer can be starved the same way a same-isolate one was,
+> just over a longer run before it becomes visible. A `Stopwatch` polled from inside the generation
+> loop itself would not have this problem, since it needs no callback to fire at all. This is not
+> fixed yet — the existing four-length ladder was accepted as sufficient for RQ3 rather than
+> debugging the cap mechanism further.
+>
+> Caveat on the 5-year number: that run was partly on battery (the laptop's lid-close sleep setting
+> was in effect overnight), and Windows' event log recorded several battery-saving transitions
+> during the run, so CPU throttling may have inflated 972.2 minutes somewhat above what a
+> continuously-plugged-in run would show. The 3-year number has no such caveat. Neither caveat
+> changes the qualitative finding — generation time grows much faster than ledger size either way.
+>
+> **RQ3 benchmark (2026-10-20, `tool/benchmark_recalc.exe data/realistic_seed123_5years.json`):** run
+> with the laptop on AC power (confirmed: `BatteryStatus=2`, 100% charge) and no other evaluation
+> process running (confirmed: the only `dart.exe` processes present were long-lived VS Code/analysis
+> server instances with negligible accumulated CPU, not an evaluation job). Results are in "Where
+> the time goes" below. The 5-year fixture (3,751 records) is the largest available, so sizes 5,000
+> and 10,000 from the tool's own list were not reached — only 100 / 1,000 / 2,500 were measured.
 
 - **RQ1 (correctness of delta sync):** several hundred seeded runs per config, each covering about
   a month, so the sample is large enough to catch rare merge or ordering bugs rather than relying
   on a handful of lucky runs.
-- **RQ3 (performance vs. ledger size):** three run lengths per config — about 1 month, 12 months
-  and 10 years — chosen to land close to 100, 1,000 and 10,000 total records respectively, so
-  performance is measured across roughly an order of magnitude at each step, not just at one size.
-  The actual record counts reached (not just the target) are in the table below.
+- **RQ3 (performance vs. ledger size):** originally planned as 1 month, 12 months and 10 years, to
+  land close to 100, 1,000 and 10,000 total records. The 10-year generation did not finish within
+  its time cap (see above), so the actual ladder used is 1 month / 12 months / 3 years / 5 years —
+  still roughly two orders of magnitude of growth, just topping out at about 3,750 records instead
+  of 10,000. The actual record counts reached are in the table below.
 
 ### Cached fixtures
 
@@ -347,18 +395,20 @@ seed, both devices' final ledgers in full (every record, as `Record.toJson()`), 
 time in milliseconds, so later analysis can read a ledger back without re-running the simulation.
 
 RQ3 only needs the `realistic` config's size ladder (it studies performance vs. size, not
-coordination pressure); `stress`'s two shorter lengths are cached too, for RQ1/RQ2 reuse.
+coordination pressure). `stress` fixtures were skipped for this phase: RQ1 and RQ2's own tools
+generate their runs directly and never read this cache, so a `stress` fixture here would not
+actually be reused by anything.
 
 | Config | Length (days) | Investor records | Manager records | Generation time |
 |---|---|---|---|---|
-| realistic | 30 | 68 | 69 | 2.1 s |
-| realistic | 365 | 765 | 765 | 21.8 s |
-| realistic | 3,650 | _pending — see below_ | _pending_ | _pending_ |
-| stress | 30 | _pending_ | _pending_ | _pending_ |
-| stress | 365 | _pending_ | _pending_ | _pending_ |
+| realistic | 30 (1 month) | 65 | 65 | 1.3 s |
+| realistic | 365 (12 months) | 731 | 731 | 49.2 s |
+| realistic | 1,095 (3 years) | 2,268 | 2,268 | 91.2 min |
+| realistic | 1,825 (5 years) | 3,751 | 3,751 | 972.2 min (partly on battery — see "Run lengths") |
+| realistic | 3,650 (10 years) | _never finished_ | _never finished_ | _killed after >6h20m_ |
 
-These rows were still generating in the background as this was written; the final numbers land
-here once `tool/generate_fixtures.dart` finishes.
+See the RQ3 entries under "Run lengths" above for the full account, including why the 10-year run
+did not finish and the caveat on the 5-year number.
 
 ## Where the time goes
 
@@ -374,26 +424,34 @@ rising at once. Isolating the real question — **how does one call's cost grow 
 needs each call timed on its own, not read off a running total.
 
 `tool/benchmark_recalc.dart` does that: it takes size-100 / 1,000 / 2,500 / 5,000 / 10,000 prefixes
-(in authorship order, so each prefix is a real run shape) of the cached 10-year `realistic` fixture,
-and times `approvalsInbox`, `computeEffective` and `buildDashboard` in isolation — many repetitions
-per size after a warm-up, reporting the median, as a compiled executable (`dart compile exe`) so
-Dart's JIT warm-up doesn't add noise to the numbers. Results:
+(in authorship order, so each prefix is a real run shape) of a cached `realistic` fixture, and times
+`approvalsInbox`, `computeEffective` and `buildDashboard` in isolation — many repetitions per size
+after a warm-up, reporting the median, as a compiled executable (`dart compile exe`) so Dart's JIT
+warm-up doesn't add noise to the numbers.
+
+**Results (2026-10-20, `data/realistic_seed123_5years.json`, laptop plugged in, nothing else
+running):** the 10-year fixture never finished generating (see "Run lengths"), so this ran against
+the largest fixture that did — 5 years, 3,751 records — and the two larger sizes on the tool's own
+list, 5,000 and 10,000, were not reached:
 
 | Records | `approvalsInbox` (ms) | `computeEffective` (ms) | `buildDashboard` (ms) |
 |---|---|---|---|
-| 100 | _pending_ | _pending_ | _pending_ |
-| 1,000 | _pending_ | _pending_ | _pending_ |
-| 2,500 | _pending_ | _pending_ | _pending_ |
-| 5,000 | _pending_ | _pending_ | _pending_ |
-| 10,000 | _pending_ | _pending_ | _pending_ |
+| 100 | 0.09 | 0.06 | 0.07 |
+| 1,000 | 5.13 | 2.80 | 2.89 |
+| 2,500 | 34.94 | 18.87 | 19.18 |
 
-A rough read from the generator's own numbers before this isolated measurement existed: per-call
-cost was around 28 ms near 1,400 records and around 72 ms near 2,450 records — growing faster than
-the ledger size, somewhere between linear and quadratic, but not pinned down more precisely than
-that without the table above. All three functions share the same cause: `approvalsInbox` calls
-`decideApprovals` and `computeEffective`; `buildDashboard` calls `computeEffective` and
-`computeMoney`; all rescan **every** usable record from scratch on every call, by hard rule 5's
-design (deterministic, no stored derived state) — there is no incremental version.
+The growth is clearly super-linear and gets worse, not better, as the ledger grows: 100 → 1,000 is
+a 10× increase in records but roughly a 57× (`approvalsInbox`), 47× (`computeEffective`) or 41×
+(`buildDashboard`) increase in time; 1,000 → 2,500 is a 2.5× increase in records and roughly a
+6.6–6.8× increase in time across all three functions — close to the 6.25× a pure quadratic would
+predict at that step, and clearly worse than the 2.5× linear growth would give. This matches the
+fixture-generation times above, which grow even faster still (3 years → 5 years was a 1.67× increase
+in days but a 10.7× increase in generation time) — the generator calls these same functions
+repeatedly while simulating, so its own slowdown is a direct symptom of this cost. All three
+functions share the same cause: `approvalsInbox` calls `decideApprovals` and `computeEffective`;
+`buildDashboard` calls `computeEffective` and `computeMoney`; all rescan **every** usable record
+from scratch on every call, by hard rule 5's design (deterministic, no stored derived state) —
+there is no incremental version.
 
 **What this means for the app, not just the generator:** `apps/mobile/lib/dashboard/dashboard_screen.dart`
 calls both `approvalsInbox` (for its inbox-count badge) and `buildDashboard` fresh **on every widget
