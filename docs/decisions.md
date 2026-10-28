@@ -1098,26 +1098,60 @@ something the manager had already relied on:
   false and the settlement's `SettlementState` reverts from `effective` back to `waiting` — a
   period that was already closed and paid out un-settles itself.
 
-**One example run (realistic config, seed 1, both variants on the same seed):**
+Both cases share a **second, independent consequence** — not collateral damage to the manager
+this time, but a direct effect on the equivocator's own books: the quarantine also deletes the
+investor's *own* real `withdraw_request` records (profit and capital withdrawals alike) from that
+seq onward, because they are authored by the same key and excluded on the exact same author+seq
+rule as everything else of hers past that point. So the books no longer show money that actually
+left the fund — `profitPaid` and `capital` fall as if those withdrawals never happened, even though
+they did happen and were real. The equivocator is still correctly detected and flagged (`detected`
+and `forgedExcluded` stay perfect in every case below); the numbers that move, move in **her own
+favour**, not against her.
 
-*Budget-approve variant* — the investor's `approve` of budget `5a69ea4b…cc13` (amount
-2,742,880 paisa) sat at seq 3. Quarantining the investor from seq 3 flipped all 15 of the manager's
-expense records written against that budget from `effective=true, ExpenseStatus.valid` to
-`effective=false, ExpenseStatus.noEffectiveBudget` — none of these 15 records were touched or
-forged; they are the manager's own honest records, and all 15 changed status purely because the
-approval they depended on vanished. `budgetLeft` for that budget went from 19,080 paisa to `null`
-(the budget no longer exists as far as the dashboard is concerned). Because those 15 expenses no
-longer count, the dashboard's `cashBalance` jumped by +167,500,940 paisa and `result` by
-+8,155,300 paisa — both numbers moved only because real spending silently stopped being counted.
+**One example run (realistic config, seed 1, 90-day workload, both variants on the same seed, run
+against current `main` after the capital-withdrawal fix below):**
 
-*Settlement-cut variant* — an already-`effective` settlement (cut `{investor: 4, manager: 68}`,
-`profitPaid` = 87,443,213 paisa) reverted to `SettlementState.waiting` the moment the investor was
-quarantined from a seq inside that cut, even though the cut's own numbers (4, 68) did not change.
-`profitPaid` for that period fell from 87,443,213 paisa back to 0 — a period that had already paid
-out profit-sharing stopped being settled at all. `cashBalance` and `result` moved by
-+164,777,140 and +5,431,500 paisa respectively as a side effect.
+*Budget-approve variant* — the investor's `approve` (seq 3) of budget `5a69ea4b…cc13` (amount
+2,742,880 paisa, granted to the manager) is the targeted forgery. Quarantining the investor from
+seq 3 removes **11 of the investor's own records** (`approve` × 6, `withdraw_request` × 5) and
+flips **4 of the manager's budget proposals** (all of them — `budgetLeft` goes from 4 live budgets
+to `{}`) and **42 of the manager's expense records** from `effective=true, ExpenseStatus.valid` to
+`effective=false, ExpenseStatus.noEffectiveBudget` — none of those 46 manager records were touched
+or forged; they changed purely because the approvals they depended on vanished. 2 settlements also
+revert to `waiting` as a further consequence (see the settlement-cut variant below for the
+mechanism). The dashboard moves from `capital` 0 → 66,482,900, `cashBalance`
+235,062,087 → 397,143,500 (+162,081,413), `result` 322,505,300 → 330,660,600 (+8,155,300),
+`profitPaid` 87,443,213 → 0. That +162,081,413 splits cleanly into three causes, with nothing left
+unexplained: +87,443,213 is the investor's own quarantined *profit* withdrawals, +66,482,900 is her
+own quarantined *capital* withdrawals, and +8,155,300 is the 42 manager expenses losing
+effectiveness. The first two — 94.9% of the swing — are money that the investor actually withdrew
+and that the books now silently un-withdraw; only the remaining 5.1% is the manager's honest
+spending being reclassified.
 
-**Evidence (15 seeds per attack type, 90-day runs, both workload configs):**
+*Settlement-cut variant* — the same seed's settlement `a48b39ac…f1` has an already-`effective` cut
+`{investor: 4, manager: 68}`; seq 4 on the investor's chain is the targeted forgery (the record
+actually at that seq is an `approve`, not a settlement record — the cut just *names* seq 4 as its
+boundary). Quarantining the investor from seq 4 removes **10 of her own records**
+(`approve` × 5, `withdraw_request` × 5), flips **3 budgets** and **27 expenses** to
+`noEffectiveBudget` (fewer than the budget-approve variant, because seq 4 is earlier and one budget
+survives — `budgetLeft` ends at `{5a69ea4b…cc13: 19,080}` instead of `{}`), and reverts **both**
+previously-`effective` settlements to `waiting` — `a48b39ac…f1` (cut `{4, 68}`, unchanged) and
+`bbceecf2…f1c3` (cut `{9, 155}`, unchanged). `profitPaid` falls from 87,443,213 paisa to 0 for the
+same reason as the other variant: **it is the investor's own quarantined profit withdrawals
+disappearing, not the settlement reverting** — `withdraw_request` effectiveness
+(`packages/qirad_core/lib/src/effective.dart`) never reads settlement state at all, so the two
+effects are parallel consequences of the same quarantine, not cause and effect. `cashBalance` moves
+235,062,087 → 394,419,700 (+159,357,613), `result` 322,505,300 → 327,936,800 (+5,431,500), again
+decomposing exactly: +87,443,213 (profit withdrawals) + 66,482,900 (capital withdrawals) +
+5,431,500 (27 expenses) = 159,357,613.
+
+In both variants, roughly 95% of the dashboard swing is the investor's own real withdrawals being
+erased from the books — the cheater benefits from being caught, not just evades consequence.
+
+**Evidence (superseded — 15 seeds per attack type, 90-day runs, both workload configs; kept as
+history. Numbers below predate the capital-withdrawal fix in the next entry and the single-run
+example above; the 50-seed/config numbers in `docs/evaluation/README.md`'s "Findings" section are
+the current evidence):**
 
 | config    | attack type                  | detected | forgedExcluded | honestUnaffected | settledUnchanged |
 |-----------|-------------------------------|----------|----------------|-------------------|-------------------|

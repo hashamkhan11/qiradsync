@@ -170,7 +170,8 @@ or after that seq. Two cases were targeted to confirm this has real effect:
   paid out un-settles itself, even though the cut's own seq numbers do not change.
 
 **Evidence** (2026-10-19, commit `f9b94ed`, 50 seeds/attack/config, 90-day workloads, both
-configs — see `rq4_security_summary.csv`):
+configs — see `rq4_security_summary.csv`; a 15-seed version of this table, from before the
+capital-withdrawal fix, is kept as superseded history in `docs/decisions.md`, 2026-10-16):
 
 | config    | attack type                  | detected | forgedExcluded | honestUnaffected | settledUnchanged |
 |-----------|-------------------------------|----------|----------------|-------------------|-------------------|
@@ -189,26 +190,52 @@ the honest partner never specifically relied on) shows the same effect only part
 (19/50–26/50 "unaffected"), consistent with this being about *which* seq is hit, not a different
 mechanism.
 
-**One example (realistic config, seed 1):**
+**One example (realistic config, seed 1, 90-day workload, re-run on current `main` after the
+capital-withdrawal fix — see `docs/decisions.md`, 2026-10-16):**
 
-- *Budget approve* — the investor's `approve` of a Rs 27,428.80 budget sat at seq 3. Quarantining
-  the investor from seq 3 flipped all 15 of the manager's expense records written against that
-  budget from `effective=true` (`ExpenseStatus.valid`) to `effective=false`
-  (`ExpenseStatus.noEffectiveBudget`) — none of those 15 records were touched or forged; they
-  changed purely because the approval they depended on vanished. The dashboard's `cashBalance`
-  moved by +Rs 1,675,009.40 and `result` by +Rs 81,553.00, both only because real spending silently
-  stopped being counted.
-- *Settlement cut* — an already-`effective` settlement (`cut = {investor: 4, manager: 68}`,
-  `profitPaid` = Rs 874,432.13) reverted to `waiting` the moment the investor was quarantined from
-  a seq inside that cut, even though the cut's own numbers did not change. `profitPaid` for that
-  period fell to Rs 0 — a period that had already paid out profit-sharing stopped being settled at
-  all.
+- *Budget approve* — the investor's `approve` (seq 3) of a Rs 27,428.80 budget is the targeted
+  forgery. Quarantining the investor from seq 3 removes **11 of her own records** (6 `approve`, 5
+  `withdraw_request`), flips all **4 of the manager's budgets** to `pending` and **42 of the
+  manager's expense records** from `effective=true` (`ExpenseStatus.valid`) to `effective=false`
+  (`ExpenseStatus.noEffectiveBudget`) — none of those 42 records were touched or forged; they
+  changed purely because the approvals they depended on vanished. Both of the run's settlements
+  also revert to `waiting` (see below). The dashboard's `cashBalance` moves by +Rs 1,620,814.13 and
+  `result` by +Rs 81,553.00. That swing breaks down exactly: +Rs 874,432.13 is the investor's own
+  quarantined *profit* withdrawals, +Rs 664,829.00 is her own quarantined *capital* withdrawals,
+  and +Rs 81,553.00 is the 42 manager expenses losing effectiveness — almost 95% of the move is
+  the investor's own real withdrawals disappearing from the books, not expense reclassification.
+- *Settlement cut* — seq 4 on the investor's chain, the boundary named by an already-`effective`
+  settlement's cut (`{investor: 4, manager: 68}`, `profitPaid` = Rs 874,432.13), is the targeted
+  forgery. Quarantining the investor from seq 4 removes **10 of her own records** (5 `approve`, 5
+  `withdraw_request`), flips **3 budgets** to `pending` and **27 expenses** to
+  `noEffectiveBudget`, and reverts **both** of the run's previously-`effective` settlements to
+  `waiting` — the targeted one (cut `{4, 68}`, unchanged) and the other one (cut `{9, 155}`,
+  unchanged). `profitPaid` for the targeted period falls to Rs 0 — but this is **not** the
+  settlement reverting causing the loss; it is the investor's own quarantined profit withdrawals
+  vanishing, a separate and parallel effect of the same quarantine (`withdraw_request`
+  effectiveness never reads settlement state at all). `cashBalance` moves by +Rs 1,593,576.13 and
+  `result` by +Rs 54,315.00, decomposing the same way: +Rs 874,432.13 (profit withdrawals) +
+  Rs 664,829.00 (capital withdrawals) + Rs 54,315.00 (27 expenses).
+
+**Second, independent consequence — the numbers move in the cheater's favour:** quarantine does
+not only hit the honest partner's records. It also deletes the equivocator's *own* real
+`withdraw_request` records (profit and capital withdrawals alike) from the contested seq onward,
+because they are excluded on the exact same author+seq rule as everything else of hers past that
+point — `effective.dart`'s effectiveness check for `withdraw_request` has no dependency on
+settlement state or anything else; it is excluded purely because of who signed it and at what seq.
+So the books no longer show money that actually left the fund: `profitPaid` and `capital` fall as
+if those withdrawals never happened, even though they did. The equivocator is still correctly
+detected and identified — `detected` and `forgedExcluded` stay at 50/50 throughout — but the
+dashboard numbers move in **her own favour**, not against her. This is why `profitPaid` falling to
+0 in the settlement-cut example above is not the settlement reverting causing a loss of profit
+tracking — it is a parallel, independent effect of the same quarantine event.
 
 **What still holds:** `detected` and `forgedExcluded` are 50/50 in every row above. The system
 always correctly identifies the equivocating author — both this device directly, and the other
 partner independently via `RelaySim` cross-checking — and the forged content itself never appears
 in any computed number. What breaks is strictly collateral: legitimate records the honest partner
-wrote, and periods already closed, before the forgery was ever sent.
+wrote, and periods already closed, before the forgery was ever sent — plus, as above, the
+equivocator's own real withdrawals.
 
 **Decision:** not fixed in core for this phase (scope freeze) — `qirad_core`'s quarantine rule
 stays exactly as spec §6.4 defines it. See `docs/decisions.md`, 2026-10-16, for the full write-up,
