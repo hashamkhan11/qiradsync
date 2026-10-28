@@ -204,7 +204,7 @@ mechanism.
   period fell to Rs 0 — a period that had already paid out profit-sharing stopped being settled at
   all.
 
-**What still holds:** `detected` and `forgedExcluded` are 15/15 in every row above. The system
+**What still holds:** `detected` and `forgedExcluded` are 50/50 in every row above. The system
 always correctly identifies the equivocating author — both this device directly, and the other
 partner independently via `RelaySim` cross-checking — and the forged content itself never appears
 in any computed number. What breaks is strictly collateral: legitimate records the honest partner
@@ -246,7 +246,7 @@ pressure on the rules, not from a lucky seed.
 | `profitWithdrawalChance` | 60% | same | A common, but not universal, next step once a settlement confirms profit. |
 | `profitWithdrawalFraction` | 10%–60% of settled share | same | Partners rarely withdraw either a token amount or everything at once. |
 | `capitalWithdrawalDailyChance` | ~once/90 days | same | The investor rarely pulls capital out mid-partnership. |
-| `capitalWithdrawalFraction` | 5%–20% of cash balance | same | A partial draw-down, not a full exit. |
+| `capitalWithdrawalFraction` | 5%–20% of cash balance, capped at current capital | same | A partial draw-down, not a full exit — capped so the generator can never request more capital than the investor actually has left (see `docs/decisions.md`, 2026-10-16). |
 | `shortOfflinePeriodsPerDay` | 1–3 | 1–2 | A phone goes offline a few short times a day under normal use, in both configs. |
 | `shortOfflinePeriodHours` | 1–6h | same | A work gap or overnight — identical in both configs; only the long weekly episode below differs. |
 | `longOfflineEpisodeChancePerWeek` | 0 (never) | 1.0 (about once a week) | **Models reality**: a connection this bad never happens. **Stress** adds a genuinely dropped connection roughly once a week, on top of the daily gaps, to force long divergence before sync — without making the device permanently unreachable (periods never overlap; see "Online schedule" below). |
@@ -283,12 +283,12 @@ business under worse conditions, not a different one.
 >
 > `settlementStable` (spec 6.7's "a closed period never recalculates") was actually exercised on
 > 297/300 `realistic` seeds and 293/300 `stress` seeds — the other 10 seeds had no closed
-> settlement period to check against. A read-only diagnosis of all 10 (see
-> `tool/diag_rq1_zero_settlement.dart`, not committed) found the same cause in each: within the
-> 90-day window only two of the ~3 settlement opportunities fell due, and both of that seed's
-> proposals happened, independently, to be rejected (`settlementRejectChance` = 0.10 per proposal,
-> so two in a row is a roughly 1-in-100 event). None were left `waiting`/stuck — every proposal was
-> answered. This is expected simulation behaviour, not a liveness defect.
+> settlement period to check against. A read-only check of all 10 (reading each run's own settlement
+> records back, no code change) found the same cause in each: within the 90-day window only two of
+> the ~3 settlement opportunities fell due, and both of that seed's proposals happened,
+> independently, to be rejected (`settlementRejectChance` = 0.10 per proposal, so two in a row is a
+> roughly 1-in-100 event). None were left `waiting`/stuck — every proposal was answered. This is
+> expected simulation behaviour, not a liveness defect.
 >
 > With zero failures, the rule of three bounds the true failure rate at roughly 3/300 ≈ 1% (95%
 > confidence) for every check that ran on all 300 seeds, and at roughly 3/297 ≈ 1% (`realistic`) /
@@ -390,11 +390,11 @@ business under worse conditions, not a different one.
 > process running (confirmed: the only `dart.exe` processes present were long-lived VS Code/analysis
 > server instances with negligible accumulated CPU, not an evaluation job). Results are in "Where
 > the time goes" below. The 5-year fixture (3,751 records) is the largest available, so sizes 5,000
-> and 10,000 from the tool's own list were not reached — only 100 / 1,000 / 2,500 were measured.
+> and 10,000 from the tool's own list were not reached; 100 / 1,000 / 2,500 / 3,751 were measured.
 
-- **RQ1 (correctness of delta sync):** several hundred seeded runs per config, each covering about
-  a month, so the sample is large enough to catch rare merge or ordering bugs rather than relying
-  on a handful of lucky runs.
+- **RQ1 (correctness of delta sync):** 300 seeded runs per config, each covering 90 days, so the
+  sample is large enough to catch rare merge or ordering bugs rather than relying on a handful of
+  lucky runs.
 - **RQ3 (performance vs. ledger size):** originally planned as 1 month, 12 months and 10 years, to
   land close to 100, 1,000 and 10,000 total records. The 10-year generation did not finish within
   its time cap (see above), so the actual ladder used is 1 month / 12 months / 3 years / 5 years —
@@ -447,8 +447,9 @@ each call costs — and cumulative numbers overstate the growth of the second on
 rising at once. Isolating the real question — **how does one call's cost grow with ledger size** —
 needs each call timed on its own, not read off a running total.
 
-`tool/benchmark_recalc.dart` does that: it takes size-100 / 1,000 / 2,500 / 5,000 / 10,000 prefixes
-(in authorship order, so each prefix is a real run shape) of a cached `realistic` fixture, and times
+`tool/benchmark_recalc.dart` does that: it takes size-N prefixes (100 / 1,000 / 2,500 / 3,751 /
+5,000 / 10,000, stopping once a prefix would exceed the fixture's own record count) of a cached
+`realistic` fixture (in authorship order, so each prefix is a real run shape), and times
 `approvalsInbox`, `computeEffective` and `buildDashboard` in isolation — many repetitions per size
 after a warm-up, reporting the median, as a compiled executable (`dart compile exe`) so Dart's JIT
 warm-up doesn't add noise to the numbers.
