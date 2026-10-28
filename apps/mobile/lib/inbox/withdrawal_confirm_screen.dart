@@ -220,7 +220,11 @@ class _WithdrawalConfirmScreenState extends State<WithdrawalConfirmScreen> {
       Navigator.of(context).pop(true);
       return;
     }
-    _handleRefusal(result.refusal!, latest: result.latestWithdrawal);
+    _handleRefusal(
+      result.refusal!,
+      latest: result.latestWithdrawal,
+      capitalLeft: result.capitalLeft,
+    );
   }
 
   Future<void> _confirmReject() async {
@@ -256,7 +260,11 @@ class _WithdrawalConfirmScreenState extends State<WithdrawalConfirmScreen> {
     _handleRefusal(result.refusal!);
   }
 
-  void _handleRefusal(WriteRefusal refusal, {WithdrawalConsent? latest}) {
+  void _handleRefusal(
+    WriteRefusal refusal, {
+    WithdrawalConsent? latest,
+    int? capitalLeft,
+  }) {
     switch (refusal) {
       case WriteRefusal.summaryChanged:
       case WriteRefusal.consentNotShown:
@@ -272,6 +280,12 @@ class _WithdrawalConfirmScreenState extends State<WithdrawalConfirmScreen> {
           _needsSync = true;
           _message = 'This phone must sync before it can answer.';
         });
+        break;
+      case WriteRefusal.overCapital:
+        setState(
+          () => _message =
+              'Over capital: ${formatPaisa(capitalLeft!)} available.',
+        );
         break;
       default:
         setState(() => _message = refusalText(refusal));

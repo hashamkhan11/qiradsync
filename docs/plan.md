@@ -113,10 +113,13 @@ all tests pass, and its pull request is merged.
 
 ## Phase 8 — Evaluation and write-up
 
-- [ ] Run every scenario in the design report Section 9.1 and record results
+Scope freeze: Phase 7's app screens are frozen as of the Phase 7 merge (commit `f0409fc`).
+Everything measured below is measured against that commit.
+
 - [ ] Measure sync size (full vs delta) for 100 / 1,000 / 10,000 records
 - [ ] Measure verification and recalculation time on a real mid-range Android phone
-- [ ] Update the design report with results, limitations found and next steps
+- [ ] At the end of Phase 8, the developer provides the refreshed design report with the results; it
+      is added as `docs/design-report.md`.
 - [ ] Clean README with screenshots, setup steps and a short demo video link
 
 **Done when:** the report's evaluation section contains real numbers with device model and run count.
@@ -127,4 +130,23 @@ all tests pass, and its pull request is merged.
 
 ## Future work
 
+- [ ] Receipt photo capture and hashes (the body schema already accepts `receiptHash`; there is no
+      photo-capture step yet to produce a real one to hash — decisions.md 2026-10-11)
 - [ ] Transactions list filters (Phase 7 shipped the list without filters, by scope decision)
+- [ ] Database schema migration path (tracked above under "Before the first release")
+- [ ] Multiple devices per partner, with its own key-export design (decisions.md)
+- [ ] Key revocation for a lost or compromised partner key
+- [ ] Provisional profit distributions are not clawed back by a later loss (decisions.md)
+- [ ] A settlement forced by the investor, instead of manager-only proposals (spec 6.7; decisions.md)
+- [ ] End-to-end encryption of records (decisions.md)
+- [ ] Three or more partners (v1 is fixed at exactly two: one investor, one manager)
+- [ ] Closing a `budget_proposal` early by reversal — blocked for now because it raises a
+      cross-author ordering question (which of the grantee's already-written expenses still count)
+      (decisions.md)
+- [ ] Incremental recalculation for `approvalsInbox`/`decideApprovals`/`computeEffective`. Phase 8's
+      RQ3 workload runs show inbox checks growing faster than the ledger itself (each check rescans
+      every usable record from scratch, by hard rule 5's design, with no incremental state kept
+      between calls) — see docs/evaluation/README.md's "Where the time goes" section for the measured
+      numbers. This is real per-write cost the app itself would also pay as a ledger grows large, not
+      a one-off; it is listed here rather than fixed now because Phase 8 is scope-frozen and the app
+      is not unusable at today's realistic ledger sizes.

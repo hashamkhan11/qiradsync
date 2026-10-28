@@ -57,6 +57,19 @@ void main() {
       tester,
     ) async {
       await tester.runAsync(() async {
+        // Capital to withdraw from, or the new overCapital check (decision
+        // 2026-10-16) refuses this withdrawal: capital starts at 0.
+        await fixture.receive(
+          await fixture.write(
+            fixture.investor,
+            fixture.investorChain,
+            id: 'invest-1',
+            type: 'invest',
+            body: const {'amount': 100000},
+          ),
+        );
+        await fixture.syncedAs(investorSeq: 2, managerSeq: 1);
+
         await pump(tester, asManager: false, kind: 'capital');
         await tester.enterText(find.byType(TextField), '250');
         await tester.pump();

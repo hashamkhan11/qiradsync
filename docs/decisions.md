@@ -1064,3 +1064,234 @@ the join code.
 **Tests:** `apps/mobile/test/onboarding_screen_test.dart` — the existing "shows the phone key" test
 now also checks for the QR; a new test confirms the scan button opens a scan screen titled
 "Scan manager's key".
+
+---
+
+## 2026-10-16 — Finding: quarantining an equivocator can undo the honest partner's own
+consent and revert a settled period (no core change — scope freeze)
+
+**Finding:** RQ4 of the evaluation (`packages/evaluation/tool/rq4_security.dart`) tests what
+happens when one partner equivocates — signs two different records for the same `(author, seq)`.
+Spec §6.4's rule, as built in `Validator`, is: once a device sees two signed records at the same
+seq from the same author, it marks that author equivocating from that seq onward and excludes
+*every* record that author wrote from that seq onward, forever, from `usableRecords`. This is a
+global, retroactive quarantine — not just the forged record, but every later-seq record, including
+ones already relied on before the forgery arrived.
+
+Two targeted variants were added to confirm exactly where this bites:
+- `equivocationAtBudgetApprove` — the investor equivocates at the exact seq of their own `approve`
+  of a `budget_proposal`.
+- `equivocationAtSettlementCut` — the investor equivocates at a seq already covered by an
+  `effective` settlement's `cut` (the seq range that settlement already closed over).
+
+**What happens:** In both cases, quarantining the investor's chain from that seq does not just
+remove the forged record — it removes the *real*, honestly-signed record at that seq too, because
+`usableRecords` excludes by author+seq-threshold, not by record identity. That real record was
+something the manager had already relied on:
+- For the budget-approve case, the investor's `approve` disappears. `decideApprovals` recomputes
+  the budget's `Decision` fresh from current `usableRecords` every call, so the budget reverts to
+  `pending`. Every manager expense written against that budget — expenses the manager wrote in
+  good faith while the budget was genuinely approved — falls through `computeEffective`'s budget
+  loop to `ExpenseStatus.noEffectiveBudget` and stops counting as effective.
+- For the settlement-cut case, the settlement record the cut points to at that seq disappears from
+  `usableRecords`. `settlementStatuses` also recomputes fresh every call, so `cutIsHeld` turns
+  false and the settlement's `SettlementState` reverts from `effective` back to `waiting` — a
+  period that was already closed and paid out un-settles itself.
+
+**One example run (realistic config, seed 1, both variants on the same seed):**
+
+*Budget-approve variant* — the investor's `approve` of budget `5a69ea4b…cc13` (amount
+2,742,880 paisa) sat at seq 3. Quarantining the investor from seq 3 flipped all 15 of the manager's
+expense records written against that budget from `effective=true, ExpenseStatus.valid` to
+`effective=false, ExpenseStatus.noEffectiveBudget` — none of these 15 records were touched or
+forged; they are the manager's own honest records, and all 15 changed status purely because the
+approval they depended on vanished. `budgetLeft` for that budget went from 19,080 paisa to `null`
+(the budget no longer exists as far as the dashboard is concerned). Because those 15 expenses no
+longer count, the dashboard's `cashBalance` jumped by +167,500,940 paisa and `result` by
++8,155,300 paisa — both numbers moved only because real spending silently stopped being counted.
+
+*Settlement-cut variant* — an already-`effective` settlement (cut `{investor: 4, manager: 68}`,
+`profitPaid` = 87,443,213 paisa) reverted to `SettlementState.waiting` the moment the investor was
+quarantined from a seq inside that cut, even though the cut's own numbers (4, 68) did not change.
+`profitPaid` for that period fell from 87,443,213 paisa back to 0 — a period that had already paid
+out profit-sharing stopped being settled at all. `cashBalance` and `result` moved by
++164,777,140 and +5,431,500 paisa respectively as a side effect.
+
+**Evidence (15 seeds per attack type, 90-day runs, both workload configs):**
+
+| config    | attack type                  | detected | forgedExcluded | honestUnaffected | settledUnchanged |
+|-----------|-------------------------------|----------|----------------|-------------------|-------------------|
+| realistic | equivocation (generic)        | 15/15    | 15/15          | 6/15              | 14/15             |
+| realistic | equivocationAtBudgetApprove    | 15/15    | 15/15          | 0/15              | 0/15              |
+| realistic | equivocationAtSettlementCut    | 15/15    | 15/15          | 0/15              | 0/15              |
+| stress    | equivocation (generic)        | 15/15    | 15/15          | 8/15              | 15/15             |
+| stress    | equivocationAtBudgetApprove    | 15/15    | 15/15          | 0/15              | 0/15              |
+| stress    | equivocationAtSettlementCut    | 15/15    | 15/15          | 0/15              | 0/15              |
+
+The two targeted variants hit `honestUnaffected = 0` and `settledUnchanged = 0` on every single
+seed, in both configs — this is a deterministic, structural consequence of how quarantine is
+defined, not a rare or seed-dependent failure. The generic (untargeted) equivocation attack, which
+usually lands on a seq the honest partner never specifically relied on, shows the same effect only
+some of the time (6/15 to 8/15 "unaffected"), which is consistent with this being about *which*
+seq is hit, not a different mechanism.
+
+**What still holds:** `detected` and `forgedExcluded` are 15/15 in every row above, in both
+targeted variants and both configs. The system always correctly identifies the equivocating author
+(both this device, via `receivingFlagged`, and the other partner independently, via `RelaySim`
+cross-checking — see `_equivocationAttack`'s `otherFlagged` check), and the forged content itself
+never appears in any number anywhere — `forgedExcluded` is unconditional. What breaks is strictly
+collateral: legitimate records the *honest* partner wrote, and periods already closed, before the
+forgery was ever sent.
+
+**Decision:** Not fixed in core for this phase — scope freeze. `qirad_core`'s quarantine rule
+(spec §6.4) stays exactly as written; no change to `Validator`, `decideApprovals`,
+`settlementStatuses`, or `computeEffective`. This finding is recorded here and in
+`docs/evaluation/README.md`'s "Findings" section instead of being treated as a bug to patch
+mid-evaluation.
+
+**Reason:** The current rule is simple, deterministic, and was chosen deliberately (spec §6.4) so
+that every device reaches the same `usableRecords` set regardless of arrival order — a global
+author-level quarantine is the simplest rule with that property. Changing it is a real design
+decision (see future work below), not a one-line fix, and belongs in its own phase with its own
+spec change and tests, not folded into an evaluation pass under scope freeze.
+
+**Future work (design options, none implemented):**
+1. Never quarantine a record that falls inside an `effective` settlement's `cut` — once a period
+   is closed, freeze the records it closed over so a later equivocation can no longer reach back
+   into it.
+2. At a contested seq, keep the first-received version for any effect the other partner has
+   already acted on (e.g. an `approve` that unlocked spending already done), rather than treating
+   the whole seq as retroactively void.
+3. Freeze consent-dependent effects (an approval's effect on a budget, a cut's effect on a
+   settlement) at the point the honest partner relied on them, rather than recomputing every
+   effect fresh from current `usableRecords` on every call.
+
+Each option trades away some of the "same inputs, same answer regardless of arrival order"
+simplicity that motivated the current rule, so none should be adopted without updating spec §6.4
+and the determinism tests that depend on it.
+
+**Tests:** `packages/evaluation/tool/rq4_security.dart` (`equivocationAtBudgetApprove`,
+`equivocationAtSettlementCut`); no `qirad_core` tests changed, since no `qirad_core` code changed.
+
+---
+
+## 2026-10-16 — `proposalRefusal` and `answerConsent` refuse a capital withdrawal beyond current capital
+
+**Finding:** The RQ1/RQ2 evaluation workloads showed `capital` going negative — one seed-1 example
+had capital at -5,419,527 paisa right before an attack, which is impossible (capital is investments
+minus capital withdrawals; a Mudaraba investor cannot withdraw more capital than they put in).
+
+Root cause in `packages/evaluation/lib/src/workload_generator.dart`: a capital withdrawal was sized
+as 5-20% of `cashBalance`, which includes undistributed sales profit (`money.dart`'s
+`computeMoney`), not of `capital`. A device with little capital left but a healthy cash balance
+could therefore generate a capital withdrawal larger than its actual capital. Across 100 seeds per
+config, 90-day runs: `realistic` config, 2/100 runs dipped negative at some point (1/100 ended
+negative, worst case seed=57 at -234,861.05 PKR); `stress` config, 0/100 in this sample, though the
+same code path was present.
+
+Separately, checking whether the system itself allowed this (not just the generator) found two real
+gaps:
+1. `proposalRefusal` (`qirad_core`) had no case at all for `withdraw_request` — it fell through to
+   `default: return null`, so nothing ever checked a capital withdrawal's amount against capital
+   before writing it.
+2. `RecordWriter.proposeWithdrawal` (apps/mobile) never passed `amount` to `_propose`, so even a
+   fixed `proposalRefusal` would never have received it from this call site.
+
+**Design considered and rejected:** A receive-side `WithdrawalStatus` (mirroring `ExpenseStatus`,
+which flags an over-budget expense on receipt — spec §6.4) was considered first, computed by
+replaying the investor's own chain in seq order and checking each capital withdrawal against
+capital as of that point. Rejected: unlike a budget, a capital withdrawal needs the *manager's*
+approval, which arrives on a different chain, at a different time. Example: capital = 100; W1 (80)
+proposed and pending; replayed alone, W2 (50) looks valid (80 + 50 > 100, but W1 has not taken
+effect yet). Once the manager approves W1, W2 retroactively becomes over-capital — its status would
+flip after the fact, purely because of when the other partner's approve happened to arrive. That
+breaks section 6.2's "same records, same result regardless of arrival order" rule, which every other
+effectiveness computation in `qirad_core` depends on.
+
+**Decision:** Fixed only the two points where a device is about to write something new, exactly as
+spec §7.4's new rule 6 describes:
+1. `proposalRefusal` gained a `case 'withdraw_request':`: for `kind == 'capital'`, it computes
+   current capital (`computeEffective` + `computeMoney(...).capital`) from the author's own
+   `validator.usableRecords` and refuses with a new `ProposalRefusal.overCapital` if `amount` is
+   more. `ProposalRefusalResult` gained a `capitalLeft` field, same pattern as `budgetLeft`. Profit
+   withdrawals are untouched — `kind != 'capital'` returns `null` immediately.
+2. `answerConsent`'s existing `case 'withdraw_request':` branch gained the same check, run before
+   the existing staleness check, using the same "capital right now" computation over
+   `validator.usableRecords`. `AnswerConsentRefusal.overCapital` and `AnswerConsentResult.capitalLeft`
+   mirror the propose side.
+3. `RecordWriter` maps both new core reasons to a new `WriteRefusal.overCapital`, threads a new
+   `WriteResult.capitalLeft` through both `answer()` and `_propose()`, and `proposeWithdrawal` now
+   passes `amount: amount` through (the second gap above). `WithdrawalForm` (create_widgets.dart's
+   shared `_save`) and `WithdrawalConfirmScreen` both show "Over capital: X available" using
+   `capitalLeft`, the same pattern `overBudget` already uses for `budgetLeft`.
+
+Both checks read only the state saved on this phone right now, never a replay of either chain — the
+exact property the rejected design lacked — so neither can flip once written, in either direction.
+
+No receive-side status is added. An over-capital withdrawal that nonetheless reaches
+`usableRecords` — a forged record, or a genuine one written by an app built before this decision —
+is not flagged or excluded; it stays exactly as effective as any other `withdraw_request` whose
+`approve` is active. Detecting and excluding one of these in a way that stays monotonic (for
+example by reusing the "a decision's effect is final once a later answer is invalid under the
+ordering rule" shape that already governs settlement answers) is future work, not done here.
+
+**Generator fix:** `workload_generator.dart`'s capital-withdrawal task now also reads `_capital`
+(mirroring the existing `_cashBalance` helper) and clamps the sized amount to
+`min(cashFraction, capital)` before writing the `withdraw_request`, so the workload itself can no
+longer generate a request the real app would now refuse.
+
+**Reason:** Consent, not a stored status, is the safeguard here — the same "the app never writes a
+record it already knows is invalid" principle behind `overBudget` (decision 2026-10-11) and
+`answerEarlierFirst` (decision 2026-10-08), applied at both ends of a two-party decision instead of
+one.
+
+**Tests:** `packages/qirad_core/test/proposal_refusal_test.dart` (a capital withdrawal over current
+capital is refused and carries `capitalLeft`; one within capital is allowed; a profit withdrawal is
+never refused this way) and `packages/qirad_core/test/answer_consent_test.dart` (the same three
+cases on the approve side). `apps/mobile/test/record_writer_test.dart` gained matching tests for
+`proposeWithdrawal` and `answer`, and the existing `'proposeWithdrawal of kind capital is investor
+only'` test now invests first, since a bare capital withdrawal with no capital at all is correctly
+refused after this fix.
+
+---
+
+## 2026-10-20 — Phase 8 audit: on-device timing deferred past this phase
+
+**Finding:** The audit for Phase 8 found that `docs/plan.md`'s checklist item "measure verification
+and recalculation time on a real mid-range Android phone" was not met by RQ3: `tool/benchmark_recalc.dart`
+was run as a compiled Dart binary on the development machine (an AMD Ryzen 7 PRO 4750U laptop), not
+on an Android phone.
+
+**Decision:** Deferred, not closed now. The recalculation-cost *shape* (how cost grows with ledger
+size — see "Where the time goes") is already established from the laptop numbers and does not need
+a phone to demonstrate; what a phone run adds is the *absolute* number a real user would feel,
+which needs an actual device in hand to measure honestly rather than guessed from a desktop CPU's
+numbers. This is planned as part of the real-phone pass already scheduled for the Phase 8 write-up
+(screenshots, demo video), not a separate task.
+
+**Reason:** A desktop timing stands in for the shape of the cost, not the felt cost on the hardware
+that matters, and `docs/plan.md`'s own "Done when" for Phase 8 names a device model explicitly —
+reporting a laptop number under that heading would misstate what was measured.
+
+**Tests:** none; no code changed. `docs/plan.md`'s "measure verification and recalculation time on
+a real mid-range Android phone" checklist item stays unchecked.
+
+---
+
+## 2026-10-20 — Phase 8 audit: design report and README polish deferred past this phase
+
+**Finding:** The audit for Phase 8 found that `docs/design-report.md` does not exist yet, and the
+root README has no screenshots or demo video link — both named explicitly in `docs/plan.md`'s Phase
+8 checklist.
+
+**Decision:** Deferred, not closed now. Both depend on the same real-phone pass as the on-device
+timing decision above: `docs/design-report.md` is the developer's own write-up pulling RQ1–RQ4 (and
+the sync-size measurement) together with that phone's numbers, and the README's screenshots and
+demo video need an actual running app to capture, not placeholders.
+
+**Reason:** Writing a design report or taking screenshots before the on-device measurement exists
+would mean redoing them once real numbers land, or leaving the eventual report citing a laptop
+number it should not.
+
+**Tests:** none; no code changed. `docs/plan.md`'s remaining Phase 8 checklist items (design report,
+clean README) stay unchecked until the real-phone pass.
