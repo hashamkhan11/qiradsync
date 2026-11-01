@@ -36,6 +36,11 @@ class AmountField extends StatelessWidget {
 
 /// "What will be written" before a creation form's Save button does
 /// anything — every form shows this instead of saving blind.
+///
+/// A plain bordered block, not a [Card]: the app's `CardTheme` is tuned for
+/// the one card role that should look urgent (the warning card), and this
+/// preview is the opposite of urgent, so it gets the same neutral treatment
+/// as the QR tiles and informational banners elsewhere in the app.
 class CreatePreviewCard extends StatelessWidget {
   const CreatePreviewCard({super.key, required this.rows});
 
@@ -43,16 +48,20 @@ class CreatePreviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (final (label, value) in rows)
-              InboxSummaryRow(label: label, value: value),
-          ],
-        ),
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        border: Border.all(color: theme.colorScheme.outline),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final (label, value) in rows)
+            InboxSummaryRow(label: label, value: value),
+        ],
       ),
     );
   }

@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 
-/// A short message. Shown in the error colour when [emphasis] is true, for
-/// example when the only sensible answer is Reject.
+import '../theme/ledger_widgets.dart';
+import '../theme/qirad_theme.dart';
+
+/// A short message. [emphasis] (an error worth interrupting for, e.g. "the
+/// only sensible answer is Reject") gets the same filled warning treatment
+/// as every other interrupt-worthy banner in the app; anything else is a
+/// plain bordered note, not a card, so it never reads as a problem.
 class InboxBanner extends StatelessWidget {
   const InboxBanner(this.text, {super.key, this.emphasis = false});
 
@@ -10,20 +15,19 @@ class InboxBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (emphasis) return LedgerWarningCard(message: text);
     final theme = Theme.of(context);
-    return Card(
-      color: emphasis
-          ? theme.colorScheme.errorContainer
-          : theme.colorScheme.surfaceContainerHighest,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: emphasis
-                ? theme.colorScheme.onErrorContainer
-                : theme.colorScheme.onSurfaceVariant,
-          ),
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        border: Border.all(color: theme.colorScheme.outline),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        text,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
     );
@@ -49,7 +53,6 @@ class InboxSyncBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
-      color: theme.colorScheme.errorContainer,
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
@@ -57,7 +60,11 @@ class InboxSyncBanner extends StatelessWidget {
             Expanded(
               child: Text(
                 message,
-                style: TextStyle(color: theme.colorScheme.onErrorContainer),
+                style: TextStyle(
+                  color: theme.colorScheme.onErrorContainer,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -72,9 +79,10 @@ class InboxSyncBanner extends StatelessWidget {
   }
 }
 
-/// One labelled number in a consent summary. Bold and in the error colour
-/// when [changed] is true, so the partner sees exactly which figure the
-/// writer disagreed with (spec 6.7, summaryChanged).
+/// One labelled figure in a consent summary. Tabular, like every other
+/// amount in the app (hard rule 1), and in the error colour when [changed]
+/// is true, so the partner sees exactly which figure the writer disagreed
+/// with (spec 6.7, summaryChanged).
 class InboxSummaryRow extends StatelessWidget {
   const InboxSummaryRow({
     super.key,
@@ -89,17 +97,18 @@ class InboxSummaryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = TextStyle(
-      fontWeight: FontWeight.w600,
-      color: changed ? Theme.of(context).colorScheme.error : null,
-    );
+    final theme = Theme.of(context);
+    final valueStyle = qiradFigureStyle(context, weight: FontWeight.w600)
+        .copyWith(color: changed ? theme.colorScheme.error : null);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label),
-          Text(value, style: style),
+          Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
+          const SizedBox(width: 12),
+          Text(value, style: valueStyle),
         ],
       ),
     );
