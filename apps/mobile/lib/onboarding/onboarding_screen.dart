@@ -5,6 +5,8 @@ import 'package:qirad_core/qirad_core.dart';
 
 import '../join/join_code.dart';
 import '../storage/record_store.dart';
+import '../theme/ledger_widgets.dart';
+import '../theme/qirad_theme.dart';
 import 'partnership_setup.dart';
 import 'safety_code_dialog.dart';
 import 'scan_join_code_screen.dart';
@@ -135,33 +137,28 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text('Your key', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 4),
-          const Text(
+          const LedgerSectionLabel('Your key'),
+          const SizedBox(height: 6),
+          Text(
             'Send this to your partner so they can pin it — show the QR '
             'code for them to scan, or copy the text.',
+            style: theme.textTheme.bodyMedium,
           ),
+          const SizedBox(height: 12),
+          _QrBox(data: widget.keys.publicKeyBase64Url, size: 180),
           const SizedBox(height: 8),
-          Center(
-            child: SizedBox(
-              width: 180,
-              height: 180,
-              child: PrettyQrView.data(data: widget.keys.publicKeyBase64Url),
-            ),
+          SelectableText(
+            widget.keys.publicKeyBase64Url,
+            style: qiradFigureStyle(context, fontSize: 12),
           ),
-          const SizedBox(height: 8),
-          SelectableText(widget.keys.publicKeyBase64Url),
           TextButton.icon(
             onPressed: () => _copy(widget.keys.publicKeyBase64Url),
             icon: const Icon(Icons.copy),
             label: const Text('Copy my key'),
           ),
-          const Divider(height: 32),
-          Text(
-            'Start a partnership (I am the investor)',
-            style: theme.textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
+          Divider(height: 32, color: theme.colorScheme.outline),
+          const LedgerSectionLabel('Start a partnership (I am the investor)'),
+          const SizedBox(height: 10),
           TextField(
             controller: _managerKey,
             decoration: const InputDecoration(
@@ -192,19 +189,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           if (_createdCode != null) ...[
             const SizedBox(height: 12),
-            const Text('Send this join code to your partner:'),
-            const SizedBox(height: 8),
-            Center(
-              // The QR code is a picture of the same text as the join code below,
-              // so a phone camera can read it instead of typing.
-              child: SizedBox(
-                width: 220,
-                height: 220,
-                child: PrettyQrView.data(data: _createdCode!),
-              ),
+            Text(
+              'Send this join code to your partner:',
+              style: theme.textTheme.bodyMedium,
             ),
+            const SizedBox(height: 12),
+            // The QR code is a picture of the same text as the join code
+            // below, so a phone camera can read it instead of typing.
+            _QrBox(data: _createdCode!, size: 220),
             const SizedBox(height: 8),
-            SelectableText(_createdCode!),
+            SelectableText(
+              _createdCode!,
+              style: qiradFigureStyle(context, fontSize: 12),
+            ),
             TextButton.icon(
               onPressed: () => _copy(_createdCode!),
               icon: const Icon(Icons.copy),
@@ -215,12 +212,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: const Text('Continue'),
             ),
           ],
-          const Divider(height: 32),
-          Text(
-            'Join a partnership (I am the manager)',
-            style: theme.textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
+          Divider(height: 32, color: theme.colorScheme.outline),
+          const LedgerSectionLabel('Join a partnership (I am the manager)'),
+          const SizedBox(height: 10),
           TextField(
             controller: _joinCode,
             decoration: const InputDecoration(
@@ -238,7 +232,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           FilledButton(onPressed: _join, child: const Text('Join partnership')),
           if (_error != null) ...[
             const SizedBox(height: 16),
-            Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+            LedgerWarningCard(message: _error!),
           ],
         ],
       ),
@@ -273,5 +267,36 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _copy(String text) {
     Clipboard.setData(ClipboardData(text: text));
+  }
+}
+
+/// A QR code on a bordered, raised tile instead of floating on the bare
+/// page — the same hairline-and-paper treatment every other grouped block
+/// in the app uses, so this screen's two codes read as part of the same
+/// design rather than a plain library default.
+class _QrBox extends StatelessWidget {
+  const _QrBox({required this.data, required this.size});
+
+  final String data;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          border: Border.all(color: theme.colorScheme.outline),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: PrettyQrView.data(data: data),
+        ),
+      ),
+    );
   }
 }
