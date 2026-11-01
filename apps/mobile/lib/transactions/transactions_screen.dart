@@ -3,6 +3,8 @@ import 'package:qirad_core/qirad_core.dart';
 
 import '../dashboard/format.dart';
 import '../storage/record_store.dart';
+import '../theme/ledger_widgets.dart';
+import '../theme/qirad_theme.dart';
 import 'record_detail_screen.dart';
 
 /// Every record this phone has ever stored for this partnership, each with
@@ -45,23 +47,54 @@ class TransactionsScreen extends StatelessWidget {
       });
     final byId = {for (final record in records) record.id: record};
 
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Transactions')),
       body: records.isEmpty
-          ? const Center(child: Text('No records yet.'))
+          ? Center(
+              child: Text('No records yet.', style: theme.textTheme.bodyMedium),
+            )
           : ListView.separated(
               itemCount: records.length,
-              separatorBuilder: (context, index) => const Divider(height: 1),
+              separatorBuilder: (context, index) =>
+                  Divider(height: 1, color: theme.colorScheme.outline),
               itemBuilder: (context, index) {
                 final record = records[index];
                 final status = statuses[record.id]!;
+                // The chain and signature check (spec 6.1 steps 1-3) is the
+                // only thing the seal mark reports: a record can still fail
+                // *this* check (chainInvalid/equivocating) while everything
+                // else about it — its amount, its type — is shown as usual.
+                final verified =
+                    status != RecordStatus.chainInvalid &&
+                    status != RecordStatus.equivocating;
                 return ListTile(
-                  title: Text(_typeLabel(record.type)),
-                  subtitle: Text(
-                    '${_roleLabel(record.author, parties)} · '
-                    '${statusLabel(status)}',
+                  leading: verified
+                      ? const SealMark()
+                      : Icon(Icons.error_outline, color: theme.colorScheme.error),
+                  title: Text(
+                    _typeLabel(record.type),
+                    style: theme.textTheme.bodyMedium,
                   ),
-                  trailing: Text(_amountLabel(record)),
+                  subtitle: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _roleLabel(record.author, parties),
+                          style: theme.textTheme.bodySmall,
+                        ),
+                        const SizedBox(width: 8),
+                        StatusTag(
+                          label: statusLabel(status),
+                          tone: _toneFor(status),
+                        ),
+                      ],
+                    ),
+                  ),
+                  trailing: Text(_amountLabel(record), style: qiradFigureStyle(context)),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (context) => RecordDetailScreen(
@@ -79,6 +112,26 @@ class TransactionsScreen extends StatelessWidget {
               },
             ),
     );
+  }
+}
+
+/// Which of the three tags a status reads as: counted now, still waiting,
+/// or a problem/final-negative outcome (spec 6.1, 6.3, 6.4, 6.7).
+StatusTone _toneFor(RecordStatus status) {
+  switch (status) {
+    case RecordStatus.effective:
+      return StatusTone.good;
+    case RecordStatus.pendingApproval:
+    case RecordStatus.ignoredResponse:
+    case RecordStatus.cancelledByReversal:
+    case RecordStatus.notCounted:
+      return StatusTone.wait;
+    case RecordStatus.rejected:
+    case RecordStatus.overBudget:
+    case RecordStatus.invalidResponse:
+    case RecordStatus.chainInvalid:
+    case RecordStatus.equivocating:
+      return StatusTone.warn;
   }
 }
 

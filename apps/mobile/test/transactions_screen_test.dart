@@ -147,9 +147,14 @@ void main() {
     expect(find.text('partnership create'), findsOneWidget);
     expect(find.text('invest'), findsOneWidget);
     expect(find.text('Rs 100.00'), findsOneWidget);
-    expect(find.text('Investor · Effective'), findsNWidgets(2));
-    expect(find.text('Manager · Effective'), findsOneWidget);
-    expect(find.text('Investor · Pending approval'), findsOneWidget);
+    // The role and the status now render as separate widgets (a role label
+    // next to a status tag) instead of one combined string: partnership
+    // create + invest-1 are the investor's two effective records, approve
+    // is the manager's, and budget-1 is still pending the manager's answer.
+    expect(find.text('Investor'), findsNWidgets(3));
+    expect(find.text('Manager'), findsOneWidget);
+    expect(find.text('EFFECTIVE'), findsNWidgets(3));
+    expect(find.text('PENDING APPROVAL'), findsOneWidget);
   });
 
   testWidgets('a chain-invalid record still shows, marked as such', (
@@ -180,7 +185,10 @@ void main() {
     });
     await pump(tester);
 
-    expect(find.text('Investor · Chain-invalid'), findsOneWidget);
+    // The create and the bad-chain record are both the investor's; only the
+    // bad one carries the chain-invalid tag.
+    expect(find.text('Investor'), findsNWidgets(2));
+    expect(find.text('CHAIN-INVALID'), findsOneWidget);
   });
 
   testWidgets('tapping a record opens its detail screen', (tester) async {
