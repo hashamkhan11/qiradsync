@@ -47,31 +47,81 @@ class _InboxScreenState extends State<InboxScreen> {
       myKey: widget.myKey,
     );
 
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Inbox')),
       body: items.isEmpty
-          ? const Center(child: Text('Nothing is waiting for you.'))
+          ? Center(
+              child: Text(
+                'Nothing is waiting for you.',
+                style: theme.textTheme.bodyMedium,
+              ),
+            )
           : ListView.separated(
+              padding: const EdgeInsets.symmetric(vertical: 8),
               itemCount: items.length,
-              separatorBuilder: (context, index) => const Divider(height: 1),
+              separatorBuilder: (context, index) =>
+                  Divider(height: 1, color: theme.colorScheme.outline),
               itemBuilder: (context, index) {
                 final item = items[index];
+                final blocked = item.blockedReason;
                 return ListTile(
-                  title: Text(_titleFor(item)),
-                  subtitle: item.blockedReason == null
+                  leading: Icon(_iconFor(item.kind), color: theme.colorScheme.primary),
+                  title: Text(_titleFor(item), style: theme.textTheme.bodyMedium),
+                  subtitle: blocked == null
                       ? null
-                      : Text(
-                          item.blockedReason!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
+                      : Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                size: 14,
+                                color: theme.colorScheme.error,
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  blocked,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.error,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: Icon(
+                    Icons.chevron_right,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                   onTap: () => _open(item),
                 );
               },
             ),
     );
+  }
+
+  /// A kind-specific glyph so the inbox reads at a glance (spec 5, 6.7): no
+  /// meaning is carried by the icon alone, since the title text next to it
+  /// always names the same thing in words.
+  IconData _iconFor(InboxKind kind) {
+    switch (kind) {
+      case InboxKind.settlement:
+        return Icons.fact_check_outlined;
+      case InboxKind.withdrawal:
+        return Icons.north_east;
+      case InboxKind.budget:
+        return Icons.account_balance_wallet_outlined;
+      case InboxKind.ratio:
+        return Icons.balance_outlined;
+      case InboxKind.partnershipStart:
+        return Icons.flag_outlined;
+      case InboxKind.reversal:
+        return Icons.undo;
+    }
   }
 
   String _titleFor(InboxItem item) {
