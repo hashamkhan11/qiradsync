@@ -9,6 +9,7 @@ import 'onboarding/onboarding_screen.dart';
 import 'storage/key_store.dart';
 import 'storage/record_store.dart';
 import 'sync/relay_url.dart';
+import 'theme/qirad_theme.dart';
 
 /// Set at build time: `flutter run --dart-define=RELAY_URL=https://...`
 /// (spec 7.2). Never hard-coded, so the same build cannot point at the wrong
@@ -84,7 +85,8 @@ class _QiradAppState extends State<QiradApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'QiradSync',
-      theme: ThemeData(colorScheme: .fromSeed(seedColor: Colors.teal)),
+      theme: qiradLightTheme(),
+      darkTheme: qiradDarkTheme(),
       home: _hasPartnership
           ? _Home(
               deps: widget.deps,

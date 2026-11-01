@@ -1295,3 +1295,24 @@ number it should not.
 
 **Tests:** none; no code changed. `docs/plan.md`'s remaining Phase 8 checklist items (design report,
 clean README) stay unchecked until the real-phone pass.
+
+---
+
+## 2026-11-01 — Phase 9 opened: visual redesign lifts the Phase 7 scope freeze
+
+**Decision:** Open a new phase, `phase-9-ui-redesign`, to give the app a real visual design
+(color, type and spacing system) in place of the bare Material defaults Phase 7 shipped with
+(`ThemeData(colorScheme: .fromSeed(seedColor: Colors.teal))` and plain `ListTile`s throughout).
+This lifts `docs/plan.md`'s Phase 7 scope freeze, but only for appearance: no screen's logic,
+copy, warnings, or which actions a role may take changes. A design direction (fonts, colors,
+a verified-signature mark on ledger rows) was reviewed against the real screens before any code
+changed.
+
+**Reason:** The developer asked for a modern, professional interface. Phase 7's screens were
+never designed — they are the fastest correct rendering of each screen's data, which was the
+right scope for that phase (spec section 7, app screens) but was never meant to be the final
+look. Phase 8's evaluation measures sync size, verification time and recalculation time, none of
+which depend on how a screen looks, so reopening Phase 7's screens for appearance does not
+invalidate anything Phase 8 measured.
+
+**Tests:** none yet; this entry records the scope decision before Phase 9's first code change.
