@@ -3,6 +3,7 @@ import 'package:qirad_core/qirad_core.dart';
 
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
+import '../theme/ledger_widgets.dart';
 import 'budget_form.dart';
 import 'expense_form.dart';
 import 'invest_form.dart';
@@ -34,8 +35,28 @@ class NewMenuScreen extends StatelessWidget {
   final String partnership;
   final Future<void> Function() onSyncNow;
 
+  /// Groups this menu's buttons for display only — the same grouping the
+  /// mockup used (Capital / Trading / Agreements / Corrections). This is a
+  /// presentation choice, not a rule: which actions appear at all, and in
+  /// what underlying order, still comes only from [allowedCreationActions].
+  static const _sections = <String, List<CreationAction>>{
+    'Capital': [
+      CreationAction.invest,
+      CreationAction.withdrawCapital,
+      CreationAction.withdrawProfit,
+    ],
+    'Trading': [CreationAction.sale, CreationAction.expense],
+    'Agreements': [
+      CreationAction.budget,
+      CreationAction.ratio,
+      CreationAction.settlement,
+    ],
+    'Corrections': [CreationAction.reversal],
+  };
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final validator = store.validatorFor(partnership);
     final parties = proposedParties(validator.usableRecords)!;
     final allowed = allowedCreationActions(myKey, parties);
@@ -43,16 +64,29 @@ class NewMenuScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('New')),
       body: ListView(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
         children: [
-          for (final action in CreationAction.values)
-            if (allowed.contains(action))
-              ListTile(
-                title: Text(_titleFor(action)),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (context) => _formFor(action)),
-                ),
+          for (final section in _sections.entries)
+            if (section.value.any(allowed.contains)) ...[
+              Padding(
+                padding: const EdgeInsets.only(top: 16, bottom: 4),
+                child: LedgerSectionLabel(section.key),
               ),
+              for (final action in section.value)
+                if (allowed.contains(action))
+                  ListTile(
+                    leading: Icon(_iconFor(action), color: theme.colorScheme.primary),
+                    title: Text(_titleFor(action), style: theme.textTheme.bodyMedium),
+                    trailing: Icon(
+                      Icons.chevron_right,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (context) => _formFor(action)),
+                    ),
+                  ),
+              Divider(height: 1, color: theme.colorScheme.outline),
+            ],
         ],
       ),
     );
@@ -68,6 +102,18 @@ class NewMenuScreen extends StatelessWidget {
     CreationAction.ratio => 'Propose a new ratio',
     CreationAction.reversal => 'Reverse a record',
     CreationAction.settlement => 'Settle the open period',
+  };
+
+  IconData _iconFor(CreationAction action) => switch (action) {
+    CreationAction.invest => Icons.savings_outlined,
+    CreationAction.sale => Icons.sell_outlined,
+    CreationAction.expense => Icons.receipt_long_outlined,
+    CreationAction.withdrawCapital => Icons.south_west,
+    CreationAction.withdrawProfit => Icons.south_west,
+    CreationAction.budget => Icons.account_balance_wallet_outlined,
+    CreationAction.ratio => Icons.balance_outlined,
+    CreationAction.reversal => Icons.undo,
+    CreationAction.settlement => Icons.fact_check_outlined,
   };
 
   Widget _formFor(CreationAction action) => switch (action) {
