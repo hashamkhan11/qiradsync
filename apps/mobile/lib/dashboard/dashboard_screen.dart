@@ -5,6 +5,7 @@ import '../create/new_menu_screen.dart';
 import '../inbox/inbox_screen.dart';
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
+import '../theme/ledger_widgets.dart';
 import '../transactions/transactions_screen.dart';
 import 'format.dart';
 
@@ -87,7 +88,7 @@ class DashboardScreen extends StatelessWidget {
         title: const Text('Dashboard'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.add),
+            icon: Icon(Icons.add, color: theme.colorScheme.primary),
             tooltip: 'New',
             // Before the create exists, proposedParties is null and there
             // is no role to offer a menu for yet (spec section 5).
@@ -152,59 +153,67 @@ class DashboardScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Text(
-            synced ? 'Synced' : 'Not synced',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: synced ? Colors.green : theme.colorScheme.error,
-            ),
-          ),
-          const SizedBox(height: 12),
-          for (final message in integrityMessages) ...[
-            Card(
-              color: theme.colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  message,
-                  style: TextStyle(color: theme.colorScheme.onErrorContainer),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.circle,
+                size: 6,
+                color: synced ? theme.colorScheme.primary : theme.colorScheme.error,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                synced ? 'Synced' : 'Not synced',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: synced ? theme.colorScheme.primary : theme.colorScheme.error,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
-            ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          for (final message in integrityMessages) ...[
+            LedgerWarningCard(message: message),
             const SizedBox(height: 12),
           ],
-          _Figure(label: 'Capital', value: formatPaisa(money.capital)),
-          _Figure(label: 'Cash balance', value: formatPaisa(money.cashBalance)),
-          _Figure(label: 'Result', value: formatPaisa(money.result)),
-          const Divider(height: 32),
-          Text('Shares of the result', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 8),
+          const LedgerSectionLabel('Position'),
+          LedgerFigureRow(label: 'Capital', value: formatPaisa(money.capital)),
+          LedgerFigureRow(
+            label: 'Cash balance',
+            value: formatPaisa(money.cashBalance),
+          ),
+          LedgerFigureRow(label: 'Result', value: formatPaisa(money.result)),
+          Divider(height: 32, color: theme.colorScheme.outline),
+          const LedgerSectionLabel('Shares of the result'),
           if (shares == null || ratio == null)
-            Text(_statusMessage(dashboard.partnershipStatus))
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _statusMessage(dashboard.partnershipStatus),
+                style: theme.textTheme.bodyMedium,
+              ),
+            )
           else ...[
-            _Figure(
+            LedgerFigureRow(
               label: 'Investor (${ratio.ratio.investor}%)',
               value: formatPaisa(shares.investor),
             ),
-            _Figure(
+            LedgerFigureRow(
               label: 'Manager (${ratio.ratio.manager}%)',
               value: formatPaisa(shares.manager),
             ),
           ],
-          const SizedBox(height: 16),
-          if (ratio != null) Text('Ratio: ${formatRatio(ratio)}'),
+          if (ratio != null) ...[
+            const SizedBox(height: 4),
+            Text('Ratio: ${formatRatio(ratio)}', style: theme.textTheme.bodySmall),
+          ],
           if (dashboard.ratioChanged) ...[
             const SizedBox(height: 16),
-            Card(
-              color: theme.colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
+            const LedgerWarningCard(
+              message:
                   'An effective ratio change exists. This split uses the latest '
                   'ratio for all the result, so it may not match the contract '
                   'until settlement is built.',
-                  style: TextStyle(color: theme.colorScheme.onErrorContainer),
-                ),
-              ),
             ),
           ],
           // Both sections below need a genuinely active partnership, not just
@@ -213,46 +222,32 @@ class DashboardScreen extends StatelessWidget {
           // manager approves. `ratio` already carries that approval check (it
           // comes from `activeRatio`, spec 6.6), so it is the right guard here too.
           if (ratio != null && parties != null) ...[
-            const Divider(height: 32),
-            Text('Profit withdrawn', style: theme.textTheme.titleMedium),
-            if (beforeFirstSettlement) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Not yet compared to settled profit.',
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
-            const SizedBox(height: 8),
-            _Figure(
+            Divider(height: 32, color: theme.colorScheme.outline),
+            const LedgerSectionLabel('Profit withdrawn'),
+            LedgerFigureRow(
               label: 'Investor',
               value: formatPaisa(withdrawn[parties.investor] ?? 0),
+              caption: beforeFirstSettlement
+                  ? 'Not yet compared to settled profit.'
+                  : null,
             ),
-            _Figure(
+            LedgerFigureRow(
               label: 'Manager',
               value: formatPaisa(withdrawn[parties.manager] ?? 0),
             ),
           ],
           if (ratio != null && openPeriod != null) ...[
-            const Divider(height: 32),
-            Row(
-              children: [
-                Text('Open period', style: theme.textTheme.titleMedium),
-                const SizedBox(width: 8),
-                Text(
-                  '(provisional)',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.error,
-                  ),
-                ),
-              ],
+            Divider(height: 32, color: theme.colorScheme.outline),
+            LedgerSectionLabel(
+              'Open period',
+              tag: const StatusTag(label: 'Provisional', tone: StatusTone.wait),
             ),
-            const SizedBox(height: 8),
-            _Figure(label: 'Result', value: formatPaisa(openPeriod.result)),
-            _Figure(
+            LedgerFigureRow(label: 'Result', value: formatPaisa(openPeriod.result)),
+            LedgerFigureRow(
               label: 'Investor share',
               value: formatPaisa(openPeriod.shares.investor),
             ),
-            _Figure(
+            LedgerFigureRow(
               label: 'Manager share',
               value: formatPaisa(openPeriod.shares.manager),
             ),
@@ -322,26 +317,5 @@ String _partnerLabel(String key, Parties? parties) {
       return 'the manager';
     default:
       return 'a partner';
-  }
-}
-
-class _Figure extends StatelessWidget {
-  const _Figure({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.w600)),
-        ],
-      ),
-    );
   }
 }
