@@ -153,60 +153,73 @@ class DashboardScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.circle,
-                size: 6,
-                color: synced ? theme.colorScheme.primary : theme.colorScheme.error,
-              ),
-              const SizedBox(width: 7),
-              Text(
-                synced ? 'Synced' : 'Not synced',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: synced ? theme.colorScheme.primary : theme.colorScheme.error,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
+          Align(
+            alignment: Alignment.centerLeft,
+            child: StatusTag(
+              label: synced ? 'Synced' : 'Not synced',
+              tone: synced ? StatusTone.good : StatusTone.wait,
+            ),
           ),
           const SizedBox(height: 16),
           for (final message in integrityMessages) ...[
             LedgerWarningCard(message: message),
             const SizedBox(height: 12),
           ],
-          const LedgerSectionLabel('Position'),
-          LedgerFigureRow(label: 'Capital', value: formatPaisa(money.capital)),
-          LedgerFigureRow(
-            label: 'Cash balance',
-            value: formatPaisa(money.cashBalance),
+          LedgerGroupCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const LedgerSectionLabel('Position'),
+                const SizedBox(height: 4),
+                LedgerFigureRow(
+                  label: 'Capital',
+                  value: formatPaisa(money.capital),
+                ),
+                LedgerFigureRow(
+                  label: 'Cash balance',
+                  value: formatPaisa(money.cashBalance),
+                ),
+                LedgerFigureRow(label: 'Result', value: formatPaisa(money.result)),
+              ],
+            ),
           ),
-          LedgerFigureRow(label: 'Result', value: formatPaisa(money.result)),
-          Divider(height: 32, color: theme.colorScheme.outline),
-          const LedgerSectionLabel('Shares of the result'),
-          if (shares == null || ratio == null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                _statusMessage(dashboard.partnershipStatus),
-                style: theme.textTheme.bodyMedium,
-              ),
-            )
-          else ...[
-            LedgerFigureRow(
-              label: 'Investor (${ratio.ratio.investor}%)',
-              value: formatPaisa(shares.investor),
+          const SizedBox(height: 16),
+          LedgerGroupCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const LedgerSectionLabel('Shares of the result'),
+                const SizedBox(height: 4),
+                if (shares == null || ratio == null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      _statusMessage(dashboard.partnershipStatus),
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                  )
+                else ...[
+                  RatioBar(investorPercent: ratio.ratio.investor),
+                  const SizedBox(height: 14),
+                  LedgerFigureRow(
+                    label: 'Investor (${ratio.ratio.investor}%)',
+                    value: formatPaisa(shares.investor),
+                  ),
+                  LedgerFigureRow(
+                    label: 'Manager (${ratio.ratio.manager}%)',
+                    value: formatPaisa(shares.manager),
+                  ),
+                ],
+                if (ratio != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Ratio: ${formatRatio(ratio)}',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
+              ],
             ),
-            LedgerFigureRow(
-              label: 'Manager (${ratio.ratio.manager}%)',
-              value: formatPaisa(shares.manager),
-            ),
-          ],
-          if (ratio != null) ...[
-            const SizedBox(height: 4),
-            Text('Ratio: ${formatRatio(ratio)}', style: theme.textTheme.bodySmall),
-          ],
+          ),
           if (dashboard.ratioChanged) ...[
             const SizedBox(height: 16),
             const LedgerWarningCard(
@@ -222,34 +235,56 @@ class DashboardScreen extends StatelessWidget {
           // manager approves. `ratio` already carries that approval check (it
           // comes from `activeRatio`, spec 6.6), so it is the right guard here too.
           if (ratio != null && parties != null) ...[
-            Divider(height: 32, color: theme.colorScheme.outline),
-            const LedgerSectionLabel('Profit withdrawn'),
-            LedgerFigureRow(
-              label: 'Investor',
-              value: formatPaisa(withdrawn[parties.investor] ?? 0),
-              caption: beforeFirstSettlement
-                  ? 'Not yet compared to settled profit.'
-                  : null,
-            ),
-            LedgerFigureRow(
-              label: 'Manager',
-              value: formatPaisa(withdrawn[parties.manager] ?? 0),
+            const SizedBox(height: 16),
+            LedgerGroupCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const LedgerSectionLabel('Profit withdrawn'),
+                  const SizedBox(height: 4),
+                  LedgerFigureRow(
+                    label: 'Investor',
+                    value: formatPaisa(withdrawn[parties.investor] ?? 0),
+                    caption: beforeFirstSettlement
+                        ? 'Not yet compared to settled profit.'
+                        : null,
+                  ),
+                  LedgerFigureRow(
+                    label: 'Manager',
+                    value: formatPaisa(withdrawn[parties.manager] ?? 0),
+                  ),
+                ],
+              ),
             ),
           ],
           if (ratio != null && openPeriod != null) ...[
-            Divider(height: 32, color: theme.colorScheme.outline),
-            LedgerSectionLabel(
-              'Open period',
-              tag: const StatusTag(label: 'Provisional', tone: StatusTone.wait),
-            ),
-            LedgerFigureRow(label: 'Result', value: formatPaisa(openPeriod.result)),
-            LedgerFigureRow(
-              label: 'Investor share',
-              value: formatPaisa(openPeriod.shares.investor),
-            ),
-            LedgerFigureRow(
-              label: 'Manager share',
-              value: formatPaisa(openPeriod.shares.manager),
+            const SizedBox(height: 16),
+            LedgerGroupCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LedgerSectionLabel(
+                    'Open period',
+                    tag: const StatusTag(
+                      label: 'Provisional',
+                      tone: StatusTone.wait,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  LedgerFigureRow(
+                    label: 'Result',
+                    value: formatPaisa(openPeriod.result),
+                  ),
+                  LedgerFigureRow(
+                    label: 'Investor share',
+                    value: formatPaisa(openPeriod.shares.investor),
+                  ),
+                  LedgerFigureRow(
+                    label: 'Manager share',
+                    value: formatPaisa(openPeriod.shares.manager),
+                  ),
+                ],
+              ),
             ),
           ],
         ],

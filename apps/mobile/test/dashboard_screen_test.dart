@@ -7,6 +7,7 @@ import 'package:mobile/dashboard/dashboard_screen.dart';
 import 'package:mobile/onboarding/partnership_setup.dart';
 import 'package:mobile/storage/record_store.dart';
 import 'package:mobile/storage/record_writer.dart';
+import 'package:mobile/theme/qirad_theme.dart';
 import 'package:path/path.dart' as p;
 import 'package:qirad_core/qirad_core.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -49,6 +50,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     await tester.pumpWidget(
       MaterialApp(
+        theme: qiradLightTheme(),
         home: DashboardScreen(
           store: store,
           partnership: id,
@@ -337,7 +339,7 @@ void main() {
 
     // No sync attempt yet this session.
     await pumpDashboard(tester, id!);
-    expect(find.text('Not synced'), findsOneWidget);
+    expect(find.text('NOT SYNCED'), findsOneWidget);
 
     // The attempt completed, and the relay already has everything this
     // phone has (the investor's own chain is just the create, seq 1).
@@ -347,7 +349,7 @@ void main() {
       lastSyncSucceeded: true,
       relayVector: {investor.publicKeyBase64Url: 1},
     );
-    expect(find.text('Synced'), findsOneWidget);
+    expect(find.text('SYNCED'), findsOneWidget);
 
     // The attempt completed, but the relay holds a higher seq for the
     // investor than this phone does: still behind, so still not synced.
@@ -357,6 +359,6 @@ void main() {
       lastSyncSucceeded: true,
       relayVector: {investor.publicKeyBase64Url: 2},
     );
-    expect(find.text('Not synced'), findsOneWidget);
+    expect(find.text('NOT SYNCED'), findsOneWidget);
   });
 }
