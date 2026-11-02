@@ -133,14 +133,14 @@ spacing system, applied to the same five screens and the same confirm/form scree
 to what any screen shows, what it allows, or when. Phase 8's measured numbers are unaffected —
 they measure sync size, verification time and recalculation time, none of which this phase touches.
 
-- [ ] Theme tokens (`apps/mobile/lib/theme/`): colors for both light and dark, type scale, bundled
+- [x] Theme tokens (`apps/mobile/lib/theme/`): colors for both light and dark, type scale, bundled
       Fraunces / IBM Plex Sans / IBM Plex Mono fonts as local assets (spec 7.2: no runtime fetch)
-- [ ] Dashboard restyled on the new theme
-- [ ] Inbox restyled on the new theme
-- [ ] New-record menu restyled on the new theme
-- [ ] Transactions restyled on the new theme
-- [ ] Onboarding restyled on the new theme
-- [ ] Confirm and form screens restyled on the new theme
+- [x] Dashboard restyled on the new theme
+- [x] Inbox restyled on the new theme
+- [x] New-record menu restyled on the new theme
+- [x] Transactions restyled on the new theme
+- [x] Onboarding restyled on the new theme
+- [x] Confirm and form screens restyled on the new theme
 
 **Done when:** every screen in Phase 7's list uses the new theme, `flutter analyze` and
 `flutter test` are clean, and no screen's logic, copy or allowed actions changed.

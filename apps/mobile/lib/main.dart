@@ -52,6 +52,7 @@ class ConfigErrorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      debugShowCheckedModeBanner: false,
       home: Scaffold(
         body: Center(
           child: Padding(
@@ -85,6 +86,7 @@ class _QiradAppState extends State<QiradApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'QiradSync',
+      debugShowCheckedModeBanner: false,
       theme: qiradLightTheme(),
       darkTheme: qiradDarkTheme(),
       home: _hasPartnership
