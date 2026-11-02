@@ -69,23 +69,41 @@ class NewMenuScreen extends StatelessWidget {
           for (final section in _sections.entries)
             if (section.value.any(allowed.contains)) ...[
               Padding(
-                padding: const EdgeInsets.only(top: 16, bottom: 4),
+                padding: const EdgeInsets.only(bottom: 8),
                 child: LedgerSectionLabel(section.key),
               ),
-              for (final action in section.value)
-                if (allowed.contains(action))
-                  ListTile(
-                    leading: Icon(_iconFor(action), color: theme.colorScheme.primary),
-                    title: Text(_titleFor(action), style: theme.textTheme.bodyMedium),
-                    trailing: Icon(
-                      Icons.chevron_right,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (context) => _formFor(action)),
-                    ),
-                  ),
-              Divider(height: 1, color: theme.colorScheme.outline),
+              LedgerGroupCard(
+                padding: EdgeInsets.zero,
+                child: Column(
+                  children: [
+                    for (final action in section.value)
+                      if (allowed.contains(action))
+                        ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                          ),
+                          leading: Icon(
+                            _iconFor(action),
+                            color: theme.colorScheme.primary,
+                          ),
+                          title: Text(
+                            _titleFor(action),
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                          trailing: Icon(
+                            Icons.chevron_right,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => _formFor(action),
+                            ),
+                          ),
+                        ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
             ],
         ],
       ),

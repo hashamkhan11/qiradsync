@@ -56,9 +56,9 @@ class TransactionsScreen extends StatelessWidget {
               child: Text('No records yet.', style: theme.textTheme.bodyMedium),
             )
           : ListView.separated(
+              padding: const EdgeInsets.all(16),
               itemCount: records.length,
-              separatorBuilder: (context, index) =>
-                  Divider(height: 1, color: theme.colorScheme.outline),
+              separatorBuilder: (context, index) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final record = records[index];
                 final status = statuses[record.id]!;
@@ -69,42 +69,54 @@ class TransactionsScreen extends StatelessWidget {
                 final verified =
                     status != RecordStatus.chainInvalid &&
                     status != RecordStatus.equivocating;
-                return ListTile(
-                  leading: verified
-                      ? const SealMark()
-                      : Icon(Icons.error_outline, color: theme.colorScheme.error),
-                  title: Text(
-                    _typeLabel(record.type),
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _roleLabel(record.author, parties),
-                          style: theme.textTheme.bodySmall,
-                        ),
-                        const SizedBox(width: 8),
-                        StatusTag(
-                          label: statusLabel(status),
-                          tone: _toneFor(status),
-                        ),
-                      ],
+                return LedgerGroupCard(
+                  padding: EdgeInsets.zero,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
                     ),
-                  ),
-                  trailing: Text(_amountLabel(record), style: qiradFigureStyle(context)),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => RecordDetailScreen(
-                        record: record,
-                        status: status,
-                        authorLabel: _roleLabel(record.author, parties),
-                        findRecord: (id) => byId[id],
-                        statusOf: (id) => statuses[id]!,
-                        authorLabelOf: (author) =>
-                            _roleLabel(author, parties),
+                    leading: verified
+                        ? const SealMark()
+                        : Icon(
+                            Icons.error_outline,
+                            color: theme.colorScheme.error,
+                          ),
+                    title: Text(
+                      _typeLabel(record.type),
+                      style: theme.textTheme.bodyMedium,
+                    ),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _roleLabel(record.author, parties),
+                            style: theme.textTheme.bodySmall,
+                          ),
+                          const SizedBox(width: 8),
+                          StatusTag(
+                            label: statusLabel(status),
+                            tone: _toneFor(status),
+                          ),
+                        ],
+                      ),
+                    ),
+                    trailing: Text(
+                      _amountLabel(record),
+                      style: qiradFigureStyle(context),
+                    ),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => RecordDetailScreen(
+                          record: record,
+                          status: status,
+                          authorLabel: _roleLabel(record.author, parties),
+                          findRecord: (id) => byId[id],
+                          statusOf: (id) => statuses[id]!,
+                          authorLabelOf: (author) => _roleLabel(author, parties),
+                        ),
                       ),
                     ),
                   ),
