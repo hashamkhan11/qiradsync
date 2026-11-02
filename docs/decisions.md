@@ -1295,3 +1295,44 @@ number it should not.
 
 **Tests:** none; no code changed. `docs/plan.md`'s remaining Phase 8 checklist items (design report,
 clean README) stay unchecked until the real-phone pass.
+
+---
+
+## 2026-11-02 — The writer, and the create forms, refuse a non-positive amount or an out-of-range ratio share before signing
+
+**Finding:** `proposalRefusal` checked a proposal's role, budget, capital, reversal target and
+settlement cut, but never that `invest`, `sale`, `budget_proposal`, `expense` or `withdraw_request`'s
+`amount` was a positive integer. Separately, `RatioForm`'s `canSave` parsed the investor's share as
+any integer with no bound, instead of the validator's existing 1-to-99 rule. Both gaps had the same
+shape: the schema step (spec §6.1) already rejects a non-positive amount or an out-of-range share on
+receipt (spec section 5), so a phone that wrote one anyway produced a record that was never a no-op
+locally, but was thrown away by every other device the moment it arrived — a dead record the writer
+could have refused instead of ever signing. Found while testing the create forms' Save button by
+hand: entering `0` left Save enabled on five forms, and `0` or `100` left it enabled on the ratio
+form.
+
+**Decision:** `qirad_core` gained `isPositiveAmount` (`amounts.dart`), the one rule for "is this
+amount usable," used by the existing `positiveAmount(Record)` and by a new `proposalRefusal` check
+(`ProposalRefusal.nonPositiveAmount`) that runs once, before the type switch, for every type whose
+body carries `amount`. The validator's existing private ratio-share rule was made public as
+`isValidShare` so `RatioForm` could reuse it instead of re-deriving its own bound. `RecordWriter`
+gained a matching `WriteRefusal.nonPositiveAmount`, and the five amount-taking create forms
+(`invest`, `sale`, `budget`, `expense`, `withdrawal`) and `RatioForm` now gate `canSave` through
+`isPositiveAmount`/`isValidShare` directly, so Save is disabled before the writer is ever called.
+Spec §7.4 gained a seventh writer rule stating this.
+
+**Reason:** The same principle as the 2026-10-11 budget decision above: the app never writes a
+record it already knows is invalid, and a phone can always tell, before signing, whether its own
+amount or share is in range. Checking this once in `qirad_core` (reused by the writer and by each
+form) keeps the rule in one place rather than three places able to drift apart; a schema-level
+reason to reject a record should never have been first discovered by the *other* partner's phone.
+
+**Tests:** `packages/qirad_core/test/amounts_test.dart` (`isPositiveAmount`, `positiveAmount`);
+`packages/qirad_core/test/is_valid_share_test.dart` (`isValidShare`); new `nonPositiveAmount` cases
+in `packages/qirad_core/test/proposal_refusal_test.dart`, one per amount-taking type; a new general
+case in `packages/qirad_core/test/proposal_allowed_round_trip_test.dart` — for every proposable type,
+a proposal `proposalRefusal` allows produces a record `Validator.receiveText` accepts — so the next
+instance of this bug class, for any type, fails a test instead of only being caught by hand. On the
+mobile side, a "leaves Save disabled" widget test was added to `invest_form_test.dart`,
+`sale_form_test.dart`, `budget_form_test.dart`, `expense_form_test.dart`, `withdrawal_form_test.dart`
+and `ratio_form_test.dart`.

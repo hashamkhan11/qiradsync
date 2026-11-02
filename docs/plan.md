@@ -127,6 +127,9 @@ Everything measured below is measured against that commit.
 ## Before the first release
 
 - [ ] Database schema migration path: versioned upgrades for the phone's SQLite file (the schema is version 1, with no upgrade step yet)
+- [ ] On a real phone, check Save on every `CreateScaffold` form (invest, sale, budget, expense,
+      withdrawal, ratio): it stays disabled for an empty or invalid amount or share, and enables only
+      once the value is one the validator would actually accept (decisions.md 2026-11-02)
 
 ## Future work
 

@@ -606,6 +606,14 @@ A phone writes its own records (an answer, a proposal, a sale) only through one 
    — it can still only take effect if both partners' own writers let it through, which this rule
    prevents for any app built after this decision. Detecting and excluding one that still gets
    through is future work (decision 2026-10-16).
+7. **No amount or share the validator would reject anyway.** Section 5's rules that an `amount` must
+   be a positive integer, and that each `ratio` share must be 1 to 99, are schema rules every device
+   checks on receipt (section 6.1) — a record that breaks either one is rejected everywhere but the
+   writer's own phone. Rather than let that happen, the writer checks the same rule itself before
+   signing: `invest`, `sale`, `budget_proposal`, `expense` and `withdraw_request` are refused when
+   `amount` is not a positive integer, and `ratio_proposal` is refused when either share is outside
+   1 to 99. The create and create-proposal screens apply the same checks to disable Save before the
+   writer is even called (decision 2026-11-02).
 
 ---
 
