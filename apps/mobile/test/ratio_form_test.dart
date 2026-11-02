@@ -61,6 +61,26 @@ void main() {
       });
     });
 
+    testWidgets(
+      'a 0% or 100% investor share leaves Save disabled',
+      (tester) async {
+        await tester.runAsync(() async {
+          await pump(tester, asManager: false);
+          await pickTodayAsEffectiveDate(tester);
+
+          for (final share in ['0', '100']) {
+            await tester.enterText(find.byType(TextField), share);
+            await tester.pump();
+
+            final save = tester.widget<FilledButton>(
+              find.widgetWithText(FilledButton, 'Save'),
+            );
+            expect(save.onPressed, isNull, reason: 'share $share');
+          }
+        });
+      },
+    );
+
     testWidgets('the manager can propose one too', (tester) async {
       await tester.runAsync(() async {
         await pump(tester, asManager: true);
