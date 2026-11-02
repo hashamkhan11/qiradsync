@@ -12,6 +12,14 @@ enum WriteRefusal {
   /// chain is complete.
   notSynced,
 
+  /// An `invest`, `sale`, `budget_proposal`, `expense` or capital/profit
+  /// `withdraw_request`'s amount is not a positive integer (hard rule 1,
+  /// `qirad_core`'s `isPositiveAmount`). The validator rejects such a record
+  /// on receipt (spec section 5), so the writer refuses it here instead of
+  /// ever signing it — a zero or negative amount would be a no-op on every
+  /// device but this one.
+  nonPositiveAmount,
+
   /// The relay holds a higher seq for this key than the phone does. The phone
   /// is missing its own records, so it syncs first.
   chainBehindRelay,
@@ -161,6 +169,7 @@ WriteRefusal _fromConsent(AnswerConsentRefusal reason) => switch (reason) {
 /// [_fromEligibility]).
 WriteRefusal _fromProposal(ProposalRefusal reason) => switch (reason) {
   ProposalRefusal.wrongRole => WriteRefusal.wrongRole,
+  ProposalRefusal.nonPositiveAmount => WriteRefusal.nonPositiveAmount,
   ProposalRefusal.noEffectiveBudget => WriteRefusal.noEffectiveBudget,
   ProposalRefusal.overBudget => WriteRefusal.overBudget,
   ProposalRefusal.overCapital => WriteRefusal.overCapital,
@@ -377,12 +386,18 @@ class RecordWriter {
   }
 
   /// Proposes `invest`: adds capital (spec section 5). Investor only.
-  Future<WriteResult> proposeInvest({required int amount}) =>
-      _propose(type: 'invest', bodyOf: (_, _, _) => {'amount': amount});
+  Future<WriteResult> proposeInvest({required int amount}) => _propose(
+    type: 'invest',
+    amount: amount,
+    bodyOf: (_, _, _) => {'amount': amount},
+  );
 
   /// Proposes `sale`: adds income (spec section 5). Manager only.
-  Future<WriteResult> proposeSale({required int amount}) =>
-      _propose(type: 'sale', bodyOf: (_, _, _) => {'amount': amount});
+  Future<WriteResult> proposeSale({required int amount}) => _propose(
+    type: 'sale',
+    amount: amount,
+    bodyOf: (_, _, _) => {'amount': amount},
+  );
 
   /// Proposes `expense`: removes money, drawn from [budgetId] (spec section
   /// 5, 6.4). Manager only, and only from a budget this key is the grantee
@@ -433,6 +448,7 @@ class RecordWriter {
     required String grantee,
   }) => _propose(
     type: 'budget_proposal',
+    amount: amount,
     bodyOf: (_, _, _) => {'grantee': grantee, 'amount': amount},
   );
 

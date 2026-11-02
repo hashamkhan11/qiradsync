@@ -21,6 +21,160 @@ void main() {
       expect(result, isNull);
     });
 
+    test('invest with a zero amount is refused (nonPositiveAmount)', () async {
+      final (validator, investor, manager, _) = await setUpPartnership();
+      final parties = Parties(investor: investor.key, manager: manager.key);
+
+      final result = proposalRefusal(
+        type: 'invest',
+        author: investor.key,
+        parties: parties,
+        ledger: validator.usableRecords.toList(),
+        validator: validator,
+        amount: 0,
+      );
+
+      expect(result?.reason, ProposalRefusal.nonPositiveAmount);
+    });
+
+    test(
+      'invest with a negative amount is refused (nonPositiveAmount)',
+      () async {
+        final (validator, investor, manager, _) = await setUpPartnership();
+        final parties = Parties(investor: investor.key, manager: manager.key);
+
+        final result = proposalRefusal(
+          type: 'invest',
+          author: investor.key,
+          parties: parties,
+          ledger: validator.usableRecords.toList(),
+          validator: validator,
+          amount: -1,
+        );
+
+        expect(result?.reason, ProposalRefusal.nonPositiveAmount);
+      },
+    );
+
+    test('sale with a zero amount is refused (nonPositiveAmount)', () async {
+      final (validator, investor, manager, _) = await setUpPartnership();
+      final parties = Parties(investor: investor.key, manager: manager.key);
+
+      final result = proposalRefusal(
+        type: 'sale',
+        author: manager.key,
+        parties: parties,
+        ledger: validator.usableRecords.toList(),
+        validator: validator,
+        amount: 0,
+      );
+
+      expect(result?.reason, ProposalRefusal.nonPositiveAmount);
+    });
+
+    test(
+      'a budget_proposal with a zero amount is refused (nonPositiveAmount)',
+      () async {
+        final (validator, investor, manager, _) = await setUpPartnership();
+        final parties = Parties(investor: investor.key, manager: manager.key);
+
+        final result = proposalRefusal(
+          type: 'budget_proposal',
+          author: investor.key,
+          parties: parties,
+          ledger: validator.usableRecords.toList(),
+          validator: validator,
+          amount: 0,
+        );
+
+        expect(result?.reason, ProposalRefusal.nonPositiveAmount);
+      },
+    );
+
+    test(
+      'an expense with a zero amount is refused (nonPositiveAmount), even '
+      'with an effective budget',
+      () async {
+        final (validator, investor, manager, partnership) =
+            await setUpPartnership();
+        final parties = Parties(investor: investor.key, manager: manager.key);
+
+        final budget = await investor.next(
+          partnership: partnership,
+          type: 'budget_proposal',
+          body: {'grantee': manager.key, 'amount': 5000},
+        );
+        final approve = await manager.next(
+          partnership: partnership,
+          type: 'approve',
+          refersTo: budget.id,
+        );
+        await validator.receiveText(canonicalJson(budget.toJson()));
+        await validator.receiveText(canonicalJson(approve.toJson()));
+
+        final result = proposalRefusal(
+          type: 'expense',
+          author: manager.key,
+          parties: parties,
+          ledger: validator.usableRecords.toList(),
+          validator: validator,
+          budgetId: budget.id,
+          amount: 0,
+        );
+
+        expect(result?.reason, ProposalRefusal.nonPositiveAmount);
+      },
+    );
+
+    test(
+      'a capital withdrawal with a zero amount is refused '
+      '(nonPositiveAmount)',
+      () async {
+        final (validator, investor, manager, partnership) =
+            await setUpPartnership();
+        final parties = Parties(investor: investor.key, manager: manager.key);
+        final invest = await investor.next(
+          partnership: partnership,
+          type: 'invest',
+          body: {'amount': 1000},
+        );
+        await validator.receiveText(canonicalJson(invest.toJson()));
+
+        final result = proposalRefusal(
+          type: 'withdraw_request',
+          author: investor.key,
+          parties: parties,
+          ledger: validator.usableRecords.toList(),
+          validator: validator,
+          kind: 'capital',
+          amount: 0,
+        );
+
+        expect(result?.reason, ProposalRefusal.nonPositiveAmount);
+      },
+    );
+
+    test(
+      'a profit withdrawal with a zero amount is refused '
+      '(nonPositiveAmount)',
+      () async {
+        final (validator, investor, manager, _) = await setUpPartnership();
+        final parties = Parties(investor: investor.key, manager: manager.key);
+
+        final result = proposalRefusal(
+          type: 'withdraw_request',
+          author: manager.key,
+          parties: parties,
+          ledger: validator.usableRecords.toList(),
+          validator: validator,
+          kind: 'profit',
+          amount: 0,
+        );
+
+        expect(result?.reason, ProposalRefusal.nonPositiveAmount);
+      },
+    );
+
     test('sale by the investor is refused (wrongRole)', () async {
       final (validator, investor, manager, _) = await setUpPartnership();
       final parties = Parties(investor: investor.key, manager: manager.key);

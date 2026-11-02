@@ -53,6 +53,19 @@ void main() {
       },
     );
 
+    testWidgets('an amount of zero leaves Save disabled', (tester) async {
+      await tester.runAsync(() async {
+        await pump(tester, asManager: false, kind: 'capital');
+        await tester.enterText(find.byType(TextField), '0');
+        await tester.pump();
+
+        final save = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Save'),
+        );
+        expect(save.onPressed, isNull);
+      });
+    });
+
     testWidgets('the investor saves a capital withdrawal request', (
       tester,
     ) async {

@@ -57,7 +57,7 @@ class _BudgetFormState extends State<BudgetForm> {
 
     return CreateScaffold(
       title: 'Propose a budget',
-      canSave: paisa != null,
+      canSave: paisa != null && isPositiveAmount(paisa),
       onSyncNow: widget.onSyncNow,
       propose: () =>
           widget.writer.proposeBudget(amount: paisa!, grantee: grantee),

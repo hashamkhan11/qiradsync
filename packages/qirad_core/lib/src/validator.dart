@@ -277,11 +277,16 @@ const _bodyFields = <String, Set<String>>{
 bool _isValidRatio(Object? ratio) {
   return ratio is Map &&
       ratio.length == 2 &&
-      _isShare(ratio['investor']) &&
-      _isShare(ratio['manager']);
+      isValidShare(ratio['investor']) &&
+      isValidShare(ratio['manager']);
 }
 
-bool _isShare(Object? value) => value is int && value >= 1 && value <= 99;
+/// True for a valid profit-share percentage (spec section 5): a whole
+/// number from 1 to 99. A 0 or 100 share would mean one partner shares in
+/// no profit, which is not a Mudaraba. Public so the ratio-proposal form
+/// can refuse the same values this validator would reject on receipt,
+/// instead of re-deriving its own bound.
+bool isValidShare(Object? value) => value is int && value >= 1 && value <= 99;
 
 /// A `partnership_create` must name two different party keys, each the
 /// canonical spelling of a real public key (spec section 2), a ratio whose

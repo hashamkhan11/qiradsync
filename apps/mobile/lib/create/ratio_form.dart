@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:qirad_core/qirad_core.dart';
 
 import '../storage/record_store.dart';
 import '../storage/record_writer.dart';
@@ -42,9 +43,14 @@ class _RatioFormState extends State<RatioForm> {
     super.dispose();
   }
 
+  // `isValidShare` (qirad_core) is the same 1-to-99 bound the validator
+  // enforces on receipt (spec section 5) — a 0% or 100% share would mean
+  // one partner shares in no profit, which is not a Mudaraba. Checking the
+  // investor's share here is enough: `manager` is always `100 - investor`,
+  // so it is also in [1, 99] whenever `investor` is.
   int? get _investor {
     final value = int.tryParse(_investorPercent.text.trim());
-    if (value == null || value < 0 || value > 100) return null;
+    if (value == null || !isValidShare(value)) return null;
     return value;
   }
 

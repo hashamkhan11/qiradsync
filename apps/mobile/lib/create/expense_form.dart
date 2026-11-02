@@ -78,7 +78,7 @@ class _ExpenseFormState extends State<ExpenseForm> {
 
     return CreateScaffold(
       title: 'Record an expense',
-      canSave: paisa != null && budgetId != null,
+      canSave: paisa != null && isPositiveAmount(paisa) && budgetId != null,
       onSyncNow: widget.onSyncNow,
       propose: () =>
           widget.writer.proposeExpense(amount: paisa!, budgetId: budgetId!),

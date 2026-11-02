@@ -88,6 +88,41 @@ void main() {
       });
     });
 
+    testWidgets('an amount of zero leaves Save disabled', (tester) async {
+      await tester.runAsync(() async {
+        final budget = await fixture.write(
+          fixture.investor,
+          fixture.investorChain,
+          id: 'budget-1',
+          type: 'budget_proposal',
+          body: {
+            'grantee': fixture.manager.publicKeyBase64Url,
+            'amount': 500000,
+          },
+        );
+        await fixture.receive(budget);
+        await fixture.receive(
+          await fixture.write(
+            fixture.manager,
+            fixture.managerChain,
+            id: 'approve-budget-1',
+            type: 'approve',
+            refersTo: budget.id,
+          ),
+        );
+
+        await pump(tester, asManager: true);
+        await tester.pump();
+        await tester.enterText(find.byType(TextField).last, '0');
+        await tester.pump();
+
+        final save = tester.widget<FilledButton>(
+          find.widgetWithText(FilledButton, 'Save'),
+        );
+        expect(save.onPressed, isNull);
+      });
+    });
+
     testWidgets('a valid amount previews and saves an expense record', (
       tester,
     ) async {

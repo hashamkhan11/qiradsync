@@ -47,7 +47,7 @@ class _InvestFormState extends State<InvestForm> {
     final paisa = parseRupeesToPaisa(_amount.text);
     return CreateScaffold(
       title: 'Invest capital',
-      canSave: paisa != null,
+      canSave: paisa != null && isPositiveAmount(paisa),
       onSyncNow: widget.onSyncNow,
       propose: () => widget.writer.proposeInvest(amount: paisa!),
       body: Column(
