@@ -47,7 +47,7 @@ class _SaleFormState extends State<SaleForm> {
     final paisa = parseRupeesToPaisa(_amount.text);
     return CreateScaffold(
       title: 'Record a sale',
-      canSave: paisa != null,
+      canSave: paisa != null && isPositiveAmount(paisa),
       onSyncNow: widget.onSyncNow,
       propose: () => widget.writer.proposeSale(amount: paisa!),
       body: Column(

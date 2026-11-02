@@ -51,7 +51,7 @@ class _WithdrawalFormState extends State<WithdrawalForm> {
     final paisa = parseRupeesToPaisa(_amount.text);
     return CreateScaffold(
       title: widget.kind == 'capital' ? 'Withdraw capital' : 'Withdraw profit',
-      canSave: paisa != null,
+      canSave: paisa != null && isPositiveAmount(paisa),
       onSyncNow: widget.onSyncNow,
       propose: () =>
           widget.writer.proposeWithdrawal(amount: paisa!, kind: widget.kind),

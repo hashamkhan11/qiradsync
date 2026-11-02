@@ -1,3 +1,4 @@
+import 'amounts.dart';
 import 'authorization.dart';
 import 'budget_view.dart';
 import 'effective.dart';
@@ -6,6 +7,18 @@ import 'periods.dart';
 import 'record.dart';
 import 'settlement.dart';
 import 'validator.dart';
+
+/// Every type whose body carries `amount`, and so is schema-rejected by
+/// [Validator] on receipt (`validator.dart`) when it is not a positive
+/// integer. Checked once, before the switch below, so none of these five
+/// cases has to repeat the check.
+const _amountTypes = {
+  'invest',
+  'sale',
+  'budget_proposal',
+  'expense',
+  'withdraw_request',
+};
 
 /// Why a proposal would be refused before it is even built (spec sections 5,
 /// 6.4, 6.7).
@@ -17,6 +30,13 @@ enum ProposalRefusal {
   /// [proposalRefusal]'s `author` is not the role spec section 5 allows for
   /// its `type` (and a capital `withdraw_request` is investor-only).
   wrongRole,
+
+  /// An `invest`, `sale`, `budget_proposal`, `expense` or `withdraw_request`
+  /// was proposed with an `amount` that is not a positive integer. Every one
+  /// of these types is schema-rejected by [Validator] on receipt when its
+  /// amount is not positive (hard rule 1), so writing one here would only
+  /// ever produce a record every other device throws away.
+  nonPositiveAmount,
 
   /// An `expense`'s budget is not one that is both approved and granted to
   /// the author (spec section 5, 6.4).
@@ -65,13 +85,18 @@ class ProposalRefusalResult {
 /// the partnership is already active; it does not check that itself.
 ///
 /// Extra parameters, by [type]:
+/// - `invest`, `sale`, `budget_proposal`: pass [amount], checked only for
+///   being positive.
 /// - `withdraw_request`: pass [kind] (`"capital"` or `"profit"`) and
-///   [amount] (checked against current capital only when [kind] is
-///   `"capital"`; a profit withdrawal is not amount-checked here).
-/// - `expense`: pass [budgetId] (the chosen budget's id) and [amount].
+///   [amount] (checked for being positive, then against current capital,
+///   but only when [kind] is `"capital"`; a profit withdrawal is not
+///   checked against capital here).
+/// - `expense`: pass [budgetId] (the chosen budget's id) and [amount]
+///   (checked for being positive, then against the budget's remaining
+///   amount).
 /// - `reversal`: pass [reversalTarget] (the id of the record to reverse).
-/// - every other type (`invest`, `sale`, `budget_proposal`, `ratio_proposal`,
-///   `settlement`): no extra parameter is read.
+/// - every other type (`ratio_proposal`, `settlement`): no extra parameter
+///   is read.
 ProposalRefusalResult? proposalRefusal({
   required String type,
   required String author,
@@ -85,6 +110,9 @@ ProposalRefusalResult? proposalRefusal({
 }) {
   if (!canAuthor(type, author, parties, kind: kind)) {
     return const ProposalRefusalResult(ProposalRefusal.wrongRole);
+  }
+  if (_amountTypes.contains(type) && !isPositiveAmount(amount)) {
+    return const ProposalRefusalResult(ProposalRefusal.nonPositiveAmount);
   }
 
   final keys = validator.partnershipKeys ?? const <String>{};

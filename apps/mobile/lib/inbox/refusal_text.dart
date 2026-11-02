@@ -25,6 +25,8 @@ String refusalText(WriteRefusal refusal) {
       return 'The numbers changed. Check them again before answering.';
     case WriteRefusal.wrongRole:
       return 'Your role cannot propose this.';
+    case WriteRefusal.nonPositiveAmount:
+      return 'Enter an amount more than zero.';
     case WriteRefusal.noEffectiveBudget:
       return 'Choose a budget that is approved and granted to you.';
     case WriteRefusal.notReversible:
