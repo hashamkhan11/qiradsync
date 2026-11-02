@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile/join/join_code.dart';
 import 'package:mobile/onboarding/onboarding_screen.dart';
 import 'package:mobile/storage/record_store.dart';
+import 'package:mobile/theme/qirad_theme.dart';
 import 'package:pretty_qr_code/pretty_qr_code.dart';
 import 'package:path/path.dart' as p;
 import 'package:qirad_core/qirad_core.dart';
@@ -36,6 +37,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 2400));
     await tester.pumpWidget(
       MaterialApp(
+        theme: qiradLightTheme(),
         home: OnboardingScreen(store: store, keys: keys, onReady: (_) {}),
       ),
     );

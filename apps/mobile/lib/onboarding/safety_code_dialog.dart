@@ -33,7 +33,7 @@ Future<bool> confirmSafetyCode(
               code,
               key: const Key('safety-code'),
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontFamily: 'monospace',
+                fontFamily: 'JetBrains Mono',
                 letterSpacing: 1,
               ),
             ),
